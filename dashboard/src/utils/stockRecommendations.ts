@@ -611,6 +611,20 @@ export function buildStockStrategyPlan(input: StockBuyRecommendationInput, limit
   };
 }
 
+/** Select against the simulator's real cash and holdings, without injecting future cash. */
+export function nextScheduledStockStrategyStep(
+  input: StockBuyRecommendationInput,
+  previousSteps: StockStrategyStep[],
+  limit = DEFAULT_STOCK_STRATEGY_STEP_LIMIT,
+): StockStrategyStep | null {
+  const stepInput = { ...input, affordableOnly: false, budget: null, fhgTciHybridActive: false,
+    fhgTciHybridBaselineShares: undefined, fhgTciHybridReservedShares: undefined };
+  const snapshot = input.ownedSnapshot ?? { refreshed_at: 0, stocks: [] };
+  const recommendations = recommendStockBuys(stepInput, Number.MAX_SAFE_INTEGER);
+  const step = nextStrategyStep(stepInput, recommendations, snapshot, input.budget ?? 0, previousSteps, limit, null);
+  return step && strategyStepIsWorthAdding(step, previousSteps) ? step : null;
+}
+
 function nextStrategyStep(
   input: StockBuyRecommendationInput,
   recommendations: StockBuyRecommendation[],
@@ -1474,6 +1488,7 @@ function stockIncrementCommittedCost(row: StockInvestmentStockRow, ownedShares: 
 
 function cloneOwnedSnapshot(snapshot: OwnedStockSnapshot | null): OwnedStockSnapshot {
   return {
+    ...snapshot,
     refreshed_at: snapshot?.refreshed_at ?? 0,
     stocks: (snapshot?.stocks ?? []).map((stock) => ({
       stock_id: stock.stock_id,
@@ -1523,6 +1538,7 @@ function applyStrategyStepToSnapshot(
   }
 
   return {
+    ...snapshot,
     refreshed_at: snapshot.refreshed_at,
     stocks,
   };

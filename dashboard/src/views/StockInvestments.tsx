@@ -17,9 +17,10 @@ import {
 import { useAuth } from "../auth/AuthProvider";
 import { CollapsiblePanel, EmptyState, PanelHeader } from "../components/Common";
 import { formatDate, formatNumber, formatRelativeTime } from "../utils/format";
-import { annualIncomeToWeekly, buildStockStrategyTimeline, stockStrategyIncomeSource, type StockStrategyIncomeSource, type StockStrategyTiming } from "../utils/stockStrategyTimeline";
+import { buildStockStrategyTimeline, type StockStrategyTiming } from "../utils/stockStrategyTimeline";
 import {
   ownedSharesMap,
+  ownedSnapshotWithShares,
   ownedStockBenefitProgress,
   ownsStockIncrement,
   type OwnedStockPosition,
@@ -33,7 +34,6 @@ import {
   adjustCityBankRowForMerits,
   buildFhgTciHybridRow,
   buildStockRebalanceRecommendations,
-  buildStockStrategyPlan,
   DEFAULT_STOCK_STRATEGY_STEP_LIMIT,
   fhgTciHybridBackingReservedShares,
   fhgTciHybridBaselineSharesForRow,
@@ -97,7 +97,6 @@ type OwnedInvestmentSummary = {
   annualReturn: number;
   dailyIncome: number;
   aprPercent: number | null;
-  incomeSources: StockStrategyIncomeSource[];
 };
 
 export function StockInvestments() {
@@ -507,16 +506,6 @@ export function StockInvestments() {
     minimumRoi: null,
     lockedStockIds,
   }, 5), [investmentRows, effectiveOwnedSnapshot, cityBankActive, effectiveFhgTciHybridActive, budget, lockedStockIds]);
-  const strategyPlan = React.useMemo(() => buildStockStrategyPlan({
-    rows: investmentRows,
-    ownedSnapshot: effectiveOwnedSnapshot,
-    cityBankActive,
-    fhgTciHybridActive: effectiveFhgTciHybridActive,
-    budget,
-    affordableOnly: false,
-    minimumRoi: null,
-    lockedStockIds,
-  }, DEFAULT_STOCK_STRATEGY_STEP_LIMIT), [investmentRows, effectiveOwnedSnapshot, cityBankActive, effectiveFhgTciHybridActive, budget, lockedStockIds]);
   const ownedInvestmentSummary = React.useMemo(() => buildOwnedInvestmentSummary({
     rows: investmentRows,
     ownedShares,
@@ -528,16 +517,30 @@ export function StockInvestments() {
     privateIslandRow: effectivePrivateIslandRow,
     privateIslandCount: activePrivateIslandRentalCount,
   }), [investmentRows, ownedShares, hasOwnershipState, cityBankActive, effectiveFhgTciHybridActive, fhgTciHybridBaselineShares, fhgTciHybridReservedShares, effectivePrivateIslandRow, activePrivateIslandRentalCount]);
-  const calculatedWeeklyInvestmentIncome = annualIncomeToWeekly(ownedInvestmentSummary.annualReturn);
-  const weeklyInvestmentIncome = nonNegativeMoneyInputValue(strategyCashInputs.investmentIncomePerWeek) ?? calculatedWeeklyInvestmentIncome;
   const weeklyAdditionalIncome = nonNegativeMoneyInputValue(strategyCashInputs.additionalIncomePerWeek) ?? 0;
-  const invalidStrategyCashInputs = Object.values(strategyCashInputs).some((value) => value.trim() !== "" && nonNegativeMoneyInputValue(value) === null);
-  const strategyTimeline = React.useMemo(() => buildStockStrategyTimeline(strategyPlan, {
-    investmentIncomePerWeek: weeklyInvestmentIncome,
+  const invalidStrategyCashInputs = [strategyCashInputs.cashAvailable, strategyCashInputs.additionalIncomePerWeek]
+    .some((value) => value.trim() !== "" && nonNegativeMoneyInputValue(value) === null);
+  const [forecastDay, setForecastDay] = React.useState(() => Math.floor(Date.now() / 86_400_000));
+  React.useEffect(() => {
+    const timer = window.setInterval(() => setForecastDay(Math.floor(Date.now() / 86_400_000)), 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
+  const strategyForecast = React.useMemo(() => buildStockStrategyTimeline({
+    rows: investmentRows,
+    ownedSnapshot: effectiveOwnedSnapshot,
+    cityBankActive,
+    fhgTciHybridActive: effectiveFhgTciHybridActive,
+    budget,
+    affordableOnly: false,
+    minimumRoi: null,
+    lockedStockIds,
+    asOf: Math.floor(Date.now() / 1000),
     additionalIncomePerWeek: weeklyAdditionalIncome,
-    investmentSources: ownedInvestmentSummary.incomeSources,
-    investmentIncomeOverridden: strategyCashInputs.investmentIncomePerWeek.trim() !== "",
-  }), [strategyPlan, weeklyInvestmentIncome, weeklyAdditionalIncome, ownedInvestmentSummary.incomeSources, strategyCashInputs.investmentIncomePerWeek]);
+    privateIslandCount: activePrivateIslandRentalCount,
+  }, DEFAULT_STOCK_STRATEGY_STEP_LIMIT), [investmentRows, effectiveOwnedSnapshot, cityBankActive, effectiveFhgTciHybridActive,
+    budget, lockedStockIds, weeklyAdditionalIncome, activePrivateIslandRentalCount, forecastDay]);
+  const strategyTimeline = strategyForecast.timeline;
+  const weeklyInvestmentIncome = strategyForecast.weekly_investment_income;
   const totalPricedRows = investmentRows.length;
   const missingValueCount = roiData?.skipped.unpriced ?? 0;
   const stockPricesRefreshedAt = roiData?.refreshed_at ?? null;
@@ -624,7 +627,7 @@ export function StockInvestments() {
               <small>Cash now</small>
             </span>
             <span>
-              <strong>{invalidStrategyCashInputs ? "-" : formatMoney(weeklyInvestmentIncome + weeklyAdditionalIncome)}</strong>
+              <strong>{invalidStrategyCashInputs || weeklyInvestmentIncome === null ? "-" : formatMoney(weeklyInvestmentIncome + weeklyAdditionalIncome)}</strong>
               <small>Income / week</small>
             </span>
             <span>
@@ -734,6 +737,7 @@ export function StockInvestments() {
                 <>
                   <p>
                     Imported investment: {formatMoney(ownedSnapshot.city_bank.amount)} principal · {formatMoney(ownedSnapshot.city_bank.profit)} profit · {ownedSnapshot.city_bank.duration}-day term.
+                    {" "}Scheduled forecasts include this deposit automatically.
                   </p>
                   <p>
                     {ownedSnapshot.city_bank.until <= ownedSnapshot.refreshed_at
@@ -874,10 +878,8 @@ export function StockInvestments() {
               <label>
                 <span>Investment income / week</span>
                 <input
-                  inputMode="decimal"
-                  value={strategyCashInputs.investmentIncomePerWeek}
-                  onChange={(event) => updateStrategyCashInput("investmentIncomePerWeek", event.target.value)}
-                  placeholder={formatMoney(calculatedWeeklyInvestmentIncome)}
+                  readOnly
+                  value={weeklyInvestmentIncome === null ? "Refresh required" : formatMoney(weeklyInvestmentIncome)}
                   aria-describedby="stock-strategy-income-help"
                 />
               </label>
@@ -907,12 +909,15 @@ export function StockInvestments() {
             </button>
           </div>
           <p id="stock-strategy-income-help" className="stock-owned-settings-description">
-            Leave investment income blank to use {formatMoney(calculatedWeeklyInvestmentIncome)} per week from your owned investments, including active bank and rentals.
-            {" "}Additional income is money left after expenses, excluding investment income.
+            Investment income is a weekly reference calculated from your holdings; purchases use scheduled payouts.
+            {" "}Additional income is money left after expenses, excluding investment income, and accrues evenly.
+            {" "}Cash available now excludes uncollected stock rewards and bank interest, which the forecast credits when due.
           </p>
           <p className="stock-owned-settings-description">
-            All investment income is reinvested. Estimates average payouts across each week, including bank interest, and assume current prices and returns stay the same.
+            All rewards are collected instantly, sold at configured values and reinvested. Prices stay fixed. Bank principal is reserved and renewed for the same term;
+            future interest uses estimated rates and eligible TCI benefits at renewal. Private Island rent is averaged. The FHG/TCI hybrid is excluded.
           </p>
+          {strategyCashInputs.investmentIncomePerWeek.trim() !== "" ? <p className="stock-owned-settings-description">Your saved weekly investment income override is preserved but is not applied to scheduled forecasts.</p> : null}
           {invalidStrategyCashInputs ? <p role="alert" className="error-panel">Enter zero or a positive amount for each cash flow input.</p> : null}
         </div>
       </section>
@@ -934,7 +939,7 @@ export function StockInvestments() {
                   <span>Show funding breakdowns</span>
                 </label>
               ) : null}
-              <span>{rebalanceRecommendations.length + strategyPlan.steps.length > 0 ? `${formatNumber(rebalanceRecommendations.length + strategyPlan.steps.length)} ideas` : "No ideas"}</span>
+              <span>{rebalanceRecommendations.length + strategyTimeline.length > 0 ? `${formatNumber(rebalanceRecommendations.length + strategyTimeline.length)} ideas` : "No ideas"}</span>
             </div>
           )}
         />
@@ -949,7 +954,7 @@ export function StockInvestments() {
             onClick={() => setStrategyPanelTab("strategy")}
           >
             <span>Strategy path</span>
-            <strong>{formatNumber(strategyPlan.steps.length)}</strong>
+            <strong>{formatNumber(strategyTimeline.length)}</strong>
           </button>
           <button
             type="button"
@@ -1003,9 +1008,13 @@ export function StockInvestments() {
                 <strong>Strategy path</strong>
                 <span>ROI-first milestones</span>
               </div>
+              {strategyForecast.as_of !== null ? <p className="stock-owned-settings-description">Forecast from {formatStrategyDate(strategyForecast.as_of)}. Up to ten purchases over five years. Dates follow UTC daily progress.</p> : null}
+              {strategyForecast.warnings.map((warning) => <p key={warning} className="stock-owned-settings-description">{warning}</p>)}
               {invalidStrategyCashInputs ? (
                 <EmptyState text="Enter valid cash and weekly income amounts to estimate the strategy path" />
-              ) : strategyPlan.steps.length === 0 ? (
+              ) : strategyForecast.issues.length > 0 ? (
+                <div role="status">{strategyForecast.issues.map((issue) => <EmptyState key={issue} text={issue} />)}</div>
+              ) : strategyTimeline.length === 0 ? (
                 <EmptyState text="No strategy path matches the current budget" />
               ) : (
                 <div className="stock-milestone-list">
@@ -1817,15 +1826,17 @@ function StrategyStepRow({
       <div>
         <strong>
           {formatNumber(index + 1)}. {milestoneLabel}
-          <em className="stock-rebalance-highlight">{strategyReasonLabel(step)}</em>
+          <em className="stock-rebalance-highlight">{timing.elapsed_weeks !== null && timing.elapsed_weeks > 0
+            ? step.kind === "rebalance" ? "Scheduled rebalance" : "Scheduled purchase"
+            : strategyReasonLabel(step)}</em>
         </strong>
         <small>{strategyStepTitle(step)}</small>
       </div>
       <p>{strategyStepDescription(step, bankMerits)}</p>
       <p>
         {timing.elapsed_weeks === null
-          ? "Timing unavailable: this path needs more cash or weekly income before it can continue."
-          : `${formatMoney(timing.weekly_total_income_after)} per week available after this step, including reinvested returns and additional income.`}
+          ? timing.status === "horizon" ? "Beyond the five-year forecast horizon." : "Cannot be funded with the modelled income. Add cash or additional income to continue."
+          : `${formatStrategyDate(timing.purchase_at!)} · ${formatMoney(timing.weekly_total_income_after)} per week on average after this step; cash arrives on payout dates.`}
       </p>
       <div className="stock-milestone-metrics">
         <span>
@@ -1869,13 +1880,13 @@ function StrategyFundingBreakdown({ step, timing, index }: {
     <section className="stock-funding-breakdown" aria-label={`Funding for step ${index + 1}`}>
       <h3>Where the money comes from</h3>
       {!funding ? (
-        <p>This step needs more cash or weekly income before its funding can be estimated.</p>
+        <p>{timing.status === "horizon" ? "Funding is beyond the five-year forecast horizon." : "No modelled income can fund this step. Add cash or additional income."}</p>
       ) : (
         <>
           <p>
             {timing.wait_weeks === 0
               ? "No saving time needed for this step."
-              : `Estimated income over ${formatStrategyWeeks(timing.wait_weeks ?? 0)} ${index === 0 ? "from now" : "since the previous purchase"}. Payout timing is averaged.`}
+              : `Income over ${formatStrategyWeeks(timing.wait_weeks ?? 0)} ${index === 0 ? "from the snapshot" : "since the previous purchase"}, available by ${formatStrategyDate(timing.purchase_at!)}.`}
           </p>
           <dl>
             <div>
@@ -1892,12 +1903,14 @@ function StrategyFundingBreakdown({ step, timing, index }: {
               </div>
             ))}
             <div>
-              <dt>Investment income <small>Estimated during this saving period</small></dt>
+              <dt>Investment income <small>Scheduled rewards and interest, plus any averaged rent</small></dt>
               <dd>{formatMoney(funding.investment_income)}</dd>
             </div>
             {funding.investment_income_sources.map((source) => (
               <div className="stock-funding-source" key={source.id}>
-                <dt>{source.label}</dt>
+                <dt>{source.averaged ? source.label : `${formatNumber(source.reward_count)} × ${source.label}`}
+                  <small>{source.averaged ? "Accrued evenly" : `${formatNumber(source.payout_count)} payout${source.payout_count === 1 ? "" : "s"}: ${formatStrategyDate(source.first_at)}${source.last_at !== source.first_at ? ` – ${formatStrategyDate(source.last_at)}` : ""}`}{source.estimated ? "; estimated value" : "; imported profit"}</small>
+                </dt>
                 <dd>{source.amount < 0 ? `−${formatMoney(-source.amount)}` : formatMoney(source.amount)}</dd>
               </div>
             ))}
@@ -1928,6 +1941,10 @@ function StrategyFundingBreakdown({ step, timing, index }: {
 function formatStrategyWeeks(weeks: number): string {
   if (weeks < 0.1) return "less than 0.1 weeks";
   return `${formatNumber(weeks)} ${Math.round(weeks * 10) === 10 ? "week" : "weeks"}`;
+}
+
+function formatStrategyDate(timestamp: number): string {
+  return new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", timeZone: "UTC" }).format(timestamp * 1000) + " UTC";
 }
 
 function rebalanceActionDescription(recommendation: StockRebalanceRecommendation, bankMerits: number): string {
@@ -2179,23 +2196,6 @@ function effectiveOwnedSharesMap(
   return shares;
 }
 
-function ownedSnapshotWithShares(
-  snapshot: OwnedStockSnapshot | null,
-  shares: ReadonlyMap<number, number>,
-  hasManualRows: boolean,
-): OwnedStockSnapshot | null {
-  if (!snapshot && !hasManualRows) {
-    return null;
-  }
-
-  return {
-    refreshed_at: snapshot?.refreshed_at ?? Math.floor(Date.now() / 1000),
-    stocks: [...shares.entries()]
-      .filter(([, ownedShares]) => ownedShares > 0)
-      .map(([stock_id, ownedShares]) => ({ stock_id, shares: ownedShares, bonus: null })),
-  };
-}
-
 function buildOwnedInvestmentSummary(input: {
   rows: StockInvestmentRecommendationRow[];
   ownedShares: Map<number, number>;
@@ -2210,7 +2210,6 @@ function buildOwnedInvestmentSummary(input: {
   let stockBlockCount = 0;
   let invested = 0;
   let annualReturn = 0;
-  const incomeSources: StockStrategyIncomeSource[] = [];
 
   for (const row of input.rows) {
     if (!isStockInvestmentRow(row) && !isFhgTciHybridRow(row)) {
@@ -2229,20 +2228,17 @@ function buildOwnedInvestmentSummary(input: {
     stockBlockCount += 1;
     invested += row.increment_cost;
     annualReturn += row.annual_return;
-    incomeSources.push(stockStrategyIncomeSource(row));
   }
 
   const cityBankRow = input.rows.find((row) => row.investment_type === "city_bank") ?? null;
   if (input.cityBankActive && cityBankRow) {
     invested += cityBankRow.increment_cost;
     annualReturn += cityBankRow.annual_return;
-    incomeSources.push(stockStrategyIncomeSource(cityBankRow));
   }
 
   if (input.privateIslandRow && input.privateIslandCount > 0) {
     invested += input.privateIslandRow.increment_cost * input.privateIslandCount;
     annualReturn += input.privateIslandRow.annual_return * input.privateIslandCount;
-    incomeSources.push(stockStrategyIncomeSource(input.privateIslandRow, input.privateIslandRow.annual_return * input.privateIslandCount));
   }
 
   return {
@@ -2253,7 +2249,6 @@ function buildOwnedInvestmentSummary(input: {
     annualReturn,
     dailyIncome: annualReturn / 365,
     aprPercent: invested > 0 ? (annualReturn / invested) * 100 : null,
-    incomeSources,
   };
 }
 

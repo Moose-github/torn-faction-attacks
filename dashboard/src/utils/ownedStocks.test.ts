@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   ownedSharesMap,
+  ownedSnapshotWithShares,
   ownedStockBenefitProgress,
   ownsStockIncrement,
   type OwnedStockPosition,
@@ -11,6 +12,16 @@ import {
 } from "./ownedStocks";
 
 describe("owned stock parsing", () => {
+  it("preserves imported bank and bonus details only for compatible manual holdings", () => {
+    const snapshot = { refreshed_at: 100, city_bank: null, stocks: [{ stock_id: 1, shares: 100,
+      bonus: { available: false, increment: 1, progress: 3, frequency: 7 } }] };
+    const unchanged = ownedSnapshotWithShares(snapshot, new Map([[1, 100]]), false)!;
+    expect(unchanged).toEqual(snapshot);
+    expect(unchanged.stocks[0].bonus).not.toBe(snapshot.stocks[0].bonus);
+    expect(ownedSnapshotWithShares(snapshot, new Map([[1, 300], [2, 100]]), true)?.stocks.map((stock) => stock.bonus)).toEqual([null, null]);
+    expect(ownedSnapshotWithShares(null, new Map([[1, 100]]), true)?.refreshed_at).toBe(0);
+    expect(ownedSnapshotWithShares(null, new Map(), false)).toBeNull();
+  });
   it("parses Torn user stock holdings", () => {
     const snapshot = parseOwnedStocksResponse({
       stocks: [

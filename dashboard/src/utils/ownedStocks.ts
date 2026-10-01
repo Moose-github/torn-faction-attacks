@@ -101,6 +101,23 @@ export function ownedSharesMap(snapshot: OwnedStockSnapshot | null): Map<number,
   return shares;
 }
 
+/** Keep imported timing only when manual ownership still matches the imported holding. */
+export function ownedSnapshotWithShares(
+  snapshot: OwnedStockSnapshot | null,
+  shares: ReadonlyMap<number, number>,
+  hasManualRows: boolean,
+): OwnedStockSnapshot | null {
+  if (!snapshot && !hasManualRows) return null;
+  return {
+    ...snapshot,
+    refreshed_at: snapshot?.refreshed_at ?? 0,
+    stocks: [...shares.entries()].filter(([, count]) => count > 0).map(([stock_id, count]) => {
+      const original = snapshot?.stocks.find((stock) => stock.stock_id === stock_id);
+      return { stock_id, shares: count, bonus: original?.shares === count && original.bonus ? { ...original.bonus } : null };
+    }),
+  };
+}
+
 export function ownsStockIncrement(ownedShares: number, totalSharesRequired: number): boolean {
   return ownedShares > 0 && ownedShares >= totalSharesRequired;
 }

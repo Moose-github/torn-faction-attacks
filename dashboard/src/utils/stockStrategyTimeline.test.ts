@@ -1,140 +1,286 @@
 import { describe, expect, it } from "vitest";
-import { buildStockStrategyPlan } from "./stockRecommendations";
 import type { StockInvestmentRoiRow } from "../api/types";
-import { annualIncomeToWeekly, buildStockStrategyTimeline, stockStrategyIncomeSource } from "./stockStrategyTimeline";
+import type { CityBankInvestment, OwnedStockPosition } from "./ownedStocks";
+import { buildFhgTciHybridRow, type PrivateIslandRentalRow } from "./stockRecommendations";
+import { annualIncomeToWeekly, buildStockStrategyTimeline, type StockStrategyTimelineInput } from "./stockStrategyTimeline";
 
-function row(stockId: number, cost: number, annualReturn: number): StockInvestmentRoiRow {
+const DAY = 86400;
+const START = Date.UTC(2026, 9, 1, 12) / 1000;
+const MIDNIGHT = START - DAY / 2;
+function row(id: number, cost = 100, payout = 10, frequency = 7): StockInvestmentRoiRow {
+  const annual = payout * 365 / frequency;
   return {
-    investment_type: "stock", row_id: `stock:${stockId}:1`, stock_id: stockId,
-    acronym: `S${stockId}`, name: `Stock ${stockId}`, increment: 1,
-    required_shares: cost, total_shares_required: cost, latest_price: 1,
-    increment_cost: cost, total_cost: cost, benefit_key: "cash:test",
-    benefit_description: "Cash", valuation_source: "cash", frequency_days: 7,
-    benefit_value: annualReturn * 7 / 365, annual_return: annualReturn,
-    days_to_break_even: cost * 365 / annualReturn, roi_percent: annualReturn / cost * 100,
+    investment_type: "stock", row_id: `stock:${id}:1`, stock_id: id, acronym: `S${id}`, name: `Stock ${id}`,
+    increment: 1, required_shares: cost, total_shares_required: cost, latest_price: 1,
+    increment_cost: cost, total_cost: cost, benefit_key: "cash:test", benefit_description: "1x Reward",
+    valuation_source: "cash", frequency_days: frequency, benefit_value: payout,
+    annual_return: annual, days_to_break_even: cost * 365 / annual, roi_percent: annual / cost * 100,
   };
 }
-
-function plan(budget: number | null = null) {
-  return buildStockStrategyPlan({
-    rows: [row(1, 100, 36.5), row(2, 100, 36.5)],
-    ownedSnapshot: null, cityBankActive: false, budget,
-    affordableOnly: false, minimumRoi: null,
-  }, 2);
+function position(id = 1, progress = 0, frequency = 7, ready = false, shares = 100): OwnedStockPosition {
+  return { stock_id: id, shares, bonus: { available: ready, increment: 1, progress, frequency } };
+}
+function input(rows: StockInvestmentRoiRow[], stocks: OwnedStockPosition[] = [], overrides: Partial<StockStrategyTimelineInput> = {}): StockStrategyTimelineInput {
+  return { rows, ownedSnapshot: { refreshed_at: START, stocks, city_bank: null }, cityBankActive: false,
+    asOf: START, budget: 0, additionalIncomePerWeek: 0, minimumRoi: null, affordableOnly: false,
+    lockedStockIds: new Set(stocks.map((stock) => stock.stock_id)), ...overrides };
+}
+function bankRow(): StockInvestmentRoiRow {
+  return { ...row(99, 1000, 90, 90), investment_type: "city_bank", stock_id: null, increment: null,
+    required_shares: null, total_shares_required: null, latest_price: null, row_id: "city_bank:90", benefit_key: "city_bank:90", acronym: "BANK" };
+}
+function bank(until = START + 2 * DAY): CityBankInvestment {
+  return { amount: 1000, profit: 100, duration: 90, interest_rate: 10, invested_at: until - 90 * DAY, until };
 }
 
-describe("weekly stock strategy timing", () => {
-  it("converts annual income using seven days rather than rounding a year to 52 weeks", () => {
-    expect(annualIncomeToWeekly(365)).toBe(7);
+describe("scheduled stock strategy", () => {
+  it("converts annual income using seven days", () => expect(annualIncomeToWeekly(365)).toBe(7));
+
+  it.each([[0, 7, 7], [3, 7, 4], [30, 31, 1]])("uses %s/%s actual progress", (progress, frequency, days) => {
+    const result = buildStockStrategyTimeline(input([row(1, 100, 25, frequency), row(2, 25)], [position(1, progress, frequency)]), 1);
+    expect(result.issues).toEqual([]);
+    expect(result.timeline[0].purchase_at).toBe(MIDNIGHT + days * DAY);
+    expect(result.timeline[0].funding).toMatchObject({ investment_income: 25, ending_cash: 0, additional_income: 0 });
   });
 
-  it("combines weekly income, spends existing cash once, and reinvests each new return", () => {
-    const timeline = buildStockStrategyTimeline(plan(30), {
-      investmentIncomePerWeek: 5, additionalIncomePerWeek: 2,
-    });
-    expect(timeline[0].wait_weeks).toBe(10);
-    expect(timeline[0].elapsed_weeks).toBe(10);
-    expect(timeline[0].weekly_investment_income_after).toBeCloseTo(5.7);
-    expect(timeline[0].weekly_total_income_after).toBeCloseTo(7.7);
-    expect(timeline[1].wait_weeks).toBeCloseTo(100 / 7.7);
-    expect(timeline[1].elapsed_weeks).toBeCloseTo(10 + 100 / 7.7);
-    expect(timeline[0].funding).toMatchObject({
-      starting_cash: 30, investment_income: 50, additional_income: 20,
-      total_available: 100, purchase_cost: 100, ending_cash: 0, sales: [],
-    });
-    expect(timeline[1].funding?.starting_cash).toBe(0);
-    expect(timeline[1].funding?.investment_income).toBeCloseTo(100 * 5.7 / 7.7);
+  it("credits a ready reward once, carries surplus and funds multiple purchases at that instant", () => {
+    const result = buildStockStrategyTimeline(input([row(1, 100, 150), row(2, 60), row(3, 60), row(4, 60)], [position(1, 7, 7, true)]));
+    expect(result.timeline.slice(0, 2).map((step) => step.purchase_at)).toEqual([START, START]);
+    expect(result.timeline[0].funding).toMatchObject({ starting_cash: 0, investment_income: 150, ending_cash: 90 });
+    expect(result.timeline[1].funding).toMatchObject({ starting_cash: 90, investment_income: 0, ending_cash: 30 });
+    expect(result.timeline[2].purchase_at).toBe(MIDNIGHT + 7 * DAY);
+    expect(result.timeline[2].funding?.payouts.filter((event) => event.id === "stock:1")).toHaveLength(1);
   });
 
-  it("can start with no income when an affordable purchase creates it", () => {
-    const timeline = buildStockStrategyTimeline(plan(150), {
-      investmentIncomePerWeek: 0, additionalIncomePerWeek: 0,
-    });
-    expect(timeline[0].elapsed_weeks).toBe(0);
-    expect(timeline[1].wait_weeks).toBeCloseTo(50 / 0.7);
-    expect(timeline[0].funding).toMatchObject({ investment_income: 0, additional_income: 0, ending_cash: 50 });
-    expect(timeline[1].funding).toMatchObject({ starting_cash: 50, investment_income: 50, total_available: 100, ending_cash: 0 });
+  it("starts purchased stock cycles without granting a payout on purchase", () => {
+    const result = buildStockStrategyTimeline(input([row(1, 100, 50), row(2, 100, 45)], [], { budget: 100 }), 2);
+    expect(result.timeline[0].purchase_at).toBe(START);
+    expect(result.timeline[0].funding?.investment_income).toBe(0);
+    expect(result.timeline[1].purchase_at).toBe(MIDNIGHT + 14 * DAY);
+    expect(result.timeline[1].funding?.payouts.map((event) => event.at)).toEqual([MIDNIGHT + 7 * DAY, MIDNIGHT + 14 * DAY]);
   });
 
-  it("keeps subsequent estimates unreachable when the first purchase cannot be funded", () => {
-    const timeline = buildStockStrategyTimeline(plan(), {
-      investmentIncomePerWeek: 0, additionalIncomePerWeek: 0,
-    });
-    expect(timeline).toHaveLength(2);
-    for (const timing of timeline) {
-      expect(timing.elapsed_weeks).toBeNull();
-      expect(timing.weekly_total_income_after).toBeNull();
-      expect(timing.funding).toBeNull();
+  it.each([0, 3])("adds new blocks to the correct cycle at progress %s", (progress) => {
+    const first = row(1, 100, 40);
+    const second = { ...first, row_id: "stock:1:2", increment: 2, total_shares_required: 200, total_cost: 200 };
+    const result = buildStockStrategyTimeline(input([first, second, row(2, 200, 70)], [position(1, progress)], { budget: 100 }), 2);
+    expect(result.timeline[0].step.recommendation.row.row_id).toBe("stock:1:2");
+    const events = result.timeline[1].funding!.payouts.filter((event) => event.id === "stock:1");
+    expect(events[0].amount).toBe(progress === 0 ? 80 : 40);
+    expect(events[1].amount).toBe(80);
+  });
+
+  it("uses the API active increment for blocks already purchased mid-cycle", () => {
+    const first = row(1, 100, 40);
+    const second = { ...first, row_id: "stock:1:2", increment: 2, total_shares_required: 200 };
+    const result = buildStockStrategyTimeline(input([first, second, row(2, 120, 40)], [position(1, 3, 7, false, 200)]), 1);
+    expect(result.timeline[0].funding?.payouts.map((event) => event.amount)).toEqual([40, 80]);
+  });
+
+  it("funds purchases between payout dates using additional income", () => {
+    const result = buildStockStrategyTimeline(input([row(1, 100, 25), row(2, 25)], [position()], { additionalIncomePerWeek: 70 }), 1);
+    expect(result.timeline[0].purchase_at).toBe(START + 2.5 * DAY);
+    expect(result.timeline[0].funding).toMatchObject({ investment_income: 0, additional_income: 25, total_available: 25 });
+  });
+
+  it("advances even when very large additional income rounds the wait below timestamp precision", () => {
+    const result = buildStockStrategyTimeline(input([row(1, 100)], [], { additionalIncomePerWeek: 1e15 }), 1);
+    expect(result.timeline[0].purchase_at).toBeGreaterThan(START);
+    expect(result.timeline[0].purchase_at).toBeLessThan(START + 0.001);
+    expect(result.timeline[0].funding!.total_available).toBeGreaterThanOrEqual(100);
+  });
+
+  it("credits simultaneous rewards before choosing sales, avoiding unnecessary sales", () => {
+    const args = input([row(1, 100, 80), row(2, 100, 80), row(3, 150, 200)], [position(1, 6), position(2, 6)], { lockedStockIds: new Set([1, 2]) });
+    const result = buildStockStrategyTimeline(args, 1);
+    expect(result.timeline[0].funding).toMatchObject({ investment_income: 160, ending_cash: 10, sales: [] });
+    expect(result.timeline[0].funding?.payouts).toHaveLength(2);
+  });
+
+  it("includes selected net sales, fees and stops the sold stock's payouts", () => {
+    const args = input([row(1, 100, 1), row(2, 100, 50), row(3, 100, 45)], [position()], { budget: 0.1, lockedStockIds: new Set() });
+    const result = buildStockStrategyTimeline(args, 2);
+    expect(result.timeline[0].funding?.sales[0]).toMatchObject({ stock_id: 1, sale_fee: 0.1 });
+    expect(result.timeline[0].funding?.sales[0].sale_value).toBeCloseTo(99.9);
+    expect(result.timeline[0].purchase_at).toBe(START);
+    expect(result.timeline[1].funding?.payouts.every((event) => event.id !== "stock:1")).toBe(true);
+  });
+
+  it("recalculates proposed sales after a payout makes them unnecessary", () => {
+    const result = buildStockStrategyTimeline(input([row(1, 100, 350), row(2, 300, 400)], [position(1, 6)], { lockedStockIds: new Set() }), 1);
+    expect(result.timeline[0].step.kind).toBe("buy");
+    expect(result.timeline[0].funding).toMatchObject({ investment_income: 350, sales: [], ending_cash: 50 });
+  });
+
+  it("honours locked stocks and does not count rejected sales as funding", () => {
+    const result = buildStockStrategyTimeline(input([row(1, 100, 1), row(2, 100, 50)], [position()]), 1);
+    expect(result.timeline[0].funding?.sales).toEqual([]);
+    expect(result.timeline[0].funding?.investment_income).toBe(100);
+    expect(result.timeline[0].purchase_at).toBe(MIDNIGHT + 700 * DAY);
+  });
+
+  it("preserves a stock cycle when only excess shares are sold", () => {
+    const args = input([row(1, 100, 40), row(2, 50, 30), row(3, 60, 30)], [position(1, 6, 7, false, 200)],
+      { budget: 0.05, lockedStockIds: new Set() });
+    const result = buildStockStrategyTimeline(args, 2);
+    expect(result.timeline[0].funding?.sales[0].current_annual_return).toBe(0);
+    expect(result.timeline[1].funding?.payouts.find((event) => event.id === "stock:1")?.at).toBe(MIDNIGHT + DAY);
+    expect(result.warnings).toEqual([]);
+  });
+
+  it("restarts a reduced active entitlement after a sale interrupts the cycle", () => {
+    const first = row(1, 100, 1);
+    const second = { ...first, row_id: "stock:1:2", increment: 2, total_shares_required: 300, required_shares: 200, increment_cost: 200 };
+    const holding = { ...position(1, 6, 7, false, 300), bonus: { ...position().bonus!, progress: 6, increment: 2 } };
+    const result = buildStockStrategyTimeline(input([first, second, row(2, 100, 12), row(3, 200, 20)], [holding], { lockedStockIds: new Set([2]) }), 2);
+    expect(result.timeline[0].funding?.sales[0].shares).toBeLessThan(201);
+    expect(result.warnings.join()).toContain("conservatively restarted");
+    const retainedPayout = result.timeline[1].funding?.payouts.find((event) => event.id === "stock:1");
+    expect(retainedPayout?.at).toBe(MIDNIGHT + 7 * DAY);
+    expect(retainedPayout?.amount).toBe(1);
+  });
+
+  it("pays only current bank profit at exact maturity and reserves principal", () => {
+    const current = bank();
+    const result = buildStockStrategyTimeline(input([bankRow(), row(1, 100, 10)], [], {
+      ownedSnapshot: { refreshed_at: START, stocks: [], city_bank: current },
+    }), 1);
+    expect(result.timeline[0].purchase_at).toBe(current.until);
+    expect(result.timeline[0].funding).toMatchObject({ investment_income: 100, total_available: 100, sales: [], ending_cash: 0 });
+    expect(result.timeline[0].funding?.payouts[0].estimated).toBe(false);
+  });
+
+  it("credits a matured bank once and estimates renewed terms, without releasing principal", () => {
+    const result = buildStockStrategyTimeline(input([bankRow(), row(1, 200, 10)], [], {
+      ownedSnapshot: { refreshed_at: START, stocks: [], city_bank: bank(START - DAY) },
+    }), 1);
+    expect(result.timeline[0].funding?.payouts.map((event) => [event.amount, event.at, event.estimated]))
+      .toEqual([[100, START, false], [90, START + 90 * DAY, true], [90, START + 180 * DAY, true]]);
+    expect(result.timeline[0].funding?.ending_cash).toBe(80);
+  });
+
+  it("scales renewal estimates to the actual bank principal and term", () => {
+    const current = { ...bank(), amount: 500, duration: 14, profit: 10 };
+    const result = buildStockStrategyTimeline(input([bankRow(), row(1, 16, 10)], [], {
+      ownedSnapshot: { refreshed_at: START, stocks: [], city_bank: current },
+    }), 1);
+    expect(result.timeline[0].funding?.payouts.map((event) => event.amount)).toEqual([10, 7]);
+    expect(result.timeline[0].purchase_at).toBe(current.until + 14 * DAY);
+  });
+
+  it("applies TCI only to a new bank term after activation", () => {
+    const tci = { ...row(9, 100, 9, 90), benefit_key: "city_bank:tci_bonus", acronym: "TCI" };
+    const result = buildStockStrategyTimeline(input([bankRow(), tci, row(2, 280, 90)], [position(9, 6)], {
+      ownedSnapshot: { refreshed_at: START, stocks: [position(9, 6)], city_bank: bank() },
+    }), 1);
+    expect(result.timeline[0].funding?.payouts.map((event) => event.amount)).toEqual([100, 99, 99]);
+    expect(result.timeline[0].funding?.payouts.every((event) => event.id === "city_bank")).toBe(true);
+    expect(result.weekly_investment_income).toBeCloseTo(100 * 7 / 90);
+  });
+
+  it("accepts an active passive TCI bonus without dividend increment or progress fields", () => {
+    const tci = { ...row(9, 100, 9, 90), benefit_key: "city_bank:tci_bonus" };
+    const holding = { ...position(9), bonus: { available: true, increment: null, progress: null, frequency: null } };
+    const result = buildStockStrategyTimeline(input([bankRow(), tci, row(2, 190, 50)], [holding], {
+      ownedSnapshot: { refreshed_at: START, stocks: [holding], city_bank: bank() },
+    }), 1);
+    expect(result.issues).toEqual([]);
+    expect(result.timeline[0].funding?.payouts.map((event) => event.amount)).toEqual([100, 99]);
+  });
+
+  it("does not apply a TCI activation midway through an already renewed bank term", () => {
+    const tci = { ...row(9, 100, 9, 90), benefit_key: "city_bank:tci_bonus" };
+    const holding = position(9, 0);
+    const result = buildStockStrategyTimeline(input([bankRow(), tci, row(2, 280, 90)], [holding], {
+      ownedSnapshot: { refreshed_at: START, stocks: [holding], city_bank: bank() },
+    }), 1);
+    expect(result.timeline[0].funding?.payouts.map((event) => event.amount)).toEqual([100, 90, 99]);
+  });
+
+  it("does not grant an immediate bank uplift when TCI is newly purchased", () => {
+    const tci = { ...row(9, 10, 9, 90), benefit_key: "city_bank:tci_bonus" };
+    const result = buildStockStrategyTimeline(input([bankRow(), tci, row(2, 270, 90)], [], { budget: 10,
+      ownedSnapshot: { refreshed_at: START, stocks: [], city_bank: bank() },
+    }), 2);
+    expect(result.timeline[0].step.recommendation.row.stock_id).toBe(9);
+    expect(result.timeline[0].weekly_investment_income_after).toBeCloseTo(100 * 7 / 90);
+    expect(result.timeline[1].funding?.payouts.map((event) => event.amount)).toEqual([100, 90, 99]);
+  });
+
+  it("credits activation, stock reward and bank interest together before a purchase", () => {
+    const tci = { ...row(9, 100, 9, 90), benefit_key: "city_bank:tci_bonus" };
+    const holdings = [position(9, 6), position(1, 6)];
+    const current = bank(MIDNIGHT + DAY);
+    const result = buildStockStrategyTimeline(input([bankRow(), tci, row(1, 100, 25), row(2, 200, 50)], holdings, {
+      ownedSnapshot: { refreshed_at: START, stocks: holdings, city_bank: current },
+    }), 1);
+    expect(result.timeline[0].funding?.payouts.slice(0, 2).map((event) => [event.at, event.amount]))
+      .toEqual([[current.until, 25], [current.until, 100]]);
+    // Income after the purchase includes the renewed term with TCI, not a separate TCI source.
+    expect(result.timeline[0].weekly_investment_income_after).toBeCloseTo(25 + 50 + 99 * 7 / 90);
+  });
+
+  it("accrues rentals evenly rather than interpreting the annualized valuation as a yearly payout", () => {
+    const rental = { ...bankRow(), investment_type: "private_island", row_id: "private_island:rental", acronym: "PI",
+      name: "Private Island Rental", benefit_key: "private_island:rental", benefit_description: "Rental income",
+      frequency_days: 365, annual_return: 3650, benefit_value: 3650, increment_cost: 100000 } as PrivateIslandRentalRow;
+    const result = buildStockStrategyTimeline(input([row(1, 25)], [], { rows: [rental, row(1, 25)], privateIslandCount: 2 }), 1);
+    expect(result.timeline[0].purchase_at).toBe(START + 1.25 * DAY);
+    expect(result.timeline[0].funding?.investment_income_sources[0]).toMatchObject({ amount: 25, averaged: true, reward_count: 0 });
+    expect(result.timeline[0].funding?.payouts).toEqual([]);
+  });
+
+  it("starts a newly purchased bank term at purchase", () => {
+    const result = buildStockStrategyTimeline(input([bankRow()], [], { budget: 1000 }), 1);
+    expect(result.timeline[0].purchase_at).toBe(START);
+    expect(result.timeline[0].funding).toMatchObject({ purchase_cost: 1000, investment_income: 0, ending_cash: 0 });
+  });
+
+  it("distinguishes absent bank details, no deposit and a conflicting manual active setting", () => {
+    const args = input([row(1)]);
+    expect(buildStockStrategyTimeline({ ...args, ownedSnapshot: { refreshed_at: START, stocks: [] } }).issues.join()).toContain("bank request may have failed");
+    expect(buildStockStrategyTimeline(args).issues).toEqual([]);
+    expect(buildStockStrategyTimeline({ ...args, cityBankActive: true }).issues.join()).toContain("no deposit");
+  });
+
+  it("rejects stale snapshots and missing/manual timing without backfilling income", () => {
+    const args = input([row(1), row(2)], [position()]);
+    expect(buildStockStrategyTimeline({ ...args, asOf: MIDNIGHT + DAY }).issues.join()).toContain("Refresh owned stocks today");
+    expect(buildStockStrategyTimeline({ ...args, ownedSnapshot: { ...args.ownedSnapshot!, stocks: [{ ...position(), bonus: null }] } }).timeline).toEqual([]);
+    expect(buildStockStrategyTimeline({ ...args, ownedSnapshot: null }).issues).not.toEqual([]);
+  });
+
+  it("uses UTC boundaries consistently across the daylight-saving change", () => {
+    const stamp = Date.UTC(2026, 9, 24, 23, 59, 59) / 1000;
+    const result = buildStockStrategyTimeline(input([row(1, 100, 25), row(2, 25)], [position(1, 6)], {
+      asOf: stamp, ownedSnapshot: { refreshed_at: stamp, stocks: [position(1, 6)], city_bank: null },
+    }), 1);
+    expect(result.timeline[0].purchase_at).toBe(stamp + 1);
+  });
+
+  it("distinguishes unfunded from beyond-horizon purchases", () => {
+    const args = input([row(1, 1000)]);
+    expect(buildStockStrategyTimeline(args).timeline[0].status).toBe("unfunded");
+    expect(buildStockStrategyTimeline({ ...args, additionalIncomePerWeek: 0.1 }).timeline[0].status).toBe("horizon");
+  });
+
+  it("excludes the synthetic hybrid while retaining actual stock income", () => {
+    const fhg = { ...row(1, 100, 25), acronym: "FHG" };
+    const tci = { ...row(9, 100, 9, 90), benefit_key: "city_bank:tci_bonus", acronym: "TCI" };
+    const hybrid = buildFhgTciHybridRow([fhg, tci])!;
+    const result = buildStockStrategyTimeline(input([fhg, tci, row(2, 25)], [position()], { rows: [fhg, tci, hybrid, row(2, 25)], fhgTciHybridActive: true }), 1);
+    expect(result.timeline[0].funding?.payouts.map((event) => event.id)).toEqual(["stock:1"]);
+    expect(result.warnings.join()).toContain("hybrid is excluded");
+  });
+
+  it("reconciles every step's funding, including carried cash and additional income", () => {
+    const result = buildStockStrategyTimeline(input([row(1, 100, 100), row(2, 200, 70), row(3, 220, 70), row(4, 240, 70)], [position(1, 6)], { budget: 15, additionalIncomePerWeek: 20 }));
+    expect(result.timeline.length).toBeGreaterThan(1);
+    for (const { funding } of result.timeline) {
+      if (!funding) continue;
+      expect(funding.starting_cash + funding.investment_income + funding.additional_income + funding.sales.reduce((sum, sale) => sum + sale.sale_value, 0)).toBeCloseTo(funding.total_available);
+      expect(funding.total_available - funding.purchase_cost).toBeCloseTo(funding.ending_cash);
+      expect(funding.investment_income_sources.reduce((sum, source) => sum + source.amount, 0)).toBeCloseTo(funding.investment_income);
     }
-  });
-
-  it("uses net income gains after a rebalance and includes net sale proceeds in funding", () => {
-    const rebalancePlan = buildStockStrategyPlan({
-      rows: [row(1, 100, 20), row(2, 1_000, 400)],
-      ownedSnapshot: { refreshed_at: 1, stocks: [{ stock_id: 1, shares: 100, bonus: null }] },
-      cityBankActive: false, budget: 100, affordableOnly: false, minimumRoi: null,
-    }, 1);
-    expect(rebalancePlan.steps[0].kind).toBe("rebalance");
-    const timeline = buildStockStrategyTimeline(rebalancePlan, {
-      investmentIncomePerWeek: annualIncomeToWeekly(20), additionalIncomePerWeek: 10,
-    });
-    expect(timeline[0].wait_weeks).toBeCloseTo(800.1 / (10 + annualIncomeToWeekly(20)));
-    expect(timeline[0].weekly_investment_income_after).toBeCloseTo(annualIncomeToWeekly(400));
-    expect(timeline[0].funding?.sales[0].sale_value).toBeCloseTo(99.9);
-    expect(timeline[0].funding?.total_available).toBeCloseTo(1_000);
-  });
-
-  it("attributes only each saving period's income to existing and newly bought holdings", () => {
-    const timeline = buildStockStrategyTimeline(plan(30), {
-      investmentIncomePerWeek: 5, additionalIncomePerWeek: 2,
-      investmentSources: [
-        { id: "stock:10", label: "FHG income", weekly_income: 3 },
-        { id: "stock:20", label: "SYM income", weekly_income: 2 },
-      ],
-    });
-    expect(timeline[0].funding?.investment_income_sources).toEqual([
-      { id: "stock:10", label: "FHG income", amount: 30 },
-      { id: "stock:20", label: "SYM income", amount: 20 },
-    ]);
-    const later = timeline[1].funding!;
-    expect(later.investment_income_sources.map((source) => source.id)).toEqual(["stock:10", "stock:20", "stock:1"]);
-    expect(later.investment_income_sources[0].amount).toBeCloseTo(3 * 100 / 7.7);
-    expect(later.investment_income_sources[2].amount).toBeCloseTo(0.7 * 100 / 7.7);
-    for (const { funding } of timeline) {
-      expect(funding!.investment_income_sources.reduce((sum, source) => sum + source.amount, 0)).toBeCloseTo(funding!.investment_income);
-      expect(funding!.total_available).toBeCloseTo(funding!.purchase_cost + funding!.ending_cash);
-    }
-  });
-
-  it.each([3, 7])("keeps a weekly income override of %s separate from holding income", (override) => {
-    const timeline = buildStockStrategyTimeline(plan(), {
-      investmentIncomePerWeek: override, additionalIncomePerWeek: 2,
-      investmentSources: [{ id: "stock:10", label: "FHG income", weekly_income: 5 }],
-      investmentIncomeOverridden: true,
-    });
-    const first = timeline[0].funding!;
-    const adjustment = first.investment_income_sources.find((source) => source.id === "manual-adjustment")!;
-    expect(adjustment.label).toBe("Manual investment income adjustment");
-    expect(adjustment.amount).toBeCloseTo((override - 5) * 100 / (override + 2));
-    expect(first.investment_income_sources.reduce((sum, source) => sum + source.amount, 0)).toBeCloseTo(first.investment_income);
-    expect(first.total_available).toBeCloseTo(100);
-  });
-
-  it("stops attributing income to sold holdings after the sale", () => {
-    const ownedRow = row(1, 100, 20);
-    const salePlan = buildStockStrategyPlan({
-      rows: [ownedRow, row(2, 1_000, 400), row(3, 1_000, 350)],
-      ownedSnapshot: { refreshed_at: 1, stocks: [{ stock_id: 1, shares: 100, bonus: null }] },
-      cityBankActive: false, budget: 100, affordableOnly: false, minimumRoi: null,
-    }, 2);
-    expect(salePlan.steps[0].kind).toBe("rebalance");
-    const timeline = buildStockStrategyTimeline(salePlan, {
-      investmentIncomePerWeek: annualIncomeToWeekly(20), additionalIncomePerWeek: 10,
-      investmentSources: [stockStrategyIncomeSource(ownedRow)],
-    });
-    expect(timeline[0].funding?.investment_income_sources.map((source) => source.id)).toEqual(["stock:1"]);
-    expect(timeline[1].funding?.investment_income_sources.map((source) => source.id)).toEqual(["stock:2"]);
-    expect(timeline[1].funding?.sales).toEqual([]);
-    expect(timeline[1].funding?.total_available).toBeCloseTo(1_000);
   });
 });
