@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   ownedSharesMap,
+  cityBankPrincipal,
   ownedSnapshotWithShares,
   ownedStockBenefitProgress,
   ownsStockIncrement,
@@ -131,7 +132,7 @@ describe("owned stock parsing", () => {
 
 describe("City Bank imports", () => {
   const investment = {
-    amount: 2_000_000_000, profit: 340_000_000, duration: 90,
+    amount: 2_340_000_000, profit: 340_000_000, duration: 90,
     interest_rate: 17, until: 1_800_000_000, invested_at: 1_792_224_000,
   };
 
@@ -152,6 +153,7 @@ describe("City Bank imports", () => {
   it.each([
     { profit: null }, { profit: -1 }, { amount: "2000000000" },
     { until: undefined }, { duration: 0 }, { interest_rate: Number.NaN },
+    { amount: 340_000_000 }, { amount: 1 },
   ])("rejects incomplete or invalid bank fields: %j", (invalid) => {
     expect(() => parseCityBankResponse({ money: { city_bank: { ...investment, ...invalid } } })).toThrow("incomplete");
   });
@@ -165,6 +167,7 @@ describe("City Bank imports", () => {
     const snapshot = { refreshed_at: 1_799_000_000, stocks: [] };
     expect(parseStoredOwnedStockSnapshot({ ...snapshot, city_bank: investment }))
       .toEqual({ ...snapshot, city_bank: investment });
+    expect(cityBankPrincipal(parseStoredOwnedStockSnapshot({ ...snapshot, city_bank: investment })!.city_bank!)).toBe(2_000_000_000);
     expect(parseStoredOwnedStockSnapshot({ ...snapshot, city_bank: null }))
       .toEqual({ ...snapshot, city_bank: null });
     expect(parseStoredOwnedStockSnapshot(snapshot)).toEqual(snapshot);

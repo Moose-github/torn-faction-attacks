@@ -30,7 +30,7 @@ function bankRow(): StockInvestmentRoiRow {
     required_shares: null, total_shares_required: null, latest_price: null, row_id: "city_bank:90", benefit_key: "city_bank:90", acronym: "BANK" };
 }
 function bank(until = START + 2 * DAY): CityBankInvestment {
-  return { amount: 1000, profit: 100, duration: 90, interest_rate: 10, invested_at: until - 90 * DAY, until };
+  return { amount: 1100, profit: 100, duration: 90, interest_rate: 10, invested_at: until - 90 * DAY, until };
 }
 
 describe("scheduled stock strategy", () => {
@@ -155,25 +155,26 @@ describe("scheduled stock strategy", () => {
       ownedSnapshot: { refreshed_at: START, stocks: [], city_bank: bank(START - DAY) },
     }), 1);
     expect(result.timeline[0].funding?.payouts.map((event) => [event.amount, event.at, event.estimated]))
-      .toEqual([[100, START, false], [90, START + 90 * DAY, true], [90, START + 180 * DAY, true]]);
-    expect(result.timeline[0].funding?.ending_cash).toBe(80);
+      .toEqual([[100, START, false], [100, START + 90 * DAY, true]]);
+    expect(result.timeline[0].funding?.ending_cash).toBe(0);
+    expect(result.timeline[0].funding?.investment_income_sources[0]).toMatchObject({ basis: "imported_bank", confirmed_amount: 100, estimated_amount: 100 });
   });
 
-  it("scales renewal estimates to the actual bank principal and term", () => {
-    const current = { ...bank(), amount: 500, duration: 14, profit: 10 };
+  it("repeats the actual profit and term for a smaller deposit", () => {
+    const current = { ...bank(), amount: 510, duration: 14, profit: 10 };
     const result = buildStockStrategyTimeline(input([bankRow(), row(1, 16, 10)], [], {
       ownedSnapshot: { refreshed_at: START, stocks: [], city_bank: current },
     }), 1);
-    expect(result.timeline[0].funding?.payouts.map((event) => event.amount)).toEqual([10, 7]);
+    expect(result.timeline[0].funding?.payouts.map((event) => event.amount)).toEqual([10, 10]);
     expect(result.timeline[0].purchase_at).toBe(current.until + 14 * DAY);
   });
 
-  it("applies TCI only to a new bank term after activation", () => {
+  it("does not add a TCI bonus again when renewing an imported deposit", () => {
     const tci = { ...row(9, 100, 9, 90), benefit_key: "city_bank:tci_bonus", acronym: "TCI" };
     const result = buildStockStrategyTimeline(input([bankRow(), tci, row(2, 280, 90)], [position(9, 6)], {
       ownedSnapshot: { refreshed_at: START, stocks: [position(9, 6)], city_bank: bank() },
     }), 1);
-    expect(result.timeline[0].funding?.payouts.map((event) => event.amount)).toEqual([100, 99, 99]);
+    expect(result.timeline[0].funding?.payouts.map((event) => event.amount)).toEqual([100, 100, 100]);
     expect(result.timeline[0].funding?.payouts.every((event) => event.id === "city_bank")).toBe(true);
     expect(result.weekly_investment_income).toBeCloseTo(100 * 7 / 90);
   });
@@ -185,7 +186,7 @@ describe("scheduled stock strategy", () => {
       ownedSnapshot: { refreshed_at: START, stocks: [holding], city_bank: bank() },
     }), 1);
     expect(result.issues).toEqual([]);
-    expect(result.timeline[0].funding?.payouts.map((event) => event.amount)).toEqual([100, 99]);
+    expect(result.timeline[0].funding?.payouts.map((event) => event.amount)).toEqual([100, 100]);
   });
 
   it("does not apply a TCI activation midway through an already renewed bank term", () => {
@@ -194,17 +195,16 @@ describe("scheduled stock strategy", () => {
     const result = buildStockStrategyTimeline(input([bankRow(), tci, row(2, 280, 90)], [holding], {
       ownedSnapshot: { refreshed_at: START, stocks: [holding], city_bank: bank() },
     }), 1);
-    expect(result.timeline[0].funding?.payouts.map((event) => event.amount)).toEqual([100, 90, 99]);
+    expect(result.timeline[0].funding?.payouts.map((event) => event.amount)).toEqual([100, 100, 100]);
   });
 
-  it("does not grant an immediate bank uplift when TCI is newly purchased", () => {
+  it("does not recommend buying TCI on top of an imported all-in return", () => {
     const tci = { ...row(9, 10, 9, 90), benefit_key: "city_bank:tci_bonus" };
     const result = buildStockStrategyTimeline(input([bankRow(), tci, row(2, 270, 90)], [], { budget: 10,
       ownedSnapshot: { refreshed_at: START, stocks: [], city_bank: bank() },
     }), 2);
-    expect(result.timeline[0].step.recommendation.row.stock_id).toBe(9);
-    expect(result.timeline[0].weekly_investment_income_after).toBeCloseTo(100 * 7 / 90);
-    expect(result.timeline[1].funding?.payouts.map((event) => event.amount)).toEqual([100, 90, 99]);
+    expect(result.timeline.map((step) => step.step.recommendation.row.stock_id)).not.toContain(9);
+    expect(result.timeline[0].funding?.payouts.map((event) => event.amount)).toEqual([100, 100, 100]);
   });
 
   it("credits activation, stock reward and bank interest together before a purchase", () => {
@@ -216,8 +216,8 @@ describe("scheduled stock strategy", () => {
     }), 1);
     expect(result.timeline[0].funding?.payouts.slice(0, 2).map((event) => [event.at, event.amount]))
       .toEqual([[current.until, 25], [current.until, 100]]);
-    // Income after the purchase includes the renewed term with TCI, not a separate TCI source.
-    expect(result.timeline[0].weekly_investment_income_after).toBeCloseTo(25 + 50 + 99 * 7 / 90);
+    // Renewals repeat the all-in imported profit without an additional TCI source.
+    expect(result.timeline[0].weekly_investment_income_after).toBeCloseTo(25 + 50 + 100 * 7 / 90);
   });
 
   it("accrues rentals evenly rather than interpreting the annualized valuation as a yearly payout", () => {

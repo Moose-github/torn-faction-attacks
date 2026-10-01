@@ -18,6 +18,7 @@ import { useAuth } from "../auth/AuthProvider";
 import { CollapsiblePanel, EmptyState, PanelHeader } from "../components/Common";
 import { formatDate, formatNumber, formatRelativeTime } from "../utils/format";
 import { buildStockStrategyTimeline, type StockStrategyTiming } from "../utils/stockStrategyTimeline";
+import { applyImportedCityBankReturn, bankReturnProtectedStockIds, cityBankValuation } from "../utils/cityBankValuation";
 import {
   ownedSharesMap,
   ownedSnapshotWithShares,
@@ -55,7 +56,6 @@ const TORN_OWNED_STOCKS_URL = "https://api.torn.com/v2/user/stocks";
 const TORN_USER_MERITS_URL = "https://api.torn.com/v2/user/merits";
 const TORN_USER_MONEY_URL = "https://api.torn.com/v2/user/money";
 const DEFAULT_MINIMUM_ROI = "5";
-const CITY_BANK_TERM_DAYS = 90;
 const MANUAL_BENEFIT_VALUES_SECTION_ID = "stock-benefit-manual-values";
 const PRIVATE_ISLAND_ROW_ID = "private_island:rental";
 const DEFAULT_PRIVATE_ISLAND_COUNT = "0";
@@ -112,7 +112,7 @@ export function StockInvestments() {
   const [minimumRoi, setMinimumRoi] = React.useState(DEFAULT_MINIMUM_ROI);
   const [hideOwnedBlocks, setHideOwnedBlocks] = React.useState(false);
   const [includeFhgTciHybrid, setIncludeFhgTciHybrid] = React.useState(false);
-  const [cityBankActive, setCityBankActive] = React.useState(false);
+  const [manualCityBankActive, setCityBankActive] = React.useState(false);
   const [fhgTciHybridActive, setFhgTciHybridActive] = React.useState(false);
   const [includePrivateIslandRental, setIncludePrivateIslandRental] = React.useState(true);
   const [bankMerits, setBankMerits] = React.useState(0);
@@ -130,6 +130,9 @@ export function StockInvestments() {
   const [isBenefitValuesOpen, setIsBenefitValuesOpen] = React.useState(() => readPanelOpenStorage(storageUserId, "benefitValues", true));
   const [ownedApiKey, setOwnedApiKey] = React.useState("");
   const [ownedSnapshot, setOwnedSnapshot] = React.useState<OwnedStockSnapshot | null>(null);
+  const bankInvestment = ownedSnapshot?.city_bank;
+  const bankValue = bankInvestment ? cityBankValuation(bankInvestment) : null;
+  const cityBankActive = bankInvestment === undefined ? manualCityBankActive : bankInvestment !== null;
   const [lockedStockIds, setLockedStockIds] = React.useState<Set<number>>(() => new Set());
   const [isLoading, setIsLoading] = React.useState(true);
   const [isRefreshingBenefitPrices, setIsRefreshingBenefitPrices] = React.useState(false);
@@ -407,8 +410,8 @@ export function StockInvestments() {
 
   const loadedOwnedShares = React.useMemo(() => ownedSharesMap(ownedSnapshot), [ownedSnapshot]);
   const baseInvestmentRows = React.useMemo(
-    () => (roiData?.rows ?? []).map((row) => adjustCityBankRowForMerits(row, bankMerits)),
-    [roiData?.rows, bankMerits],
+    () => (roiData?.rows ?? []).map((row) => applyImportedCityBankReturn(adjustCityBankRowForMerits(row, bankMerits), bankInvestment)),
+    [roiData?.rows, bankMerits, bankInvestment],
   );
   const fhgTciHybridRow = React.useMemo(() => buildFhgTciHybridRow(baseInvestmentRows), [baseInvestmentRows]);
   const privateIslandRow = React.useMemo(() => buildPrivateIslandRentalRow(privateIslandInputs), [privateIslandInputs]);
@@ -426,6 +429,8 @@ export function StockInvestments() {
     () => effectiveOwnedSharesMap(loadedOwnedShares, investmentRows, manualOwnedRowIds),
     [loadedOwnedShares, investmentRows, manualOwnedRowIds],
   );
+  const recommendationRows = React.useMemo(() => investmentRows.filter((row) => !bankInvestment || !isBankInterestBonusRow(row)), [investmentRows, bankInvestment]);
+  const plannerLockedStockIds = React.useMemo(() => new Set([...lockedStockIds, ...bankReturnProtectedStockIds(investmentRows, bankInvestment)]), [lockedStockIds, investmentRows, bankInvestment]);
   const hasOwnershipState = ownedSnapshot !== null || manualOwnedRowIds.size > 0 || cityBankActive || activePrivateIslandRentalCount > 0;
   const effectiveOwnedSnapshot = React.useMemo<OwnedStockSnapshot | null>(
     () => ownedSnapshotWithShares(ownedSnapshot, ownedShares, manualOwnedRowIds.size > 0),
@@ -481,31 +486,32 @@ export function StockInvestments() {
     if (affordableOnly && budget !== null && rowMetrics.estimated_cost > budget) {
       return false;
     }
-    if (minRoi !== null && rowMetrics.roi_percent < minRoi) {
+    const includedOwnedBankBonus = bankInvestment && isBankInterestBonusRow(row) && rowMetrics.covered;
+    if (!includedOwnedBankBonus && minRoi !== null && rowMetrics.roi_percent < minRoi) {
       return false;
     }
     return true;
   });
   const rows = sortStockRoiRows(filteredRows, roiSort, ownedShares, hasOwnershipState, effectiveFhgTciHybridActive, fhgTciHybridBaselineShares, fhgTciHybridReservedShares);
   const bestBuyRecommendation = React.useMemo(() => recommendBestStockBuy({
-    rows: investmentRows,
+    rows: recommendationRows,
     ownedSnapshot: effectiveOwnedSnapshot,
     cityBankActive,
     fhgTciHybridActive: effectiveFhgTciHybridActive,
     budget,
     affordableOnly: false,
     minimumRoi: null,
-  }), [investmentRows, effectiveOwnedSnapshot, cityBankActive, effectiveFhgTciHybridActive, budget]);
+  }), [recommendationRows, effectiveOwnedSnapshot, cityBankActive, effectiveFhgTciHybridActive, budget]);
   const rebalanceRecommendations = React.useMemo(() => buildStockRebalanceRecommendations({
-    rows: investmentRows,
+    rows: recommendationRows,
     ownedSnapshot: effectiveOwnedSnapshot,
     cityBankActive,
     fhgTciHybridActive: effectiveFhgTciHybridActive,
     budget,
     affordableOnly: false,
     minimumRoi: null,
-    lockedStockIds,
-  }, 5), [investmentRows, effectiveOwnedSnapshot, cityBankActive, effectiveFhgTciHybridActive, budget, lockedStockIds]);
+    lockedStockIds: plannerLockedStockIds,
+  }, 5), [recommendationRows, effectiveOwnedSnapshot, cityBankActive, effectiveFhgTciHybridActive, budget, plannerLockedStockIds]);
   const ownedInvestmentSummary = React.useMemo(() => buildOwnedInvestmentSummary({
     rows: investmentRows,
     ownedShares,
@@ -696,13 +702,15 @@ export function StockInvestments() {
           <div className="stock-owned-settings-section">
             <div className="stock-owned-settings-title">
               <strong>City Bank</strong>
-              <span>{cityBankActive ? `Active with ${formatNumber(bankMerits)}/10 merits` : "Bank option available"}</span>
+              <span>{bankValue ? "Return confirmed by API" : cityBankActive ? `Estimated with ${formatNumber(bankMerits)}/10 merits` : "Generic estimate"}</span>
             </div>
             <div className="stock-city-bank-controls">
               <label className="stock-owned-hide-toggle">
                 <input
                   type="checkbox"
                   checked={cityBankActive}
+                  disabled={bankInvestment !== undefined}
+                  title={bankInvestment !== undefined ? "Ownership comes from your last API refresh." : undefined}
                   onChange={(event) => {
                     const nextActive = event.target.checked;
                     setCityBankActive(nextActive);
@@ -720,6 +728,8 @@ export function StockInvestments() {
                   max={10}
                   step={1}
                   value={bankMerits}
+                  disabled={bankValue !== null}
+                  title={bankValue ? "Imported profit already reflects the deposit's bonuses." : undefined}
                   onChange={(event) => {
                     const nextMerits = clampBankMerits(event.target.value);
                     setBankMerits(nextMerits);
@@ -736,7 +746,7 @@ export function StockInvestments() {
               ) : (
                 <>
                   <p>
-                    Imported investment: {formatMoney(ownedSnapshot.city_bank.amount)} principal · {formatMoney(ownedSnapshot.city_bank.profit)} profit · {ownedSnapshot.city_bank.duration}-day term.
+                    Imported investment: {formatMoney(bankValue!.principal)} principal reserved for reinvestment · {formatMoney(bankValue!.profit)} profit available at maturity · {bankValue!.duration}-day term.
                     {" "}Scheduled forecasts include this deposit automatically.
                   </p>
                   <p>
@@ -745,6 +755,7 @@ export function StockInvestments() {
                       : `Matures ${formatDate(ownedSnapshot.city_bank.until)} · ${formatNumber((ownedSnapshot.city_bank.until - ownedSnapshot.refreshed_at) / 86400)} days remaining at last refresh.`}
                     {" "}Updated {formatDate(ownedSnapshot.refreshed_at)}.
                   </p>
+                  <p>Confirmed by API. Renewals are estimated from your current deposit, assuming the same term and bonuses. Merits and TCI are not added again.</p>
                 </>
               )}
             </div>
@@ -915,7 +926,8 @@ export function StockInvestments() {
           </p>
           <p className="stock-owned-settings-description">
             All rewards are collected instantly, sold at configured values and reinvested. Prices stay fixed. Bank principal is reserved and renewed for the same term;
-            future interest uses estimated rates and eligible TCI benefits at renewal. Private Island rent is averaged. The FHG/TCI hybrid is excluded.
+            renewals repeat your imported profit when available, otherwise use a generic estimate. Future bank rates may change.
+            Private Island rent is averaged. The FHG/TCI hybrid is excluded.
           </p>
           {strategyCashInputs.investmentIncomePerWeek.trim() !== "" ? <p className="stock-owned-settings-description">Your saved weekly investment income override is preserved but is not applied to scheduled forecasts.</p> : null}
           {invalidStrategyCashInputs ? <p role="alert" className="error-panel">Enter zero or a positive amount for each cash flow input.</p> : null}
@@ -1206,7 +1218,9 @@ function StockRoiTable({
             const costDetail = stockCostDetail(row, rowMetrics);
             const showRawRoi = rowMetrics.personalized && !rowMetrics.covered && rowMetrics.roi_percent !== row.roi_percent;
             const ownChecked = investmentRowOwnChecked(row, ownsIncrement, cityBankActive, privateIslandActive, manuallyOwnedRowIds);
-            const ownDisabled = isFhgTciHybridRow(row);
+            const bankFromApi = Boolean(ownedSnapshot?.city_bank);
+            const includedBankBonus = bankFromApi && isBankInterestBonusRow(row);
+            const ownDisabled = isFhgTciHybridRow(row) || (row.investment_type === "city_bank" && ownedSnapshot?.city_bank !== undefined);
             return (
               <tr key={row.row_id} className={ownsIncrement ? "stock-owned-increment-row" : undefined}>
                 <td className="stock-col-own" data-label="Own">
@@ -1214,7 +1228,7 @@ function StockRoiTable({
                     type="checkbox"
                     checked={ownChecked}
                     disabled={ownDisabled}
-                    title={ownDisabled ? "Use the FHG/TCI Hybrid setting for this synthetic option." : undefined}
+                    title={ownDisabled ? row.investment_type === "city_bank" ? "Ownership comes from your last API refresh." : "Use the FHG/TCI Hybrid setting for this synthetic option." : undefined}
                     onChange={(event) => onToggleOwned(row, event.target.checked)}
                   />
                 </td>
@@ -1224,7 +1238,7 @@ function StockRoiTable({
                 <td className="stock-col-name" data-label="Name">
                   <span className="stock-benefit-cell">
                     <strong>{row.name ?? "-"}</strong>
-                    <small>{stockRowSubtitle(row, isStockRow, bankMerits)}</small>
+                    <small>{stockRowSubtitle(row, isStockRow, bankMerits, bankFromApi)}</small>
                   </span>
                 </td>
                 <td className="stock-col-shares" data-label="Shares">
@@ -1260,7 +1274,9 @@ function StockRoiTable({
                 <td className="stock-col-benefit" data-label="Benefit">
                   <span className="stock-benefit-cell">
                     <strong>{row.benefit_description}</strong>
-                    <small>{stockBenefitDetail(row, isStockRow, bankMerits)}</small>
+                    <small>{includedBankBonus ? "Bank bonuses are included in the imported return; no extra income assumed" : stockBenefitDetail(row, isStockRow, bankMerits, bankFromApi)}</small>
+                    {includedBankBonus && owned > 0 ? <small>Kept by planner to preserve bank bonuses</small> : null}
+                    {row.investment_type === "city_bank" ? <small>{formatMoney(row.benefit_value)} per {row.frequency_days}-day term</small> : null}
                     {row.investment_type === "city_bank" ? (
                       <CityBankPayoutProgress snapshot={ownedSnapshot} />
                     ) : isStockRow && ownsStockIncrement(owned, row.total_shares_required) ? (
@@ -1268,11 +1284,11 @@ function StockRoiTable({
                     ) : null}
                   </span>
                 </td>
-                <td className="stock-col-return" data-label="Annual">{formatMoney(row.annual_return)}</td>
-                <td className="stock-col-break-even" data-label="Break even">{formatNumber(Math.round(rowMetrics.days_to_break_even))} days</td>
+                <td className="stock-col-return" data-label="Annual">{includedBankBonus ? "Included in BANK" : formatMoney(row.annual_return)}</td>
+                <td className="stock-col-break-even" data-label="Break even">{includedBankBonus || !Number.isFinite(rowMetrics.days_to_break_even) ? "-" : `${formatNumber(Math.round(rowMetrics.days_to_break_even))} days`}</td>
                 <td className="stock-col-roi" data-label="ROI">
                   <span className="stock-benefit-cell">
-                    <span className={`stock-roi-chip ${roiTone(rowMetrics.roi_percent)}`}>{formatPercent(rowMetrics.roi_percent)}</span>
+                    <span className={`stock-roi-chip ${roiTone(rowMetrics.roi_percent)}`}>{includedBankBonus ? "-" : formatPercent(rowMetrics.roi_percent)}</span>
                     {showRawRoi ? <small>Block: {formatPercent(row.roi_percent)}</small> : null}
                   </span>
                 </td>
@@ -1909,7 +1925,12 @@ function StrategyFundingBreakdown({ step, timing, index }: {
             {funding.investment_income_sources.map((source) => (
               <div className="stock-funding-source" key={source.id}>
                 <dt>{source.averaged ? source.label : `${formatNumber(source.reward_count)} × ${source.label}`}
-                  <small>{source.averaged ? "Accrued evenly" : `${formatNumber(source.payout_count)} payout${source.payout_count === 1 ? "" : "s"}: ${formatStrategyDate(source.first_at)}${source.last_at !== source.first_at ? ` – ${formatStrategyDate(source.last_at)}` : ""}`}{source.estimated ? "; estimated value" : "; imported profit"}</small>
+                  <small>{source.averaged ? "Accrued evenly" : `${formatNumber(source.payout_count)} payout${source.payout_count === 1 ? "" : "s"}: ${formatStrategyDate(source.first_at)}${source.last_at !== source.first_at ? ` – ${formatStrategyDate(source.last_at)}` : ""}`}</small>
+                  <small>{source.basis === "imported_bank"
+                    ? source.confirmed_amount > 0 && source.estimated_amount > 0
+                      ? `${formatMoney(source.confirmed_amount)} confirmed by API; ${formatMoney(source.estimated_amount)} estimated from your current deposit`
+                      : source.estimated ? "Estimated from your current deposit" : "Confirmed by API"
+                    : source.basis === "generic_bank" ? "Generic bank estimate" : "Estimated value"}</small>
                 </dt>
                 <dd>{source.amount < 0 ? `−${formatMoney(-source.amount)}` : formatMoney(source.amount)}</dd>
               </div>
@@ -2423,7 +2444,7 @@ function stockCostDetail(row: StockInvestmentRecommendationRow, metrics: StockIn
 
 function bestOpportunityTitle(row: StockInvestmentRecommendationRow): string {
   if (row.investment_type === "city_bank") {
-    return "BANK 90 days";
+    return `BANK ${row.frequency_days} days`;
   }
   if (isFhgTciHybridRow(row)) {
     return "FHG/TCI Hybrid";
@@ -2435,17 +2456,18 @@ function bestOpportunityTitle(row: StockInvestmentRecommendationRow): string {
   return `${row.acronym ?? `#${row.stock_id}`} Block ${row.increment ?? "-"}`;
 }
 
-function stockRowSubtitle(row: StockInvestmentRecommendationRow, isStockRow: boolean, bankMerits: number): string {
+function stockRowSubtitle(row: StockInvestmentRecommendationRow, isStockRow: boolean, bankMerits: number, bankFromApi = false): string {
   if (isFhgTciHybridRow(row)) {
     return "Synthetic block";
   }
   if (isPrivateIslandRentalRow(row)) {
     return "Rental property";
   }
-  return isStockRow ? `Block ${row.increment}` : `${CITY_BANK_TERM_DAYS} days (${bankMerits}/10 Merits)`;
+  return isStockRow ? `Block ${row.increment}` : `${row.frequency_days} days (${bankFromApi ? "API return" : `${bankMerits}/10 Merits · estimate`})`;
 }
 
-function stockBenefitDetail(row: StockInvestmentRecommendationRow, isStockRow: boolean, bankMerits: number): string {
+function stockBenefitDetail(row: StockInvestmentRecommendationRow, isStockRow: boolean, bankMerits: number, bankFromApi = false): string {
+  if (row.investment_type === "city_bank") return bankFromApi ? "Confirmed by API · annual figures assume the same return" : "Generic estimate · no imported deposit return";
   if (isFhgTciHybridRow(row)) {
     return "TCI + 83/90 FHG";
   }
@@ -2457,7 +2479,7 @@ function stockBenefitDetail(row: StockInvestmentRecommendationRow, isStockRow: b
   }
   return isStockRow
     ? `${formatNumber(row.frequency_days)} days - ${valuationSourceLabel(row.valuation_source)} value`
-    : `${CITY_BANK_TERM_DAYS} days - ${bankMerits}/10 Merits`;
+    : `${row.frequency_days} days - ${bankMerits}/10 Merits`;
 }
 
 function compareText(a: string, b: string): number {

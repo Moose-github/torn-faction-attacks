@@ -1,4 +1,5 @@
-import type { OwnedStockSnapshot } from "./ownedStocks";
+import { cityBankPrincipal, type OwnedStockSnapshot } from "./ownedStocks";
+import { applyImportedCityBankReturn, bankReturnProtectedStockIds } from "./cityBankValuation";
 import {
   DEFAULT_STOCK_STRATEGY_STEP_LIMIT, isFhgTciHybridRow, nextScheduledStockStrategyStep, recommendStockBuys,
   type StockBuyRecommendationInput, type StockInvestmentRecommendationRow, type StockStrategySale, type StockStrategyStep,
@@ -12,10 +13,14 @@ const EPSILON = 0.00001;
 
 export type StockStrategyPayout = {
   id: string; label: string; at: number; amount: number; reward_count: number; estimated: boolean;
+  basis?: "imported_bank" | "generic_bank";
 };
 export type StockStrategyFundingSource = {
   id: string; label: string; amount: number; reward_count: number; payout_count: number;
   first_at: number; last_at: number; estimated: boolean; averaged: boolean;
+  basis?: "imported_bank" | "generic_bank";
+  confirmed_amount: number;
+  estimated_amount: number;
 };
 export type StockStrategyFunding = {
   starting_cash: number;
@@ -70,7 +75,9 @@ export function buildStockStrategyTimeline(input: StockStrategyTimelineInput, li
   }
   if (snapshot.city_bank === undefined) result.issues.push("Refresh owned stocks to load City Bank details before forecasting; the bank request may have failed.");
   if (input.cityBankActive && snapshot.city_bank === null) result.issues.push("City Bank is marked active, but the API reports no deposit. Clear the active setting or refresh owned stocks.");
-  const rows = input.rows.filter((row) => !isFhgTciHybridRow(row));
+  const rows = input.rows.filter((row) => !isFhgTciHybridRow(row)).map((row) => applyImportedCityBankReturn(row, snapshot.city_bank));
+  const protectedIds = bankReturnProtectedStockIds(rows, snapshot.city_bank);
+  const lockedStockIds = new Set([...(input.lockedStockIds ?? []), ...protectedIds]);
   const stockRows = new Map<number, StockRow[]>();
   for (const row of rows) {
     if (row.stock_id !== null && row.increment !== null && row.total_shares_required !== null) {
@@ -95,10 +102,9 @@ export function buildStockStrategyTimeline(input: StockStrategyTimelineInput, li
   const bankRow = rows.find((row) => row.investment_type === "city_bank");
   const importedBank = snapshot.city_bank;
   let bank: BankSchedule | null = importedBank ? {
-    principal: importedBank.amount, duration: importedBank.duration, next: Math.max(start, importedBank.until),
+    principal: cityBankPrincipal(importedBank), duration: importedBank.duration, next: Math.max(start, importedBank.until),
     profit: importedBank.profit, estimated: false,
   } : null;
-  if (bank && (!bankRow || bankRow.increment_cost <= 0)) result.issues.push("City Bank valuation is unavailable; reload investment returns to forecast renewals.");
 
   const coveredIncrement = (id: number) => Math.max(0, ...(stockRows.get(id) ?? [])
     .filter((row) => (holdings.get(id) ?? 0) >= row.total_shares_required).map((row) => row.increment));
@@ -108,6 +114,7 @@ export function buildStockStrategyTimeline(input: StockStrategyTimelineInput, li
   for (const position of snapshot.stocks) {
     const group = stockRows.get(position.stock_id);
     if (!group) continue; // Unvalued/passive benefits are not cash sources in the ROI table.
+    if (importedBank && group[0].benefit_key === TCI) continue; // The imported bank return already contains any applied bonuses.
     const count = coveredIncrement(position.stock_id);
     if (!count) continue;
     const bonus = position.bonus;
@@ -125,11 +132,13 @@ export function buildStockStrategyTimeline(input: StockStrategyTimelineInput, li
       next: ready ? (passive ? Infinity : start) : utcDay(start) + (frequency - bonus.progress!) * DAY,
     });
   }
-  if (input.rows.some(isFhgTciHybridRow) || input.fhgTciHybridActive) result.warnings.push("The FHG/TCI hybrid is excluded. Imported FHG and TCI holdings are modelled individually.");
+  if (input.rows.some(isFhgTciHybridRow) || input.fhgTciHybridActive) result.warnings.push("The FHG/TCI hybrid is excluded. FHG rewards and bank returns are modelled separately.");
   if (rentalAnnual > 0) result.warnings.push("Private Island rent is an averaged estimate; stock rewards and bank interest use payout dates.");
+  if (importedBank && protectedIds.some((id) => (holdings.get(id) ?? 0) > 0)) result.warnings.push("The bank forecast repeats your imported return without adding TCI again. Owned TCI is kept while assuming the same bank bonuses.");
   if (result.issues.length) return result;
 
   function estimatedBankProfit(principal: number, duration: number): number {
+    if (importedBank) return importedBank.profit;
     let annual = bankRow?.annual_return ?? 0;
     for (const [id, schedule] of schedules) {
       if (schedule.passive && coveredIncrement(id) > 0 && schedule.next === Infinity) annual += schedule.rows[0].annual_return;
@@ -156,6 +165,9 @@ export function buildStockStrategyTimeline(input: StockStrategyTimelineInput, li
       payout_count: (old?.payout_count ?? 0) + (averaged ? 0 : 1),
       first_at: old?.first_at ?? event.at, last_at: event.at,
       estimated: (old?.estimated ?? false) || event.estimated, averaged,
+      basis: event.basis,
+      confirmed_amount: (old?.confirmed_amount ?? 0) + (event.estimated ? 0 : event.amount),
+      estimated_amount: (old?.estimated_amount ?? 0) + (event.estimated ? event.amount : 0),
     });
   }
   function processPayouts(): void {
@@ -171,7 +183,8 @@ export function buildStockStrategyTimeline(input: StockStrategyTimelineInput, li
       schedule.next = schedule.cycleStart + schedule.frequency * DAY;
     }
     if (bank && bank.next <= now) {
-      credit({ id: "city_bank", label: "City Bank interest", at: now, amount: bank.profit, reward_count: 1, estimated: bank.estimated });
+      credit({ id: "city_bank", label: "City Bank interest", at: now, amount: bank.profit, reward_count: 1, estimated: bank.estimated,
+        basis: importedBank ? "imported_bank" : "generic_bank" });
       bank.profit = estimatedBankProfit(bank.principal, bank.duration);
       bank.next = now + bank.duration * DAY;
       bank.estimated = true;
@@ -198,7 +211,7 @@ export function buildStockStrategyTimeline(input: StockStrategyTimelineInput, li
   while (result.timeline.length < limit) {
     processPayouts();
     const currentSnapshot: OwnedStockSnapshot = { ...snapshot, stocks: [...holdings].map(([stock_id, shares]) => ({ stock_id, shares, bonus: null })) };
-    const stepInput = { ...input, rows: bank ? rows : rows.filter((row) => row.benefit_key !== TCI),
+    const stepInput = { ...input, rows: bank && !importedBank ? rows : rows.filter((row) => row.benefit_key !== TCI), lockedStockIds,
       ownedSnapshot: currentSnapshot, cityBankActive: bank !== null, budget: cash, fhgTciHybridActive: false,
       fhgTciHybridBaselineShares: undefined, fhgTciHybridReservedShares: undefined };
     const proposed = nextScheduledStockStrategyStep(stepInput, completed, limit);
@@ -215,7 +228,7 @@ export function buildStockStrategyTimeline(input: StockStrategyTimelineInput, li
       const nextPayout = Math.min(bank?.next ?? Infinity, ...[...schedules.values()].map((schedule) => schedule.next));
       const next = Math.min(nextCash, nextPayout);
       const futureStockIncome = [...schedules.values()].some((schedule) => !schedule.passive && schedule.rows.some((row) => row.benefit_value > 0));
-      const futureBankIncome = bank && (bank.profit > 0 || (bankRow?.annual_return ?? 0) > 0);
+      const futureBankIncome = bank && (bank.profit > 0 || (!importedBank && (bankRow?.annual_return ?? 0) > 0));
       if ((!futureStockIncome && !futureBankIncome && continuousPerSecond <= 0) || next > end || !Number.isFinite(next)) {
         result.timeline.push({ step: proposed, purchase_at: null, status: !futureStockIncome && !futureBankIncome && continuousPerSecond <= 0 ? "unfunded" : "horizon",
           wait_weeks: null, elapsed_weeks: null, weekly_investment_income_after: null, weekly_total_income_after: null, funding: null });

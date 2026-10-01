@@ -17,6 +17,7 @@ export type OwnedStockSnapshot = {
 };
 
 export type CityBankInvestment = {
+  /** Total returned at maturity, including profit; stored exactly as supplied by Torn. */
   amount: number;
   profit: number;
   duration: number;
@@ -24,6 +25,10 @@ export type CityBankInvestment = {
   until: number;
   invested_at: number;
 };
+
+export function cityBankPrincipal(investment: CityBankInvestment): number {
+  return investment.amount - investment.profit;
+}
 
 const BANK_MERIT_MIN = 0;
 const BANK_MERIT_MAX = 10;
@@ -85,6 +90,7 @@ function parseCityBankInvestment(value: unknown): CityBankInvestment | null {
   const integerFields = ["amount", "profit", "duration", "until", "invested_at"] as const;
   if (integerFields.some((field) => typeof value[field] !== "number" || !Number.isSafeInteger(value[field]) || value[field] < 0)) return null;
   if (Number(value.duration) <= 0 || typeof value.interest_rate !== "number" || !Number.isFinite(value.interest_rate) || value.interest_rate < 0) return null;
+  if (Number(value.amount) <= Number(value.profit)) return null;
   return {
     amount: Number(value.amount), profit: Number(value.profit), duration: Number(value.duration),
     interest_rate: value.interest_rate, until: Number(value.until), invested_at: Number(value.invested_at),
