@@ -287,6 +287,7 @@ export function buildStockStrategyTimeline(input: StockStrategyTimelineInput, li
     payouts = [];
     sources = new Map();
   }
+  groupSavingsMilestones(result.timeline);
   if (result.savings_target) {
     const target = result.savings_target.recommendation;
     // A purchase of a later increment can also complete the initial target.
@@ -303,6 +304,25 @@ export function buildStockStrategyTimeline(input: StockStrategyTimelineInput, li
   }
   result.warnings = [...new Set(result.warnings)];
   return result;
+}
+
+/** Keep smaller follow-up buys within the next major saving phase, without changing execution. */
+function groupSavingsMilestones(timeline: StockStrategyTiming[]): void {
+  let previousMilestoneCost = 0;
+  for (let index = 0; index < timeline.length; index++) {
+    const timing = timeline[index];
+    if (timing.savings_target.estimated_cost < previousMilestoneCost) {
+      // Look only at targets identified by this forecast. If it ends before a larger
+      // target appears, retain the known target rather than inventing a destination.
+      const nextMilestone = timeline.slice(index + 1).find(candidate =>
+        candidate.savings_target.estimated_cost >= previousMilestoneCost);
+      if (nextMilestone) timing.savings_target = nextMilestone.savings_target;
+    }
+    if (timing.status === "scheduled" && timing.step.recommendation.row.row_id === timing.savings_target.row.row_id) {
+      // A completed milestone remains a milestone even if its holding is sold later.
+      previousMilestoneCost = timing.step.recommendation.estimated_cost;
+    }
+  }
 }
 
 function utcDay(timestamp: number): number { return Math.floor(timestamp / DAY) * DAY; }

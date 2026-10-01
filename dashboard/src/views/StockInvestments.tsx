@@ -1867,7 +1867,7 @@ function SavingsTargetSummary({ target, asOf }: { target: StockStrategySavingsTa
         <div><dt>Cash gap at forecast start</dt><dd>{formatMoney(target.cash_shortfall)}</dd></div>
         <div><dt>Estimated purchase</dt><dd>{estimatedPurchase}</dd></div>
       </dl>
-      <p>The cash gap is after cash and ready rewards, before any stock sales. Timing follows the full plan, including intermediary purchases and income. Targets are reassessed as holdings change.</p>
+      <p>The cash gap is after cash and ready rewards, before any stock sales. Timing follows the full plan, including intermediary purchases and income. Smaller follow-up purchases are grouped under the next larger savings milestone shown in the plan.</p>
     </section>
   );
 }

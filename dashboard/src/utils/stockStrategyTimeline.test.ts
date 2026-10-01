@@ -34,6 +34,37 @@ function bank(until = START + 2 * DAY): CityBankInvestment {
 }
 
 describe("scheduled stock strategy", () => {
+  it("groups a smaller high-ROI repurchase under the next larger milestone", () => {
+    const result = buildStockStrategyTimeline(input([row(1, 1000, 100), row(2, 100, 9), row(3, 3000, 240)], [],
+      { additionalIncomePerWeek: 70 }));
+    expect(result.timeline.slice(0, 4).map(entry => entry.step.recommendation.row.stock_id)).toEqual([2, 1, 2, 3]);
+    expect(result.timeline.slice(0, 4).map(entry => entry.savings_target.row.stock_id)).toEqual([1, 1, 3, 3]);
+    expect(result.timeline[1].step.sales.some(sale => sale.stock_id === 2)).toBe(true);
+    expect(result.timeline[3].step.sales.some(sale => sale.stock_id === 1)).toBe(true);
+    expect(result.savings_target?.purchase_at).toBe(result.timeline[1].purchase_at);
+  });
+
+  it("keeps a higher-ROI TCT repurchase as an intermediary between SYM and MUN", () => {
+    const sym = { ...row(1, 1000, 100), acronym: "SYM" };
+    const tct = { ...row(2, 100, 11), acronym: "TCT" };
+    const mun = { ...row(3, 3000, 270), acronym: "MUN" };
+    const result = buildStockStrategyTimeline(input([sym, tct, mun], [position(2)],
+      { additionalIncomePerWeek: 70, lockedStockIds: new Set() }));
+    expect(result.timeline.slice(0, 3).map(entry => entry.step.recommendation.row.acronym)).toEqual(["SYM", "TCT", "MUN"]);
+    expect(result.timeline.slice(0, 3).map(entry => entry.savings_target.row.acronym)).toEqual(["SYM", "MUN", "MUN"]);
+    expect(result.timeline[1].step.recommendation.ranking_roi_percent).toBeGreaterThan(result.timeline[1].savings_target.ranking_roi_percent);
+    expect(result.timeline[0].step.sales.some(sale => sale.stock_id === 2)).toBe(true);
+    expect(result.timeline[2].step.sales.some(sale => sale.stock_id === 1)).toBe(true);
+    expect(result.timeline[2].step.sales.some(sale => sale.stock_id === 2)).toBe(true);
+  });
+
+  it("retains the known target when a truncated plan has no larger milestone", () => {
+    const result = buildStockStrategyTimeline(input([row(1, 1000, 100), row(2, 100, 9), row(3, 3000, 240)], [],
+      { additionalIncomePerWeek: 70 }), 3);
+    expect(result.timeline.map(entry => entry.step.recommendation.row.stock_id)).toEqual([2, 1, 2]);
+    expect(result.timeline.map(entry => entry.savings_target.row.stock_id)).toEqual([1, 1, 2]);
+  });
+
   it("identifies the higher-ROI savings target behind an intermediary purchase and dates it from the full plan", () => {
     const result = buildStockStrategyTimeline(input([row(1, 1000, 100), row(2, 100, 9), row(3, 1200, 96)], [],
       { additionalIncomePerWeek: 70, lockedStockIds: new Set([2]) }));
