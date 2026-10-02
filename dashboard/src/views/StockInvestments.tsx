@@ -1043,7 +1043,7 @@ export function StockInvestments() {
                 <strong>Strategy path</strong>
                 <span>ROI-first milestones</span>
               </div>
-              {strategyForecast.as_of !== null ? <p className="stock-owned-settings-description">Forecast from {formatStrategyDate(strategyForecast.as_of)}. Up to ten purchases over five years. Dates follow UTC daily progress.</p> : null}
+              {strategyForecast.as_of !== null ? <p className="stock-owned-settings-description">Forecast from {formatStrategyDate(strategyForecast.as_of)}. Ends at the ninth recommendation or second savings target, whichever comes first, within five years. Dates follow UTC daily progress.</p> : null}
               {strategyForecast.warnings.map((warning) => <p key={warning} className="stock-owned-settings-description">{warning}</p>)}
               {invalidStrategyCashInputs ? (
                 <EmptyState text="Enter valid cash and weekly income amounts to estimate the strategy path" />

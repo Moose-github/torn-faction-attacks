@@ -42,6 +42,7 @@ describe("scheduled stock strategy", () => {
     expect(result.timeline[1].step.sales.some(sale => sale.stock_id === 2)).toBe(true);
     expect(result.timeline[3].step.sales.some(sale => sale.stock_id === 1)).toBe(true);
     expect(result.savings_target?.purchase_at).toBe(result.timeline[1].purchase_at);
+    expect(result.timeline).toHaveLength(4);
   });
 
   it("keeps a higher-ROI TCT repurchase as an intermediary between SYM and MUN", () => {
@@ -56,6 +57,17 @@ describe("scheduled stock strategy", () => {
     expect(result.timeline[0].step.sales.some(sale => sale.stock_id === 2)).toBe(true);
     expect(result.timeline[2].step.sales.some(sale => sale.stock_id === 1)).toBe(true);
     expect(result.timeline[2].step.sales.some(sale => sale.stock_id === 2)).toBe(true);
+    expect(result.timeline).toHaveLength(3);
+  });
+
+  it("ends at nine recommendations when the second savings target is still ahead", () => {
+    const intermediaries = Array.from({ length: 11 }, (_, index) => row(index + 2, 100, 9));
+    const result = buildStockStrategyTimeline(input([row(1, 10000, 1000), ...intermediaries], [],
+      { additionalIncomePerWeek: 70, lockedStockIds: new Set(intermediaries.map(stock => stock.stock_id!)) }));
+    expect(result.timeline).toHaveLength(9);
+    expect(result.timeline.every(entry => entry.step.recommendation.row.stock_id !== 1)).toBe(true);
+    expect(result.timeline.every(entry => entry.savings_target.row.stock_id === 1)).toBe(true);
+    expect(result.savings_target).toMatchObject({ purchase_at: null, status: "not_scheduled" });
   });
 
   it("retains the known target when a truncated plan has no larger milestone", () => {
@@ -106,8 +118,7 @@ describe("scheduled stock strategy", () => {
     expect(result.timeline.slice(0, 2).map((step) => step.purchase_at)).toEqual([START, START]);
     expect(result.timeline[0].funding).toMatchObject({ starting_cash: 0, investment_income: 150, ending_cash: 90 });
     expect(result.timeline[1].funding).toMatchObject({ starting_cash: 90, investment_income: 0, ending_cash: 30 });
-    expect(result.timeline[2].purchase_at).toBe(MIDNIGHT + 7 * DAY);
-    expect(result.timeline[2].funding?.payouts.filter((event) => event.id === "stock:1")).toHaveLength(1);
+    expect(result.timeline).toHaveLength(2); // Both purchases are savings targets.
   });
 
   it("starts purchased stock cycles without granting a payout on purchase", () => {

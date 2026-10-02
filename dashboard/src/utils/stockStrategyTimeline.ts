@@ -10,6 +10,8 @@ const WEEK = 7 * DAY;
 const YEAR = 365 * DAY;
 const TCI = "city_bank:tci_bonus";
 const EPSILON = 0.00001;
+const MAX_RECOMMENDATIONS = 9;
+const MAX_SAVINGS_TARGETS = 2;
 
 export type StockStrategyPayout = {
   id: string; label: string; at: number; amount: number; reward_count: number; estimated: boolean;
@@ -288,6 +290,14 @@ export function buildStockStrategyTimeline(input: StockStrategyTimelineInput, li
     sources = new Map();
   }
   groupSavingsMilestones(result.timeline);
+  // Classify with the full lookahead first so a small repurchase (such as TCT)
+  // is not counted as the second milestone before its larger target is known.
+  let savingsTargets = 0;
+  const secondTargetIndex = result.timeline.findIndex(timing =>
+    timing.step.recommendation.row.row_id === timing.savings_target.row.row_id
+    && ++savingsTargets === MAX_SAVINGS_TARGETS);
+  result.timeline = result.timeline.slice(0, Math.min(MAX_RECOMMENDATIONS,
+    secondTargetIndex < 0 ? result.timeline.length : secondTargetIndex + 1));
   if (result.savings_target) {
     const target = result.savings_target.recommendation;
     // A purchase of a later increment can also complete the initial target.
