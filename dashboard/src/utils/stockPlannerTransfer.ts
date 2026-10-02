@@ -19,6 +19,11 @@ export type StockPlannerExport = {
   settings: StockPlannerSettings;
 };
 
+/** Replay the recorded payout progress at its own timestamp, even if exported on a later day. */
+export function stockPlannerReplayAsOf(data: StockPlannerExport): number {
+  return data.portfolio && data.portfolio.refreshed_at > 0 ? data.portfolio.refreshed_at : data.asOf;
+}
+
 /** Explicitly reconstruct allowed fields on both import and export; never serialize app/session storage. */
 export function sanitizeStockPlannerExport(value: unknown): StockPlannerExport {
   const data = record(value);

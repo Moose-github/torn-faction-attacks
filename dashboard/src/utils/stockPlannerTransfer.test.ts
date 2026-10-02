@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildStockStrategyTimeline } from "./stockStrategyTimeline";
-import { parseStockPlannerFile, sanitizeStockPlannerExport, serializeStockPlannerExport, type StockPlannerExport } from "./stockPlannerTransfer";
+import { parseStockPlannerFile, sanitizeStockPlannerExport, serializeStockPlannerExport, stockPlannerReplayAsOf, type StockPlannerExport } from "./stockPlannerTransfer";
 
 const AS_OF = Date.UTC(2026, 9, 1, 12) / 1000;
 function fixture(): StockPlannerExport {
@@ -68,6 +68,23 @@ describe("stock planner export/import", () => {
     expect(parseStockPlannerFile(serializeStockPlannerExport(data)).portfolio?.city_bank).toBeUndefined();
     data.portfolio = null;
     expect(parseStockPlannerFile(serializeStockPlannerExport(data)).portfolio).toBeNull();
+  });
+
+  it("replays an older portfolio when the file was exported days after refreshing holdings", () => {
+    const original = fixture();
+    const laterExport = parseStockPlannerFile(serializeStockPlannerExport({ ...original, asOf: AS_OF + 3 * 86400 }));
+    const forecast = (asOf: number) => buildStockStrategyTimeline({
+      rows: laterExport.roi.rows, ownedSnapshot: laterExport.portfolio, asOf, cityBankActive: true,
+      budget: 0, additionalIncomePerWeek: 70, minimumRoi: null, affordableOnly: false, lockedStockIds: new Set([1]),
+    });
+    expect(stockPlannerReplayAsOf(laterExport)).toBe(AS_OF);
+    const replay = forecast(stockPlannerReplayAsOf(laterExport));
+    expect(replay.issues).toEqual([]);
+    expect(replay.timeline.length).toBeGreaterThan(0);
+    expect(replay).toEqual(forecast(original.asOf));
+    expect(laterExport.portfolio?.refreshed_at).toBe(AS_OF);
+    // The live path still requires up-to-date progress; only imported replay uses the snapshot date.
+    expect(forecast(laterExport.asOf).issues.join()).toContain("Refresh owned stocks today");
   });
 
   it("rejects unsupported versions and malformed JSON", () => {

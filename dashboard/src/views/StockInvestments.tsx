@@ -21,7 +21,7 @@ import { parseNumber } from "../utils/numberInput";
 import { buildStockStrategyTimeline, type StockStrategySavingsTarget, type StockStrategyTiming } from "../utils/stockStrategyTimeline";
 import { applyImportedCityBankReturn, bankReturnProtectedStockIds, cityBankValuation } from "../utils/cityBankValuation";
 import { importOwnedStockPortfolio, type OwnedStockImportProgress } from "../utils/ownedStockImport";
-import { MAX_PLANNER_FILE_BYTES, parseStockPlannerFile, serializeStockPlannerExport, type StockPlannerExport } from "../utils/stockPlannerTransfer";
+import { MAX_PLANNER_FILE_BYTES, parseStockPlannerFile, serializeStockPlannerExport, stockPlannerReplayAsOf, type StockPlannerExport } from "../utils/stockPlannerTransfer";
 import {
   ownedSharesMap,
   ownedSnapshotWithShares,
@@ -600,7 +600,7 @@ function StockInvestmentPlanner({ imported, onImport, onExitImport, isImporting 
     return () => window.clearInterval(timer);
   }, []);
   const { forecast: strategyForecast, asOf: plannerAsOf } = React.useMemo(() => {
-    const asOf = imported?.asOf ?? Math.floor(Date.now() / 1000);
+    const asOf = imported ? stockPlannerReplayAsOf(imported) : Math.floor(Date.now() / 1000);
     const forecast = buildStockStrategyTimeline({
       rows: investmentRows,
       ownedSnapshot: effectiveOwnedSnapshot,
@@ -614,6 +614,9 @@ function StockInvestmentPlanner({ imported, onImport, onExitImport, isImporting 
       additionalIncomePerWeek: weeklyAdditionalIncome,
       privateIslandCount: activePrivateIslandRentalCount,
     }, DEFAULT_STOCK_STRATEGY_STEP_LIMIT);
+    if (imported && (!effectiveOwnedSnapshot || effectiveOwnedSnapshot.refreshed_at <= 0)) {
+      forecast.issues = ["This file has no dated portfolio snapshot. Ask the owner to load their holdings and export the planner again."];
+    }
     return { forecast, asOf };
   }, [investmentRows, effectiveOwnedSnapshot, cityBankActive, effectiveFhgTciHybridActive,
     budget, lockedStockIds, weeklyAdditionalIncome, activePrivateIslandRentalCount, forecastDay, imported]);
@@ -697,8 +700,8 @@ function StockInvestmentPlanner({ imported, onImport, onExitImport, isImporting 
           {imported ? <button type="button" className="panel-action-button" onClick={onExitImport}>Return to my planner</button> : null}
         </div>
         <p className="stock-owned-settings-description">Share holdings, bank details, cash/income, settings and prices to reproduce a plan. API keys and login details are never included.</p>
-        {imported ? <p role="status" className="stock-owned-settings-description"><strong>Imported test planner.</strong> Using exported prices and the forecast date {formatStrategyDate(imported.asOf)}. Changes stay in this test session; your saved planner is untouched.</p>
-          : <p className="stock-owned-settings-description">Import opens a temporary test planner using the file’s prices and forecast date.</p>}
+        {imported ? <p role="status" className="stock-owned-settings-description"><strong>Imported test planner.</strong> Using exported prices and replaying holdings and payout progress from {formatStrategyDate(stockPlannerReplayAsOf(imported))}. Changes stay in this test session; your saved planner is untouched.</p>
+          : <p className="stock-owned-settings-description">Import opens a temporary test planner using the file’s prices and portfolio snapshot date.</p>}
       </section>
 
       <section className="status-grid stock-status-grid stock-investment-status-grid">
@@ -1051,15 +1054,9 @@ function StockInvestmentPlanner({ imported, onImport, onExitImport, isImporting 
             </button>
           </div>
           <p id="stock-strategy-income-help" className="stock-owned-settings-description">
-            Money inputs accept shorthand: 100m = $100,000,000 and 2.3b = $2,300,000,000.{" "}
-            Investment income is a weekly reference calculated from your holdings; purchases use scheduled payouts.
-            {" "}Additional income is money left after expenses, excluding investment income, and accrues evenly.
-            {" "}Cash available now excludes uncollected stock rewards and bank interest, which the forecast credits when due.
-          </p>
-          <p className="stock-owned-settings-description">
-            All rewards are collected instantly, sold at configured values and reinvested. Prices stay fixed. Bank principal is reserved and renewed for the same term;
-            renewals repeat your imported profit when available, otherwise use a generic estimate. Future bank rates may change.
-            Private Island rent is averaged. The FHG/TCI hybrid is excluded.
+            Investment income is a weekly income from your owned stock payouts<br />
+            Additional income is any additional non-stock money you want to invest.<br />
+            Cash available now is the raw cash you currently have available &amp; not invested.
           </p>
           {strategyCashInputs.investmentIncomePerWeek.trim() !== "" ? <p className="stock-owned-settings-description">Your saved weekly investment income override is preserved but is not applied to scheduled forecasts.</p> : null}
           {invalidStrategyCashInputs ? <p role="alert" className="error-panel">Enter zero or a positive amount for each cash flow input.</p> : null}
@@ -1252,7 +1249,8 @@ function StockInvestmentPlanner({ imported, onImport, onExitImport, isImporting 
           <>
             <p className="stock-payout-snapshot-note">
               {ownedSnapshot
-                ? `Payout progress at last refresh: ${formatDate(ownedSnapshot.refreshed_at)}. Use Refresh owned stocks to update after collecting. Progress advances at Torn's daily rollover.`
+                ? imported ? `Replaying payout progress saved on ${formatStrategyDate(ownedSnapshot.refreshed_at)}.`
+                  : `Payout progress at last refresh: ${formatDate(ownedSnapshot.refreshed_at)}. Use Refresh owned stocks to update after collecting. Progress advances at Torn's daily rollover.`
                 : "Refresh owned stocks to load payout progress for your holdings."}
             </p>
             <StockRoiTable rows={rows} ownedShares={ownedShares} ownedSnapshot={ownedSnapshot} manuallyOwnedRowIds={manualOwnedRowIds} lockedStockIds={lockedStockIds} hasOwnedSnapshot={hasOwnershipState} cityBankActive={cityBankActive} privateIslandActive={activePrivateIslandRentalCount > 0} fhgTciHybridActive={effectiveFhgTciHybridActive} fhgTciHybridBaselineShares={fhgTciHybridBaselineShares} fhgTciHybridReservedShares={fhgTciHybridReservedShares} bankMerits={bankMerits} sort={roiSort} onSort={updateRoiSort} onToggleOwned={toggleManualOwnedRow} />
