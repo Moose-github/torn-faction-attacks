@@ -1146,7 +1146,7 @@ describe("stock buy recommendations", () => {
       available_cash: 1_500,
       extra_cash_required: 0,
     });
-    expect(results[0].sales[0].retained_shares).toBeUndefined();
+    expect(results[0].sales[0].retained_shares).toBe(149);
   });
 
   it.each([[1_500, 51, 149], [1_001, 100, 100]])("keeps covered return and reports retained shares with %s cash", (budget, sold, kept) => {
@@ -1297,6 +1297,7 @@ describe("stock buy recommendations", () => {
         acronym: "BBB",
         name: "Alpha",
         shares: 51,
+        retained_shares: 49,
         sale_value: 1_018.98,
         sale_fee: 1.02,
         current_annual_return: 0,

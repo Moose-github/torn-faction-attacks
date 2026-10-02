@@ -34,6 +34,41 @@ function bank(until = START + 2 * DAY): CityBankInvestment {
 }
 
 describe("scheduled stock strategy", () => {
+  it("sells only the remaining ASS shares in a later step after a partial sale breaks its block", () => {
+    const result = buildStockStrategyTimeline(input([
+      { ...row(1, 1000, 1), acronym: "ASS" },
+      { ...row(2, 600, 100), acronym: "PRN" },
+      { ...row(3, 400, 60), acronym: "TCT" },
+    ], [position(1, 0, 7, false, 1000)], { budget: 1, lockedStockIds: new Set() }));
+    expect(result.timeline.map(entry => entry.step.recommendation.row.acronym)).toEqual(["PRN", "TCT"]);
+    const first = result.timeline[0].step.sales[0];
+    const second = result.timeline[1].step.sales[0];
+    expect(first).toMatchObject({ stock_id: 1, shares: 600, retained_shares: 400 });
+    expect(second).toMatchObject({ stock_id: 1, shares: 400 });
+    expect(second.retained_shares).toBeUndefined();
+    expect(first.shares + second.shares).toBe(1000);
+    expect(first.sale_value + second.sale_value).toBeCloseTo(999);
+    expect(first.sale_fee + second.sale_fee).toBeCloseTo(1);
+    expect(result.timeline[1].funding?.starting_cash).toBeCloseTo(result.timeline[0].funding!.ending_cash);
+  });
+
+  it.each([0, 90])("buys an already fundable target directly instead of immediately buying and selling THS (%s cash)", (budget) => {
+    const rows = [
+      { ...row(1, 100, 20), acronym: "SYM" },
+      { ...row(2, 1100, 40), acronym: "LSC" },
+      { ...row(3, 90, 6), acronym: "THS" },
+      { ...row(4, 1000, 100), acronym: "PRN" },
+    ];
+    const result = buildStockStrategyTimeline(input(rows, [position(1, 0, 7, false, 200), position(2, 0, 7, false, 1100)],
+      { budget, lockedStockIds: new Set() }));
+    expect(result.timeline[0].step.recommendation.row.acronym).toBe("PRN");
+    expect(result.timeline[0].purchase_at).toBe(START);
+    expect(result.timeline[0].step.sales.some(sale => sale.stock_id === 3)).toBe(false);
+    expect(result.timeline[0].funding?.investment_income).toBe(0);
+    expect(result.timeline[0].funding?.ending_cash).toBeGreaterThanOrEqual(0);
+    expect(result.timeline[0].step.annual_return_gain).toBeGreaterThan(0);
+  });
+
   it("groups a smaller high-ROI repurchase under the next larger milestone", () => {
     const result = buildStockStrategyTimeline(input([row(1, 1000, 100), row(2, 100, 9), row(3, 3000, 240)], [],
       { additionalIncomePerWeek: 70 }));
@@ -204,7 +239,7 @@ describe("scheduled stock strategy", () => {
     const holding = { ...position(1, 6, 7, false, 300), bonus: { ...position().bonus!, progress: 6, increment: 2 } };
     const result = buildStockStrategyTimeline(input([first, second, row(2, 100, 12), row(3, 200, 20)], [holding], { lockedStockIds: new Set([2]) }), 2);
     expect(result.timeline[0].funding?.sales[0].shares).toBeLessThan(201);
-    expect(result.timeline[0].funding?.sales[0].retained_shares).toBeUndefined();
+    expect(result.timeline[0].funding?.sales[0].retained_shares).toBe(300 - result.timeline[0].funding!.sales[0].shares);
     expect(result.warnings.join()).toContain("conservatively restarted");
     const retainedPayout = result.timeline[1].funding?.payouts.find((event) => event.id === "stock:1");
     expect(retainedPayout?.at).toBe(MIDNIGHT + 7 * DAY);

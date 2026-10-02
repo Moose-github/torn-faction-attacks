@@ -173,7 +173,7 @@ export type StockStrategySale = {
   acronym: string | null;
   name: string | null;
   shares: number;
-  /** Remaining shares when only surplus is sold and every existing whole block is preserved. */
+  /** Remaining shares after a partial sale, including sales that break a benefit block. */
   retained_shares?: number;
   sale_value: number;
   sale_fee: number;
@@ -645,6 +645,11 @@ function nextStrategyStep(
   const targetStep = strategySalePlanIsBeneficial(target, targetSalePlan)
     ? strategyRebalanceStep(target, targetSalePlan, currentCash)
     : strategyEntryStep(target, currentCash);
+  // No saving period remains when the target can already be funded by accepted
+  // sales. A temporary buy would earn no income before being sold into it.
+  if (targetStep.extra_cash_needed <= 0) {
+    return targetStep;
+  }
   // Only count sale proceeds when the selected step actually includes those sales.
   const targetCashRequired = targetStep.cash_required;
   const previousBestRoi = strategyBestPreviousRoi(previousSteps);
@@ -1359,9 +1364,8 @@ function buildStrategySalePlan(
     if (source.source_kind !== "stock") continue;
     const sale = salesBySourceKey.get(`stock:${source.stock.stock_id}`);
     if (!sale) continue;
-    const coveredThreshold = highestCoveredStockThreshold(source.ownedRows, source.stock.shares);
     const retainedShares = source.stock.shares - sale.shares;
-    if (coveredThreshold !== null && coveredThreshold > 0 && retainedShares >= coveredThreshold) {
+    if (retainedShares > 0) {
       sale.retained_shares = retainedShares;
     }
   }
