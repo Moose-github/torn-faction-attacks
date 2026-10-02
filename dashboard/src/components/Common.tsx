@@ -78,7 +78,7 @@ export function CollapsiblePanel({
   return (
     <section className={`panel collapsible-panel ${className}`.trim()}>
       <div className="panel-header collapsible-header">
-        <button type="button" className="collapse-button" onClick={onToggle}>
+        <button type="button" className="collapse-button" onClick={onToggle} aria-expanded={!collapsed}>
           <span>{collapsed ? <ChevronRight size={15} /> : <ChevronDown size={15} />}</span>
           <strong>{title}</strong>
         </button>

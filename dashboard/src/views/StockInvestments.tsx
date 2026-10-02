@@ -72,7 +72,7 @@ type StockRoiSort = {
 type StockStrategyPanelTab = "strategy" | "rebalance";
 type StockStrategyDetailLevel = "low" | "standard" | "high";
 
-type StockPanelStorageKey = "plannerSetup" | "benefitValues";
+type StockPanelStorageKey = "plannerSetup" | "benefitValues" | "investmentReturns";
 
 type PrivateIslandInputs = {
   count: string;
@@ -126,6 +126,7 @@ export function StockInvestments() {
   const [strategyDetailLevel, setStrategyDetailLevel] = React.useState<StockStrategyDetailLevel>("standard");
   const [isPlannerSetupOpen, setIsPlannerSetupOpen] = React.useState(() => readPanelOpenStorage(storageUserId, "plannerSetup", true));
   const [isBenefitValuesOpen, setIsBenefitValuesOpen] = React.useState(() => readPanelOpenStorage(storageUserId, "benefitValues", true));
+  const [isInvestmentReturnsOpen, setIsInvestmentReturnsOpen] = React.useState(() => readPanelOpenStorage(storageUserId, "investmentReturns", true));
   const [ownedApiKey, setOwnedApiKey] = React.useState("");
   const [ownedSnapshot, setOwnedSnapshot] = React.useState<OwnedStockSnapshot | null>(null);
   const bankInvestment = ownedSnapshot?.city_bank;
@@ -374,6 +375,14 @@ export function StockInvestments() {
     setIsPlannerSetupOpen((current) => {
       const next = !current;
       savePanelOpenStorage(storageUserId, "plannerSetup", next);
+      return next;
+    });
+  }
+
+  function toggleInvestmentReturns() {
+    setIsInvestmentReturnsOpen((current) => {
+      const next = !current;
+      savePanelOpenStorage(storageUserId, "investmentReturns", next);
       return next;
     });
   }
@@ -1079,8 +1088,13 @@ export function StockInvestments() {
         </div>
       </section>
 
-      <section className="panel table-panel">
-        <PanelHeader title="Investment returns" aside={`${formatNumber(rows.length)} shown / ${formatNumber(totalPricedRows)} total`} icon={<BadgeDollarSign size={18} />} />
+      <CollapsiblePanel
+        title="Investment returns"
+        aside={`${formatNumber(rows.length)} shown / ${formatNumber(totalPricedRows)} total`}
+        collapsed={!isInvestmentReturnsOpen}
+        onToggle={toggleInvestmentReturns}
+        className="table-panel"
+      >
         <div className="stock-table-filter-panel">
           <div className="stock-owned-settings-title">
             <strong>Table filters</strong>
@@ -1145,7 +1159,7 @@ export function StockInvestments() {
             <StockRoiTable rows={rows} ownedShares={ownedShares} ownedSnapshot={ownedSnapshot} manuallyOwnedRowIds={manualOwnedRowIds} lockedStockIds={lockedStockIds} hasOwnedSnapshot={hasOwnershipState} cityBankActive={cityBankActive} privateIslandActive={activePrivateIslandRentalCount > 0} fhgTciHybridActive={effectiveFhgTciHybridActive} fhgTciHybridBaselineShares={fhgTciHybridBaselineShares} fhgTciHybridReservedShares={fhgTciHybridReservedShares} bankMerits={bankMerits} sort={roiSort} onSort={updateRoiSort} onToggleOwned={toggleManualOwnedRow} />
           </>
         )}
-      </section>
+      </CollapsiblePanel>
 
       <CollapsiblePanel
         title="Benefit values"
