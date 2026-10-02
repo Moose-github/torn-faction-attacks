@@ -53,6 +53,8 @@ import {
 } from "../utils/stockRecommendations";
 
 const DEFAULT_MINIMUM_ROI = "5";
+// Temporarily hide the hybrid option while retaining its implementation.
+const SHOW_FHG_TCI_HYBRID_CONTROLS = false;
 const MONEY_INPUT_HINT = "Enter a full amount or shorthand, e.g. 100m or 2.3b. Supports k, m, b and t.";
 const MANUAL_BENEFIT_VALUES_SECTION_ID = "stock-benefit-manual-values";
 const PRIVATE_ISLAND_ROW_ID = "private_island:rental";
@@ -688,22 +690,6 @@ function StockInvestmentPlanner({ imported, onImport, onExitImport, isImporting 
         </button>
       </section>
 
-      <section className="panel stock-planner-transfer" aria-label="Share planner">
-        <div className="stock-planner-transfer-actions">
-          <button type="button" className="panel-action-button secondary" disabled={isLoading || !roiData || isRefreshingOwnedStocks} onClick={exportPlanner}>Export planner</button>
-          <button type="button" className="panel-action-button secondary" disabled={isImporting} onClick={() => importFileInput.current?.click()}>{isImporting ? "Importing…" : "Import planner"}</button>
-          <input ref={importFileInput} type="file" accept=".json,application/json" hidden aria-label="Import planner file" onChange={event => {
-            const file = event.target.files?.[0];
-            event.target.value = "";
-            if (file) void onImport(file);
-          }} />
-          {imported ? <button type="button" className="panel-action-button" onClick={onExitImport}>Return to my planner</button> : null}
-        </div>
-        <p className="stock-owned-settings-description">Share holdings, bank details, cash/income, settings and prices to reproduce a plan. API keys and login details are never included.</p>
-        {imported ? <p role="status" className="stock-owned-settings-description"><strong>Imported test planner.</strong> Using exported prices and replaying holdings and payout progress from {formatStrategyDate(stockPlannerReplayAsOf(imported))}. Changes stay in this test session; your saved planner is untouched.</p>
-          : <p className="stock-owned-settings-description">Import opens a temporary test planner using the file’s prices and portfolio snapshot date.</p>}
-      </section>
-
       <section className="status-grid stock-status-grid stock-investment-status-grid">
         <StatusMetric
           className="stock-best-block-card"
@@ -756,10 +742,10 @@ function StockInvestmentPlanner({ imported, onImport, onExitImport, isImporting 
               <strong>{cityBankActive ? "Active" : "Inactive"}</strong>
               <small>Bank {formatNumber(bankMerits)}/10</small>
             </span>
-            <span>
+            {SHOW_FHG_TCI_HYBRID_CONTROLS ? <span>
               <strong>{effectiveFhgTciHybridActive ? "Yes" : "No"}</strong>
               <small>Hybrid owned</small>
-            </span>
+            </span> : null}
             <span>
               <strong>{formatNumber(activeFilterCount)}</strong>
               <small>Filters</small>
@@ -823,9 +809,9 @@ function StockInvestmentPlanner({ imported, onImport, onExitImport, isImporting 
               </div>
             ) : null}
             <p id="stock-owned-api-disclosure" className="stock-owned-settings-description">
-              Refresh owned stocks calls Torn's stocks, merits and money endpoints directly from your browser.
-              We save your key, holdings, bank merits and City Bank investment details (amount, profit, term, interest rate and dates)
-              only in this browser; none are sent to our server. The money response also includes other balances, which we discard.
+              Refreshing owned stocks calls Torn’s stocks, merits and money endpoints directly from your browser.
+              <br />
+              Your API key and imported portfolio data are saved only in your browser and aren’t sent to our server.
             </p>
           </div>
 
@@ -891,7 +877,7 @@ function StockInvestmentPlanner({ imported, onImport, onExitImport, isImporting 
             </div>
           </div>
 
-          <div className="stock-owned-settings-section">
+          {SHOW_FHG_TCI_HYBRID_CONTROLS ? <div className="stock-owned-settings-section">
             <div className="stock-owned-settings-title">
               <strong>FHG/TCI Hybrid</strong>
               <span>{includeFhgTciHybrid ? "Shown in recommendations" : "Hidden from recommendations"}</span>
@@ -940,7 +926,7 @@ function StockInvestmentPlanner({ imported, onImport, onExitImport, isImporting 
                 </span>
               </label>
             </div>
-          </div>
+          </div> : null}
 
           <div className="stock-owned-settings-section">
             <div className="stock-owned-settings-title">
@@ -1152,7 +1138,7 @@ function StockInvestmentPlanner({ imported, onImport, onExitImport, isImporting 
                 <strong>Strategy path</strong>
                 <span>ROI-first milestones</span>
               </div>
-              {strategyForecast.as_of !== null ? <p className="stock-owned-settings-description">Forecast from {formatStrategyDate(strategyForecast.as_of)}. {strategyDetailLevel !== "low" ? "Ends at the ninth recommendation or second savings target, whichever comes first, within five years. " : ""}Dates follow UTC daily progress.</p> : null}
+              {strategyForecast.as_of !== null ? <p className="stock-owned-settings-description">Forecast ends at the ninth recommendation or second savings target. Dates follow UTC daily progress.</p> : null}
               {strategyForecast.warnings.map((warning) => <p key={warning} className="stock-owned-settings-description">{warning}</p>)}
               {invalidStrategyCashInputs ? (
                 <EmptyState text="Enter valid cash and weekly income amounts to estimate the strategy path" />
@@ -1298,6 +1284,20 @@ function StockInvestmentPlanner({ imported, onImport, onExitImport, isImporting 
           />
         )}
       </CollapsiblePanel>
+
+      <section className="panel stock-planner-transfer" aria-label="Share planner">
+        <div className="stock-planner-transfer-actions">
+          <button type="button" className="panel-action-button secondary" disabled={isLoading || !roiData || isRefreshingOwnedStocks} onClick={exportPlanner}>Export planner</button>
+          <button type="button" className="panel-action-button secondary" disabled={isImporting} onClick={() => importFileInput.current?.click()}>{isImporting ? "Importing…" : "Import planner"}</button>
+          <input ref={importFileInput} type="file" accept=".json,application/json" hidden aria-label="Import planner file" onChange={event => {
+            const file = event.target.files?.[0];
+            event.target.value = "";
+            if (file) void onImport(file);
+          }} />
+          {imported ? <button type="button" className="panel-action-button" onClick={onExitImport}>Return to my planner</button> : null}
+        </div>
+        {!imported ? <p className="stock-owned-settings-description">Import opens a temporary test planner using the file’s prices and portfolio snapshot date.</p> : null}
+      </section>
     </>
   );
 }
