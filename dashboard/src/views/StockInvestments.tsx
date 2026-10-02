@@ -1867,7 +1867,6 @@ function SavingsTargetSummary({ target, asOf }: { target: StockStrategySavingsTa
         <div><dt>Cash gap at forecast start</dt><dd>{formatMoney(target.cash_shortfall)}</dd></div>
         <div><dt>Estimated purchase</dt><dd>{estimatedPurchase}</dd></div>
       </dl>
-      <p>The cash gap is after cash and ready rewards, before any stock sales. Timing follows the full plan, including intermediary purchases and income. Smaller follow-up purchases are grouped under the next larger savings milestone shown in the plan.</p>
     </section>
   );
 }
@@ -2020,7 +2019,7 @@ function formatStrategyWeeks(weeks: number): string {
 }
 
 function formatStrategyDate(timestamp: number): string {
-  return new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", timeZone: "UTC" }).format(timestamp * 1000) + " UTC";
+  return new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }).format(timestamp * 1000);
 }
 
 function rebalanceActionDescription(recommendation: StockRebalanceRecommendation, bankMerits: number): string {
