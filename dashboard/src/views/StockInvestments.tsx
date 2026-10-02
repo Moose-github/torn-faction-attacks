@@ -21,6 +21,7 @@ import { parseNumber } from "../utils/numberInput";
 import { buildStockStrategyTimeline, type StockStrategySavingsTarget, type StockStrategyTiming } from "../utils/stockStrategyTimeline";
 import { applyImportedCityBankReturn, bankReturnProtectedStockIds, cityBankValuation } from "../utils/cityBankValuation";
 import { importOwnedStockPortfolio, type OwnedStockImportProgress } from "../utils/ownedStockImport";
+import { MAX_PLANNER_FILE_BYTES, parseStockPlannerFile, serializeStockPlannerExport, type StockPlannerExport } from "../utils/stockPlannerTransfer";
 import {
   ownedSharesMap,
   ownedSnapshotWithShares,
@@ -98,8 +99,39 @@ type OwnedInvestmentSummary = {
 };
 
 export function StockInvestments() {
+  const [imported, setImported] = React.useState<StockPlannerExport | null>(null);
+  const [revision, setRevision] = React.useState(0);
+  const [transferError, setTransferError] = React.useState<string | null>(null);
+  const [isImporting, setIsImporting] = React.useState(false);
+  async function importPlanner(file: File) {
+    setTransferError(null);
+    setIsImporting(true);
+    try {
+      if (file.size > MAX_PLANNER_FILE_BYTES) throw new Error("Planner files must be smaller than 2 MB.");
+      const next = parseStockPlannerFile(await file.text());
+      setImported(next);
+      setRevision(value => value + 1);
+    } catch (error) {
+      setTransferError(error instanceof Error ? error.message : "Unable to import planner file.");
+    } finally { setIsImporting(false); }
+  }
+  return <>
+    {transferError ? <div className="error-panel" role="alert">{transferError}</div> : null}
+    <StockInvestmentPlanner key={revision} imported={imported} onImport={importPlanner} isImporting={isImporting} onExitImport={() => {
+      setImported(null);
+      setTransferError(null);
+      setRevision(value => value + 1);
+    }} />
+  </>;
+}
+
+function StockInvestmentPlanner({ imported, onImport, onExitImport, isImporting }: {
+  imported: StockPlannerExport | null; onImport: (file: File) => Promise<void>; onExitImport: () => void; isImporting: boolean;
+}) {
   const { session } = useAuth();
-  const storageUserId = session?.user.id ?? null;
+  // Imported cases are editable in memory; existing per-user storage is untouched.
+  const storageUserId = imported ? null : session?.user.id ?? null;
+  const importFileInput = React.useRef<HTMLInputElement | null>(null);
   const [roiData, setRoiData] = React.useState<StockInvestmentRoiResponse | null>(null);
   const [benefits, setBenefits] = React.useState<StockBenefitValue[]>([]);
   const [disabledBenefitStocks, setDisabledBenefitStocks] = React.useState<StockBenefitDisabledStock[]>([]);
@@ -150,6 +182,7 @@ export function StockInvestments() {
   }
 
   async function loadData() {
+    if (imported) return;
     setIsLoading(true);
     setError(null);
     try {
@@ -256,6 +289,7 @@ export function StockInvestments() {
   }
 
   async function refreshOwnedStocks() {
+    if (imported) return;
     const trimmedKey = ownedApiKey.trim();
     if (!trimmedKey) {
       setError("Enter a Limited Torn API key before refreshing owned stocks.");
@@ -408,6 +442,25 @@ export function StockInvestments() {
   }
 
   React.useEffect(() => {
+    if (imported) {
+      const settings = imported.settings;
+      setRoiData(imported.roi);
+      setOwnedSnapshot(imported.portfolio);
+      setStrategyCashInputs(settings.cash);
+      setPrivateIslandInputs(settings.privateIsland);
+      setCityBankActive(settings.manualCityBankActive);
+      setBankMerits(settings.bankMerits);
+      setIncludeFhgTciHybrid(settings.includeFhgTciHybrid);
+      setFhgTciHybridActive(settings.fhgTciHybridActive);
+      setIncludePrivateIslandRental(settings.includePrivateIslandRental);
+      setLockedStockIds(new Set(settings.lockedStockIds));
+      setManualOwnedRowIds(new Set(settings.manualOwnedRowIds));
+      setMinimumRoi(settings.minimumRoi);
+      setAffordableOnly(settings.affordableOnly);
+      setHideOwnedBlocks(settings.hideOwnedBlocks);
+      setIsLoading(false);
+      return;
+    }
     const stored = readOwnedStocksStorage(storageUserId);
     const storedCityBank = readCityBankStorage(storageUserId);
     const storedFhgTciHybridActive = readFhgTciHybridStorage(storageUserId);
@@ -546,20 +599,24 @@ export function StockInvestments() {
     const timer = window.setInterval(() => setForecastDay(Math.floor(Date.now() / 86_400_000)), 60_000);
     return () => window.clearInterval(timer);
   }, []);
-  const strategyForecast = React.useMemo(() => buildStockStrategyTimeline({
-    rows: investmentRows,
-    ownedSnapshot: effectiveOwnedSnapshot,
-    cityBankActive,
-    fhgTciHybridActive: effectiveFhgTciHybridActive,
-    budget,
-    affordableOnly: false,
-    minimumRoi: null,
-    lockedStockIds,
-    asOf: Math.floor(Date.now() / 1000),
-    additionalIncomePerWeek: weeklyAdditionalIncome,
-    privateIslandCount: activePrivateIslandRentalCount,
-  }, DEFAULT_STOCK_STRATEGY_STEP_LIMIT), [investmentRows, effectiveOwnedSnapshot, cityBankActive, effectiveFhgTciHybridActive,
-    budget, lockedStockIds, weeklyAdditionalIncome, activePrivateIslandRentalCount, forecastDay]);
+  const { forecast: strategyForecast, asOf: plannerAsOf } = React.useMemo(() => {
+    const asOf = imported?.asOf ?? Math.floor(Date.now() / 1000);
+    const forecast = buildStockStrategyTimeline({
+      rows: investmentRows,
+      ownedSnapshot: effectiveOwnedSnapshot,
+      cityBankActive,
+      fhgTciHybridActive: effectiveFhgTciHybridActive,
+      budget,
+      affordableOnly: false,
+      minimumRoi: null,
+      lockedStockIds,
+      asOf,
+      additionalIncomePerWeek: weeklyAdditionalIncome,
+      privateIslandCount: activePrivateIslandRentalCount,
+    }, DEFAULT_STOCK_STRATEGY_STEP_LIMIT);
+    return { forecast, asOf };
+  }, [investmentRows, effectiveOwnedSnapshot, cityBankActive, effectiveFhgTciHybridActive,
+    budget, lockedStockIds, weeklyAdditionalIncome, activePrivateIslandRentalCount, forecastDay, imported]);
   const strategyTimeline = strategyForecast.timeline;
   const weeklyInvestmentIncome = strategyForecast.weekly_investment_income;
   const totalPricedRows = investmentRows.length;
@@ -583,6 +640,31 @@ export function StockInvestments() {
       : { key, direction: defaultSortDirection(key) });
   }
 
+  function exportPlanner() {
+    if (!roiData) return;
+    try {
+      const data: StockPlannerExport = {
+        format: "torn-stock-planner", version: 1, asOf: plannerAsOf,
+        roi: roiData, portfolio: ownedSnapshot,
+        settings: {
+          cash: strategyCashInputs, privateIsland: privateIslandInputs, manualCityBankActive, bankMerits,
+          includeFhgTciHybrid, fhgTciHybridActive, includePrivateIslandRental,
+          lockedStockIds: [...lockedStockIds], manualOwnedRowIds: [...manualOwnedRowIds], minimumRoi, affordableOnly, hideOwnedBlocks,
+        },
+      };
+      const url = URL.createObjectURL(new Blob([serializeStockPlannerExport(data)], { type: "application/json" }));
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `stock-planner-${new Date(data.asOf * 1000).toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+      setError(null);
+      setMessage("Planner exported. The file contains portfolio details and planner values, without API keys or login details.");
+    } catch (error) { setError(error instanceof Error ? error.message : "Unable to export planner."); }
+  }
+
   return (
     <>
       {error ? <div className="error-panel">{error}</div> : null}
@@ -597,10 +679,26 @@ export function StockInvestments() {
           </h2>
           <p>Active benefit increments priced from current shares and your benefit values.</p>
         </div>
-        <button type="button" className="panel-action-button" disabled={isLoading} onClick={loadData}>
+        <button type="button" className="panel-action-button" disabled={isLoading || Boolean(imported)} onClick={loadData}>
           <RefreshCw size={14} className={isLoading ? "spinning-icon" : ""} />
           {isLoading ? "Refreshing" : "Refresh"}
         </button>
+      </section>
+
+      <section className="panel stock-planner-transfer" aria-label="Share planner">
+        <div className="stock-planner-transfer-actions">
+          <button type="button" className="panel-action-button secondary" disabled={isLoading || !roiData || isRefreshingOwnedStocks} onClick={exportPlanner}>Export planner</button>
+          <button type="button" className="panel-action-button secondary" disabled={isImporting} onClick={() => importFileInput.current?.click()}>{isImporting ? "Importing…" : "Import planner"}</button>
+          <input ref={importFileInput} type="file" accept=".json,application/json" hidden aria-label="Import planner file" onChange={event => {
+            const file = event.target.files?.[0];
+            event.target.value = "";
+            if (file) void onImport(file);
+          }} />
+          {imported ? <button type="button" className="panel-action-button" onClick={onExitImport}>Return to my planner</button> : null}
+        </div>
+        <p className="stock-owned-settings-description">Share holdings, bank details, cash/income, settings and prices to reproduce a plan. API keys and login details are never included.</p>
+        {imported ? <p role="status" className="stock-owned-settings-description"><strong>Imported test planner.</strong> Using exported prices and the forecast date {formatStrategyDate(imported.asOf)}. Changes stay in this test session; your saved planner is untouched.</p>
+          : <p className="stock-owned-settings-description">Import opens a temporary test planner using the file’s prices and forecast date.</p>}
       </section>
 
       <section className="status-grid stock-status-grid stock-investment-status-grid">
@@ -677,6 +775,7 @@ export function StockInvestments() {
                 <span>Limited API key</span>
                 <input
                   type="password"
+                  disabled={Boolean(imported)}
                   value={ownedApiKey}
                   onChange={(event) => setOwnedApiKey(event.target.value)}
                   placeholder="Paste Limited key"
@@ -690,7 +789,7 @@ export function StockInvestments() {
               <button
                 type="button"
                 className="panel-action-button secondary"
-                disabled={isRefreshingOwnedStocks}
+                disabled={isRefreshingOwnedStocks || Boolean(imported)}
                 onClick={refreshOwnedStocks}
                 aria-describedby="stock-owned-api-disclosure"
               >
@@ -1166,7 +1265,7 @@ export function StockInvestments() {
         collapsed={!isBenefitValuesOpen}
         onToggle={toggleBenefitValues}
         className="stock-benefit-values-panel table-panel"
-        control={(
+        control={!imported ? (
           <div className="stock-benefit-panel-actions">
             <span>{formatNumber(benefits.length)} editable</span>
             <span>{formatNumber(disabledBenefitStocks.length)} disabled</span>
@@ -1180,9 +1279,9 @@ export function StockInvestments() {
               {isRefreshingBenefitPrices ? "Force refreshing" : "Force refresh"}
             </button>
           </div>
-        )}
+        ) : undefined}
       >
-        {isLoading ? (
+        {imported ? <p className="stock-owned-settings-description">This test planner uses the reward values and stock prices in the imported file.</p> : isLoading ? (
           <EmptyState text="Loading benefit values" />
         ) : benefits.length === 0 && disabledBenefitStocks.length === 0 ? (
           <EmptyState text="No editable active benefits found" />

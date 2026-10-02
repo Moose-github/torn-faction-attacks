@@ -482,6 +482,16 @@ h2 {
   margin-top: 14px;
 }
 
+.stock-planner-transfer {
+  margin-top: 14px;
+}
+
+.stock-planner-transfer-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .stock-strategy-header-controls {
   display: flex;
   flex-wrap: wrap;
