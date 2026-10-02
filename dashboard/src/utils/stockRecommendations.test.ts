@@ -1118,6 +1118,7 @@ describe("stock buy recommendations", () => {
       current_roi_percent: null,
       annual_return_gain: 2_000_000,
     });
+    expect(results[0].sales[0].retained_shares).toBeUndefined();
     expect(results[0].proposed.row.row_id).toBe("stock:2:1");
   });
 
@@ -1145,9 +1146,10 @@ describe("stock buy recommendations", () => {
       available_cash: 1_500,
       extra_cash_required: 0,
     });
+    expect(results[0].sales[0].retained_shares).toBeUndefined();
   });
 
-  it("keeps covered return when a partial sale still covers the block", () => {
+  it.each([[1_500, 51, 149], [1_001, 100, 100]])("keeps covered return and reports retained shares with %s cash", (budget, sold, kept) => {
     const results = buildStockRebalanceRecommendations({
       rows: [
         stockRow({ row_id: "stock:1:1", stock_id: 1, acronym: "AAA", latest_price: 10, total_shares_required: 100, annual_return: 500_000, roi_percent: 500 }),
@@ -1158,16 +1160,17 @@ describe("stock buy recommendations", () => {
         stocks: [{ stock_id: 1, shares: 200, bonus: null }],
       },
       cityBankActive: false,
-      budget: 1_500,
+      budget,
       affordableOnly: false,
       minimumRoi: null,
     });
 
     expect(results[0]).toMatchObject({
-      sell_shares: 51,
+      sell_shares: sold,
       current_annual_return: 0,
       annual_return_gain: 2_000_000,
     });
+    expect(results[0].sales[0].retained_shares).toBe(kept);
   });
 
   it("sells excess covered shares before breaking lower ROI active blocks", () => {

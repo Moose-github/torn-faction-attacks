@@ -182,6 +182,7 @@ describe("scheduled stock strategy", () => {
       { budget: 0.05, lockedStockIds: new Set() });
     const result = buildStockStrategyTimeline(args, 2);
     expect(result.timeline[0].funding?.sales[0].current_annual_return).toBe(0);
+    expect(result.timeline[0].funding?.sales[0].retained_shares).toBe(150);
     expect(result.timeline[1].funding?.payouts.find((event) => event.id === "stock:1")?.at).toBe(MIDNIGHT + DAY);
     expect(result.warnings).toEqual([]);
   });
@@ -192,6 +193,7 @@ describe("scheduled stock strategy", () => {
     const holding = { ...position(1, 6, 7, false, 300), bonus: { ...position().bonus!, progress: 6, increment: 2 } };
     const result = buildStockStrategyTimeline(input([first, second, row(2, 100, 12), row(3, 200, 20)], [holding], { lockedStockIds: new Set([2]) }), 2);
     expect(result.timeline[0].funding?.sales[0].shares).toBeLessThan(201);
+    expect(result.timeline[0].funding?.sales[0].retained_shares).toBeUndefined();
     expect(result.warnings.join()).toContain("conservatively restarted");
     const retainedPayout = result.timeline[1].funding?.payouts.find((event) => event.id === "stock:1");
     expect(retainedPayout?.at).toBe(MIDNIGHT + 7 * DAY);

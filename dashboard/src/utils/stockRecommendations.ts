@@ -173,6 +173,8 @@ export type StockStrategySale = {
   acronym: string | null;
   name: string | null;
   shares: number;
+  /** Remaining shares when only surplus is sold and every existing whole block is preserved. */
+  retained_shares?: number;
   sale_value: number;
   sale_fee: number;
   current_annual_return: number;
@@ -1353,6 +1355,16 @@ function buildStrategySalePlan(
     }
   }
 
+  for (const source of sources) {
+    if (source.source_kind !== "stock") continue;
+    const sale = salesBySourceKey.get(`stock:${source.stock.stock_id}`);
+    if (!sale) continue;
+    const coveredThreshold = highestCoveredStockThreshold(source.ownedRows, source.stock.shares);
+    const retainedShares = source.stock.shares - sale.shares;
+    if (coveredThreshold !== null && coveredThreshold > 0 && retainedShares >= coveredThreshold) {
+      sale.retained_shares = retainedShares;
+    }
+  }
   const sales = [...salesBySourceKey.values()];
   return {
     sales,

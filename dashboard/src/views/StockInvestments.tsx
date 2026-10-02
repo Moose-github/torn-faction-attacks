@@ -2154,7 +2154,9 @@ function strategyStepDescription(step: StockStrategyStep, bankMerits: number): s
 
 function strategySaleLabels(step: StockStrategyStep): string {
   return step.sales
-    .map((sale) => saleLabel(sale))
+    .map((sale) => sale.retained_shares !== undefined
+      ? `${formatNumber(sale.shares)} ${saleLabel(sale)} (keep ${formatNumber(sale.retained_shares)})`
+      : saleLabel(sale))
     .join(" + ");
 }
 
@@ -2173,6 +2175,8 @@ function strategySaleDescription(step: StockStrategyStep): string {
   return step.sales
     .map((sale) => sale.source_kind === "synthetic"
       ? `${sale.acronym ?? "FHG/TCI Hybrid"} (${formatInstructionMoney(sale.sale_value)})`
+      : sale.retained_shares !== undefined
+        ? `${saleLabel(sale)} (${formatInstructionMoney(sale.sale_value)}; sell ${formatNumber(sale.shares)}, keep ${formatNumber(sale.retained_shares)})`
       : `${saleLabel(sale)} (${formatInstructionMoney(sale.sale_value)})`)
     .join(", ");
 }
