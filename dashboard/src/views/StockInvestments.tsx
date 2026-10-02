@@ -70,6 +70,7 @@ type StockRoiSort = {
 };
 
 type StockStrategyPanelTab = "strategy" | "rebalance";
+type StockStrategyDetailLevel = "low" | "standard" | "high";
 
 type StockPanelStorageKey = "plannerSetup" | "benefitValues";
 
@@ -122,7 +123,7 @@ export function StockInvestments() {
   });
   const [roiSort, setRoiSort] = React.useState<StockRoiSort>({ key: "roi_percent", direction: "desc" });
   const [strategyPanelTab, setStrategyPanelTab] = React.useState<StockStrategyPanelTab>("strategy");
-  const [showFundingBreakdowns, setShowFundingBreakdowns] = React.useState(false);
+  const [strategyDetailLevel, setStrategyDetailLevel] = React.useState<StockStrategyDetailLevel>("standard");
   const [isPlannerSetupOpen, setIsPlannerSetupOpen] = React.useState(() => readPanelOpenStorage(storageUserId, "plannerSetup", true));
   const [isBenefitValuesOpen, setIsBenefitValuesOpen] = React.useState(() => readPanelOpenStorage(storageUserId, "benefitValues", true));
   const [ownedApiKey, setOwnedApiKey] = React.useState("");
@@ -964,14 +965,17 @@ export function StockInvestments() {
           control={(
             <div className="stock-strategy-header-controls">
               {strategyPanelTab === "strategy" ? (
-                <label className="stock-funding-toggle">
-                  <input
-                    type="checkbox"
-                    checked={showFundingBreakdowns}
-                    onChange={(event) => setShowFundingBreakdowns(event.target.checked)}
+                <label className="stock-strategy-details">
+                  <span>Details</span>
+                  <select
+                    value={strategyDetailLevel}
+                    onChange={(event) => setStrategyDetailLevel(event.target.value as StockStrategyDetailLevel)}
                     aria-controls="stock-strategy-path-panel"
-                  />
-                  <span>Show funding breakdowns</span>
+                  >
+                    <option value="low">Low</option>
+                    <option value="standard">Standard</option>
+                    <option value="high">High</option>
+                  </select>
                 </label>
               ) : null}
               <span>{rebalanceRecommendations.length + strategyTimeline.length > 0 ? `${formatNumber(rebalanceRecommendations.length + strategyTimeline.length)} ideas` : "No ideas"}</span>
@@ -1043,7 +1047,7 @@ export function StockInvestments() {
                 <strong>Strategy path</strong>
                 <span>ROI-first milestones</span>
               </div>
-              {strategyForecast.as_of !== null ? <p className="stock-owned-settings-description">Forecast from {formatStrategyDate(strategyForecast.as_of)}. Ends at the ninth recommendation or second savings target, whichever comes first, within five years. Dates follow UTC daily progress.</p> : null}
+              {strategyForecast.as_of !== null ? <p className="stock-owned-settings-description">Forecast from {formatStrategyDate(strategyForecast.as_of)}. {strategyDetailLevel !== "low" ? "Ends at the ninth recommendation or second savings target, whichever comes first, within five years. " : ""}Dates follow UTC daily progress.</p> : null}
               {strategyForecast.warnings.map((warning) => <p key={warning} className="stock-owned-settings-description">{warning}</p>)}
               {invalidStrategyCashInputs ? (
                 <EmptyState text="Enter valid cash and weekly income amounts to estimate the strategy path" />
@@ -1055,14 +1059,14 @@ export function StockInvestments() {
                 <EmptyState text="No strategy path matches the current budget" />
               ) : (
                 <>
-                  {strategyForecast.savings_target ? <SavingsTargetSummary target={strategyForecast.savings_target} asOf={strategyForecast.as_of} /> : null}
+                  {strategyForecast.savings_target ? <SavingsTargetSummary target={strategyForecast.savings_target} asOf={strategyForecast.as_of} compact={strategyDetailLevel === "low"} /> : null}
                   <div className="stock-milestone-list">
                     {strategyTimeline.map(({ step, ...timing }, index) => (
                       <StrategyStepRow
                         key={`${index}:${step.kind}:${step.recommendation.row.row_id}`}
                         step={step}
                         timing={timing}
-                        showFundingBreakdown={showFundingBreakdowns}
+                        detailLevel={strategyDetailLevel}
                         index={index}
                         bankMerits={bankMerits}
                       />
@@ -1849,7 +1853,7 @@ function RebalanceRecommendationRow({
   );
 }
 
-function SavingsTargetSummary({ target, asOf }: { target: StockStrategySavingsTarget; asOf: number | null }) {
+function SavingsTargetSummary({ target, asOf, compact }: { target: StockStrategySavingsTarget; asOf: number | null; compact: boolean }) {
   const estimatedPurchase = target.purchase_at !== null
     ? target.purchase_at === asOf ? "Now" : formatStrategyDate(target.purchase_at)
     : target.status === "unfunded" ? "Needs more income or cash"
@@ -1859,12 +1863,14 @@ function SavingsTargetSummary({ target, asOf }: { target: StockStrategySavingsTa
     <section className="stock-savings-target" aria-label="Current savings target">
       <div className="stock-savings-target-header">
         <h3>Savings target</h3>
-        <span>{formatPercent(target.recommendation.ranking_roi_percent)} ROI</span>
+        {!compact ? <span>{formatPercent(target.recommendation.ranking_roi_percent)} ROI</span> : null}
       </div>
       <strong className="stock-savings-target-name">{bestOpportunityTitle(target.recommendation.row)}</strong>
       <dl className="stock-savings-target-metrics">
-        <div><dt>Purchase cost</dt><dd>{formatMoney(target.recommendation.estimated_cost)}</dd></div>
-        <div><dt>Cash gap at forecast start</dt><dd>{formatMoney(target.cash_shortfall)}</dd></div>
+        {!compact ? <>
+          <div><dt>Purchase cost</dt><dd>{formatMoney(target.recommendation.estimated_cost)}</dd></div>
+          <div><dt>Cash gap at forecast start</dt><dd>{formatMoney(target.cash_shortfall)}</dd></div>
+        </> : null}
         <div><dt>Estimated purchase</dt><dd>{estimatedPurchase}</dd></div>
       </dl>
     </section>
@@ -1874,40 +1880,45 @@ function SavingsTargetSummary({ target, asOf }: { target: StockStrategySavingsTa
 function StrategyStepRow({
   step,
   timing,
-  showFundingBreakdown,
+  detailLevel,
   index,
   bankMerits,
 }: {
   step: StockStrategyStep;
   timing: Omit<StockStrategyTiming, "step">;
-  showFundingBreakdown: boolean;
+  detailLevel: StockStrategyDetailLevel;
   index: number;
   bankMerits: number;
 }) {
   const recommendation = step.recommendation;
+  const isLowDetail = detailLevel === "low";
   const isSavingsTarget = recommendation.row.row_id === timing.savings_target.row.row_id;
   const milestoneLabel = timing.elapsed_weeks === null
     ? `At ${formatInstructionMoney(step.cash_required)} cash`
-    : timing.elapsed_weeks === 0 ? "Now" : `Est. in ${formatStrategyWeeks(timing.elapsed_weeks)}`;
+    : timing.elapsed_weeks === 0 ? "Now"
+      : isLowDetail ? `Est. ${formatStrategyDate(timing.purchase_at!)}` : `Est. in ${formatStrategyWeeks(timing.elapsed_weeks)}`;
   return (
     <div className="stock-milestone-row">
       <div className={isSavingsTarget ? "stock-savings-target-step-header" : undefined}>
         <strong>
           {formatNumber(index + 1)}. {milestoneLabel}
           <em className="stock-rebalance-highlight">{isSavingsTarget ? "Savings target" : "Intermediary purchase"}</em>
-          <em className="stock-rebalance-highlight">{timing.elapsed_weeks !== null && timing.elapsed_weeks > 0
+          {!isLowDetail ? <em className="stock-rebalance-highlight">{timing.elapsed_weeks !== null && timing.elapsed_weeks > 0
             ? step.kind === "rebalance" ? "Scheduled rebalance" : "Scheduled purchase"
-            : strategyReasonLabel(step)}</em>
+            : strategyReasonLabel(step)}</em> : null}
         </strong>
         <small>{strategyStepTitle(step)}</small>
       </div>
-      {!isSavingsTarget ? <p className="stock-intermediary-purpose">Income-building purchase towards {bestOpportunityTitle(timing.savings_target.row)}.</p> : null}
-      <p>{strategyStepDescription(step, bankMerits)}</p>
-      <p>
+      {!isLowDetail && !isSavingsTarget ? <p className="stock-intermediary-purpose">Income-building purchase towards {bestOpportunityTitle(timing.savings_target.row)}.</p> : null}
+      {isLowDetail
+        ? recommendation.shares_needed !== null && recommendation.target_shares !== null
+          ? <p>Buy {formatNumber(recommendation.shares_needed)} shares to hold {formatNumber(recommendation.target_shares)}.</p> : null
+        : <p>{strategyStepDescription(step, bankMerits)}</p>}
+      {!isLowDetail || timing.elapsed_weeks === null ? <p>
         {timing.elapsed_weeks === null
           ? timing.status === "horizon" ? "Beyond the five-year forecast horizon." : "Cannot be funded with the modelled income. Add cash or additional income to continue."
           : `${formatStrategyDate(timing.purchase_at!)} · ${formatMoney(timing.weekly_total_income_after)} per week on average after this step; cash arrives on payout dates.`}
-      </p>
+      </p> : null}
       <div className="stock-milestone-metrics">
         <span>
           <strong>{formatMoney(recommendation.estimated_cost)}</strong>
@@ -1915,26 +1926,26 @@ function StrategyStepRow({
         </span>
         {step.sales.length > 0 ? (
           <span>
-            <strong>{formatMoney(step.sales.reduce((sum, sale) => sum + sale.sale_value, 0))}</strong>
-            <small>Net sale value</small>
+            <strong>{formatMoney(isLowDetail ? step.cash_required : step.sales.reduce((sum, sale) => sum + sale.sale_value, 0))}</strong>
+            <small>{isLowDetail ? "Cash needed after sales" : "Net sale value"}</small>
           </span>
         ) : null}
-        {step.rebalance && step.rebalance.sale_fee > 0 ? (
+        {!isLowDetail && step.rebalance && step.rebalance.sale_fee > 0 ? (
           <span>
             <strong>{formatMoney(step.rebalance.sale_fee)}</strong>
             <small>{formatPercent(STOCK_SELL_FEE_RATE * 100)} sell fee</small>
           </span>
         ) : null}
-        <span>
+        {!isLowDetail ? <><span>
           <strong>+{formatMoney(step.annual_return_gain)}</strong>
           <small>Annual gain</small>
         </span>
         <span>
           <strong>{formatPercent(step.roi_percent)}</strong>
           <small>ROI</small>
-        </span>
+        </span></> : null}
       </div>
-      {showFundingBreakdown ? <StrategyFundingBreakdown step={step} timing={timing} index={index} /> : null}
+      {detailLevel === "high" ? <StrategyFundingBreakdown step={step} timing={timing} index={index} /> : null}
     </div>
   );
 }

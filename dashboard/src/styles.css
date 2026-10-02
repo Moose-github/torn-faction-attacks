@@ -493,15 +493,17 @@ h2 {
   font-weight: 800;
 }
 
-.stock-funding-toggle {
+.stock-strategy-details {
   display: inline-flex;
   align-items: center;
   gap: 8px;
   cursor: pointer;
 }
 
-.stock-funding-toggle input {
-  min-height: auto;
+.stock-strategy-details select {
+  width: auto;
+  min-height: 34px;
+  padding: 5px 8px;
 }
 
 .stock-funding-breakdown {
