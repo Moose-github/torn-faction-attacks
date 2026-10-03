@@ -158,12 +158,13 @@ export function HalloweenProfit() {
         </div>
         <div className="halloween-breakdowns">
           <div><h3>Energy & costs</h3><div className="halloween-table-scroll"><table className="halloween-table"><thead><tr><th>Source</th><th>Energy</th><th>Count</th><th>Cost</th></tr></thead><tbody>
-            {selected.sources.map(source => <tr key={source.name}><td>{source.name}</td><td>{source.energy ? `${count(source.energy)}E` : "—"}</td><td>{source.count ? count(source.count) : "—"}</td><td>{formatMoney(source.cost)}</td></tr>)}
+            {selected.sources.filter(source => source.name !== "Attack supplies").map(source => <tr key={source.name}><td>{source.name}</td><td>{source.energy ? `${count(source.energy)}E` : "—"}</td><td>{source.count ? count(source.count) : "—"}</td><td>{formatMoney(source.cost)}</td></tr>)}
           </tbody></table></div></div>
           <div className="halloween-insights"><h3>What changes the outcome</h3>
+            <p><strong>{count(selected.attacks)} expected attacks</strong><br />{selected.attacks >= baseline.attacks ? "+" : ""}{count(selected.attacks - baseline.attacks)} attacks versus the no-book / no-paid-booster baseline ({count(baseline.attacks)} attacks).</p>
             <p><strong>{count(selected.exchangedTreats)} treats exchanged</strong><br />{count(selected.earnedTreats)} earned from attacks / Mortal Coil · {count(selected.cashbackTreats)} returned by Cashback · {count(selected.inflationTreats)} from Inflation.</p>
             {breakEvenBooster !== null && <p><strong>{formatMoney(breakEvenBooster)} per {selected.booster === "fhc" ? "FHC" : "can"}</strong><br />Maximum price for paid boosters to outperform using this book without them, at your current settings.</p>}
-            {alternativeWeapon && <p><strong>{formatMoney(alternativeWeapon.profit - selected.profit)} profit change</strong><br />Switching to {settings.weapon === "scary" ? `${settings.revitalize}% Revitalize` : "a scary weapon"}, keeping this book and booster. Equipment purchase costs are excluded.</p>}
+            {alternativeWeapon && <p><strong>{formatMoney(alternativeWeapon.profit - selected.profit)} profit change</strong><br />Switching to {settings.weapon === "scary" ? `${settings.revitalize}% Revitalize` : "a scary weapon"}, keeping this book and booster.<br />{alternativeWeapon.attacks >= selected.attacks ? "+" : ""}{count(alternativeWeapon.attacks - selected.attacks)} attacks ({count(alternativeWeapon.attacks)} total). Equipment purchase costs are excluded.</p>}
             <p><strong>{count(selected.wastedRegeneration)}E regeneration lost</strong><br />{count(selected.wastedDarkEnergy)}E Dark Power lost to the cap · {count(selected.unusedEnergy)}E left after the event.</p>
           </div>
         </div>
