@@ -12,6 +12,9 @@ import { formatCompact, formatInputCompact, formatMoney, formatStat, parseNumber
 import "./EnergyDrinkStrategy.css";
 import { HalloweenStrategy, useHalloweenStrategies } from "./HalloweenStrategy";
 
+// Keep the Halloween implementation available for a future dedicated calculator.
+const HALLOWEEN_OVERLAP_ENABLED = false;
+
 type Props = {
   inputs: BookStrategyInputs;
   form: BookStrategyForm;
@@ -23,7 +26,8 @@ type Props = {
   energyControls: React.ReactNode;
 };
 
-export function EnergyDrinkStrategy({ inputs, form, drinks, onDrinksChange, onFieldChange, sharedSettings, onSharedSettingChange, energyControls }: Props) {
+export function EnergyDrinkStrategy({ inputs, form, drinks: drinkForm, onDrinksChange, onFieldChange, sharedSettings, onSharedSettingChange, energyControls }: Props) {
+  const drinks: EnergyDrinkForm = HALLOWEEN_OVERLAP_ENABLED ? drinkForm : { ...drinkForm, scenario: "training" };
   const [popout, setPopout] = React.useState<"energy" | "perks" | "cans" | "investment" | null>(null);
   const number = (value: string) => parseNumber(value, Number.NaN);
   const settings: EnergyDrinkSettings = {
@@ -62,10 +66,10 @@ export function EnergyDrinkStrategy({ inputs, form, drinks, onDrinksChange, onFi
     <section className="panel book-strategy-panel">
       <PanelHeader icon={<BatteryCharging size={17} />} title="Fuelling Your Way to Failure" />
       <p className="drink-note">Double energy from cans for 31 days. Compare training with boosted cans against saving the same money for stat enhancers.</p>
-      <div className="drink-scenario-switch" role="group" aria-label="Energy drink scenario">
+      {HALLOWEEN_OVERLAP_ENABLED ? <div className="drink-scenario-switch" role="group" aria-label="Energy drink scenario">
         <button className="drink-tier-button" aria-pressed={drinks.scenario === "training"} onClick={() => updateDrink("scenario", "training")}>Training only</button>
         <button className="drink-tier-button" aria-pressed={drinks.scenario === "halloween"} onClick={() => updateDrink("scenario", "halloween")}>Halloween overlap</button>
-      </div>
+      </div> : null}
       {drinks.scenario === "halloween" ? <p className="halloween-assumptions">Max basket · Full 7-day event · All energy attacks · 100% attack success<br />Book starts with Halloween; the remaining 24 days are spent training.</p> : null}
     </section>
 
