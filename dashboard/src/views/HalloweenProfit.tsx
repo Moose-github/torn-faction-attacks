@@ -85,7 +85,8 @@ export function HalloweenProfit() {
   const results = React.useMemo(() => error ? [] : compareHalloween(settings), [settings, error]);
   const ranked = results.filter(row => books.includes(row.book)).sort((a, b) => b.profit - a.profit);
   const rows = sort === "lowest" ? [...ranked].reverse() : ranked;
-  const best = ranked[0], worst = ranked[ranked.length - 1];
+  const best = ranked[0];
+  const bestWithoutBook = ranked.find(row => row.book === "none");
   const baseline = results.find(row => row.id === "none:none");
   const selected = ranked.find(row => row.id === selectedId) ?? best;
   const energyLosses = selected ? [
@@ -181,10 +182,10 @@ export function HalloweenProfit() {
         <input type="checkbox" checked={books.includes(book.id)} disabled={book.id === "none"} onChange={event => setBooks(current => event.target.checked ? [...current, book.id] : current.filter(id => id !== book.id))} />
         <span><strong>{book.name}</strong><small>{book.description}</small></span></label>)}</div>
     </section>
-    {error ? <section className="panel halloween-error" role="alert">{error}</section> : best && worst && baseline && selected && <>
+    {error ? <section className="panel halloween-error" role="alert">{error}</section> : best && bestWithoutBook && baseline && selected && <>
       <div className="halloween-metrics">
         <MetricCard label="Highest net profit" value={formatMoney(best.profit)} detail={strategyName(best)} icon={<Trophy size={16} />} />
-        <MetricCard label="Lowest net profit" value={formatMoney(worst.profit)} detail={strategyName(worst)} icon={<TrendingDown size={16} />} />
+        <MetricCard label="Best without a book" value={formatMoney(bestWithoutBook.profit)} detail={boosterName(bestWithoutBook.booster)} icon={<Wallet size={16} />} />
         <MetricCard label="Best uplift over baseline" value={formatMoney(best.profit - baseline.profit)} detail="Compared with no book and no paid boosters" icon={<Wallet size={16} />} />
         <MetricCard label="Baseline net profit" value={formatMoney(baseline.profit)} detail="Same weapon, company, drugs, refills and free energy" icon={<Swords size={16} />} />
       </div>
