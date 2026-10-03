@@ -22,6 +22,14 @@ const bookName = (book: HalloweenBook) => HALLOWEEN_BOOKS.find(item => item.id =
 const boosterName = (id: string) => HALLOWEEN_BOOSTERS.find(item => item.id === id)!.name;
 const strategyName = (row: HalloweenResult) => `${bookName(row.book)} · ${boosterName(row.booster)}`;
 
+function BaselineDifference({ value, baseline, money = false }: { value: number; baseline: number; money?: boolean }) {
+  const difference = Math.round((value - baseline) * 10) / 10;
+  const sign = difference > 0 ? "+" : difference < 0 ? "−" : "";
+  return <small title="Difference from no book and no paid boosters">
+    {sign}{money ? formatMoney(Math.abs(difference)) : count(Math.abs(difference))}
+  </small>;
+}
+
 export function HalloweenProfit() {
   const [options, setOptions] = React.useState(DEFAULT_HALLOWEEN);
   const [numbers, setNumbers] = React.useState(initialNumbers);
@@ -134,12 +142,16 @@ export function HalloweenProfit() {
         <MetricCard label="Baseline net profit" value={formatMoney(baseline.profit)} detail="Same weapon, company, drugs, refills and free energy" icon={<Swords size={16} />} />
       </div>
       <section className="panel"><PanelHeader title="Strategy comparison" control={<label className="halloween-sort">Sort <select value={sort} onChange={event => setSort(event.target.value)}><option value="highest">Highest profit first</option><option value="lowest">Lowest profit first</option></select></label>} />
-        <p className="halloween-note">{ranked.length} strategies · Select a row to inspect its profit and energy breakdown. Quantities are expected averages.</p>
+        <p className="halloween-note">{ranked.length} strategies · Select a row to inspect its profit and energy breakdown. Smaller figures show the difference from no book and no paid boosters, with the same weapon and energy settings. Quantities are expected averages.</p>
         <div className="halloween-table-scroll"><table className="halloween-table"><thead><tr><th>Book / booster</th><th>Boosters</th><th>Attacks</th><th>Treats exchanged</th><th>Reward value</th><th>Total spent</th><th>Net profit</th><th>Extra vs baseline</th></tr></thead>
           <tbody>{rows.map(row => <tr key={row.id} className={row.id === selected.id ? "selected" : ""} onClick={() => setSelectedId(row.id)}>
             <td><button type="button" aria-pressed={row.id === selected.id} onClick={() => setSelectedId(row.id)}>{bookName(row.book)}<small>{boosterName(row.booster)}</small></button></td>
-            <td>{row.boosterCount || "—"}</td><td>{count(row.attacks)}</td><td>{count(row.exchangedTreats)}</td><td>{formatMoney(row.revenue)}</td><td>{formatMoney(row.cost)}</td>
-            <td className={row.profit >= 0 ? "halloween-positive" : "halloween-negative"}>{formatMoney(row.profit)}</td><td>{formatMoney(row.profit - baseline.profit)}</td>
+            <td>{row.boosterCount || "—"}<BaselineDifference value={row.boosterCount} baseline={baseline.boosterCount} /></td>
+            <td>{count(row.attacks)}<BaselineDifference value={row.attacks} baseline={baseline.attacks} /></td>
+            <td>{count(row.exchangedTreats)}<BaselineDifference value={row.exchangedTreats} baseline={baseline.exchangedTreats} /></td>
+            <td>{formatMoney(row.revenue)}<BaselineDifference value={row.revenue} baseline={baseline.revenue} money /></td>
+            <td>{formatMoney(row.cost)}<BaselineDifference value={row.cost} baseline={baseline.cost} money /></td>
+            <td className={row.profit >= 0 ? "halloween-positive" : "halloween-negative"}>{formatMoney(row.profit)}<BaselineDifference value={row.profit} baseline={baseline.profit} money /></td><td>{formatMoney(row.profit - baseline.profit)}</td>
           </tr>)}</tbody></table></div>
       </section>
       <section className="panel halloween-detail"><PanelHeader title={strategyName(selected)} aside="Selected strategy" />
