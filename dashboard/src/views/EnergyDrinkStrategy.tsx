@@ -10,6 +10,7 @@ import {
 } from "../utils/energyDrinkStrategy";
 import { formatCompact, formatMoney, formatStat, parseNumber, type BookStrategyForm, type SharedTrainingSettings } from "./BookStrategy.helpers";
 import "./EnergyDrinkStrategy.css";
+import { HalloweenStrategy } from "./HalloweenStrategy";
 
 type Props = {
   inputs: BookStrategyInputs;
@@ -31,12 +32,12 @@ export function EnergyDrinkStrategy({ inputs, form, drinks, onDrinksChange, onFi
     spendingCap: drinks.capEnabled ? number(drinks.spendingCap) : null,
   };
   const invalid = validateInputs(inputs, form, settings);
-  const rows = React.useMemo(() => invalid ? [] : ENERGY_DRINK_TIERS.map((tier, index) =>
+  const rows = React.useMemo(() => invalid || drinks.scenario === "halloween" ? [] : ENERGY_DRINK_TIERS.map((tier, index) =>
     calculateEnergyDrinkTier({ ...inputs, enhancerUseMode: { kind: "earliestOvertake" } }, tier.energy, parseNumber(drinks.prices[index], Number.NaN), {
       factionPercent: parseNumber(drinks.factionPercent, 0), company: drinks.company,
       maxCooldownHours: parseNumber(drinks.maxCooldownHours, 48), startingCooldownHours: parseNumber(drinks.startingCooldownHours, 0),
       spendingCap: drinks.capEnabled ? parseNumber(drinks.spendingCap, 0) : null,
-    })), [inputs, drinks.prices, drinks.factionPercent, drinks.company, drinks.maxCooldownHours, drinks.startingCooldownHours, drinks.capEnabled, drinks.spendingCap, invalid]);
+    })), [inputs, drinks.scenario, drinks.prices, drinks.factionPercent, drinks.company, drinks.maxCooldownHours, drinks.startingCooldownHours, drinks.capEnabled, drinks.spendingCap, invalid]);
   const selected = rows[drinks.selectedTier];
   const selectedResult = React.useMemo(() => {
     if (!selected) return null;
@@ -54,6 +55,11 @@ export function EnergyDrinkStrategy({ inputs, form, drinks, onDrinksChange, onFi
     <section className="panel book-strategy-panel">
       <PanelHeader icon={<BatteryCharging size={17} />} title="Fuelling Your Way to Failure" />
       <p className="drink-note">Double energy from cans for 31 days. Compare training with boosted cans against saving the same money for stat enhancers.</p>
+      <div className="drink-scenario-switch" role="group" aria-label="Energy drink scenario">
+        <button className="drink-tier-button" aria-pressed={drinks.scenario === "training"} onClick={() => updateDrink("scenario", "training")}>Training only</button>
+        <button className="drink-tier-button" aria-pressed={drinks.scenario === "halloween"} onClick={() => updateDrink("scenario", "halloween")}>Halloween overlap</button>
+      </div>
+      {drinks.scenario === "halloween" ? <p className="halloween-assumptions">Max basket · Full 7-day event · All energy attacks · 100% attack success<br />Book starts with Halloween; the remaining 24 days are spent training.</p> : null}
       <div className="book-strategy-input-grid">
         <NumberField label="Faction can bonus" suffix="%" value={drinks.factionPercent} onChange={(v) => updateDrink("factionPercent", v)} title="0–50%; separate from faction gym gains" />
         <label className="book-strategy-field"><span>Company specials</span><select value={drinks.company} onChange={(e) => updateDrink("company", e.target.value as DrinkCompany)}>
@@ -89,17 +95,18 @@ export function EnergyDrinkStrategy({ inputs, form, drinks, onDrinksChange, onFi
       <section className="panel book-strategy-panel">
         <PanelHeader icon={<TrendingUp size={17} />} title="Enhancer timing" />
         <label className="book-strategy-field"><span>Use enhancers</span><select value={form.enhancerMode} onChange={(e) => onFieldChange("enhancerMode", e.target.value as BookStrategyForm["enhancerMode"])}>
-          <option value="earliestOvertake">At earliest overtake</option><option value="targetDay">On a chosen day</option><option value="targetStat">At a chosen stat</option>
+          <option value="earliestOvertake">{drinks.scenario === "halloween" ? "First saving overtake, otherwise day 31" : "At earliest overtake"}</option><option value="targetDay">On a chosen day</option><option value="targetStat">At a chosen stat</option>
         </select></label>
         {form.enhancerMode === "targetDay" ? <NumberField label="Enhancer use day" value={form.enhancerTargetDay} onChange={(v) => onFieldChange("enhancerTargetDay", v)} title="At or after day 31" /> : null}
         {form.enhancerMode === "targetStat" ? <NumberField label="Stat before enhancers" value={form.enhancerTargetStat} onChange={(v) => onFieldChange("enhancerTargetStat", v)} /> : null}
-        <label className="drink-checkbox"><input type="checkbox" checked={form.investmentEnabled} onChange={(e) => onFieldChange("investmentEnabled", e.target.checked)} />Invest saved can money</label>
+        <label className="drink-checkbox"><input type="checkbox" checked={form.investmentEnabled} onChange={(e) => onFieldChange("investmentEnabled", e.target.checked)} />{drinks.scenario === "halloween" ? "Invest unspent cash and event proceeds" : "Invest saved can money"}</label>
         <NumberField label="Annual ROI" suffix="%" value={form.annualRoiPercent} onChange={(v) => onFieldChange("annualRoiPercent", v)} disabled={!form.investmentEnabled} />
-        <p className="drink-note">Buy all affordable whole enhancers at one point, then continue normal training. Earliest-over­take results below are calculated separately for each tier.</p>
+        <p className="drink-note">{drinks.scenario === "halloween" ? "Both strategies buy all affordable whole enhancers on the same day. Event proceeds are available on day 7; purchases start at day 31. Target stat refers to the saving strategy before enhancers." : "Buy all affordable whole enhancers at one point, then continue normal training. Earliest-overtake results below are calculated separately for each tier."}</p>
       </section>
     </div>
 
     {invalid ? <p className="panel drink-error" role="alert">{invalid}</p> : null}
+    {drinks.scenario === "halloween" ? <HalloweenStrategy inputs={inputs} form={form} drinks={drinks} settings={settings} invalid={invalid} onDrinksChange={onDrinksChange} onFieldChange={onFieldChange} /> : <>
     <section className="panel book-strategy-panel" aria-label="Energy drink tier comparison">
       <PanelHeader icon={<BatteryCharging size={17} />} title="Compare all can tiers" />
       <p className="drink-note">Prices are illustrative, not live market prices. Enter your purchase price for the can you would use in each tier. Select a tier to view its graph.</p>
@@ -166,6 +173,7 @@ export function EnergyDrinkStrategy({ inputs, form, drinks, onDrinksChange, onFi
         <p>Mechanics: <a href="https://wiki.torn.com/wiki/Energy_Drink" target="_blank" rel="noreferrer">Torn Wiki energy drinks</a>, <a href="https://wiki.torn.com/wiki/Grocery_Store" target="_blank" rel="noreferrer">Grocery Store</a>, <a href="https://wiki.torn.com/wiki/Restaurant" target="_blank" rel="noreferrer">Restaurant</a>.</p>
       </details>
     </> : null}
+    </>}
   </div>;
 }
 

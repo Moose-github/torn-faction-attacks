@@ -22,6 +22,8 @@ export type EnergyDrinkSettings = {
 };
 
 export type EnergyDrinkForm = {
+  scenario: "training" | "halloween";
+  rewardValue: string;
   factionPercent: string;
   company: DrinkCompany;
   maxCooldownHours: string;
@@ -33,6 +35,7 @@ export type EnergyDrinkForm = {
 };
 
 export const DEFAULT_DRINK_FORM: EnergyDrinkForm = {
+  scenario: "training", rewardValue: "700k",
   factionPercent: "50", company: "none", maxCooldownHours: "48",
   startingCooldownHours: "0", spendingCap: "1b", capEnabled: false,
   prices: ENERGY_DRINK_TIERS.map((tier) => tier.price), selectedTier: 5,

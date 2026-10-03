@@ -1284,7 +1284,7 @@ function advancePostBookTimelineToDay(
   return state.stat;
 }
 
-function activePostBookTrainingDaysAtDay(inputs: BookStrategyInputs, day: number): number {
+export function activePostBookTrainingDaysAtDay(inputs: BookStrategyInputs, day: number): number {
   const trainingMonths = inputs.postBookTrainingMonthsOutOfFour;
   if (trainingMonths <= 0 || day <= inputs.bookDurationDays) {
     return 0;
