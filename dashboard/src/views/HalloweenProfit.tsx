@@ -182,7 +182,7 @@ export function HalloweenProfit() {
         </div>
       </div>}
       <p className="halloween-note">Price per treat is a flat valuation of exchanged rewards. The $750,000 default is a planning estimate; changing it updates every strategy.</p>
-      <p className="halloween-note">Default item prices are based on the annual low for each item, not live market prices.</p>
+      <p className="halloween-note"><strong>Default item prices are based on the annual low for each item, not live market prices.</strong></p>
     </section>
 
     <section className="panel"><PanelHeader title="Books to compare" aside="One book at a time" />
