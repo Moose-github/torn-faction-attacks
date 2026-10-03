@@ -1,6 +1,12 @@
 import { ENERGY_DRINK_TIERS } from "./energyDrinkStrategy";
 
 export const HALLOWEEN_HOURS = 168;
+export const HALLOWEEN_BASKETS = [
+  { id: "horrifying", name: "Horrifying", treatChance: 70 },
+  { id: "petrifying", name: "Petrifying", treatChance: 75 },
+  { id: "nightmarish", name: "Nightmarish", treatChance: 80 },
+] as const;
+export type HalloweenBasket = typeof HALLOWEEN_BASKETS[number]["id"];
 export const HALLOWEEN_BOOKS = [
   { id: "none", name: "No book", description: "Keep your books for another event." },
   { id: "higher", name: "Higher Daddy, Higher!", description: "+20% natural energy regeneration." },
@@ -25,6 +31,7 @@ export const HALLOWEEN_BOOSTERS = [
   ...ENERGY_DRINK_TIERS.map(tier => ({ id: `can${tier.energy}`, name: `${tier.energy}E cans`, energy: tier.energy })),
 ];
 export type HalloweenSettings = {
+  basketLevel: HalloweenBasket;
   treatPrice: number; weapon: "scary" | "revitalize"; revitalize: number; scaryClothing: boolean;
   donor: boolean; company: HalloweenCompany; factionBonus: number;
   maxCooldown: number; startingCooldown: number; canPrices: number[]; fhcPrice: number;
@@ -35,7 +42,8 @@ export type HalloweenSettings = {
   exchangeHours: number;
 };
 export const DEFAULT_HALLOWEEN: HalloweenSettings = {
-  treatPrice: 750000, weapon: "scary", revitalize: 18, scaryClothing: true,
+  basketLevel: "nightmarish",
+  treatPrice: 750000, weapon: "scary", revitalize: 12, scaryClothing: true,
   donor: true, company: "none", factionBonus: 50, maxCooldown: 48, startingCooldown: 0,
   canPrices: [250000, 500000, 800000, 1250000, 1750000, 3000000], fhcPrice: 14000000,
   startingEnergy: 1000, specialRefills: 0, drugPrice: 875000,
@@ -53,6 +61,7 @@ export type HalloweenResult = {
 };
 
 export function validateHalloween(s: HalloweenSettings): string | null {
+  if (!HALLOWEEN_BASKETS.some(basket => basket.id === s.basketLevel)) return "Select a valid basket level.";
   const ranges: [keyof HalloweenSettings, number, number][] = [
     ["treatPrice", 0, 1e9], ["revitalize", 10, 24], ["factionBonus", 0, 50],
     ["maxCooldown", 24, 48], ["startingCooldown", 0, 100], ["fhcPrice", 0, 1e9],
@@ -87,7 +96,8 @@ export function simulateHalloween(s: HalloweenSettings, book: HalloweenBook, boo
   const cap = book === "ugly" ? 250 : s.donor ? 150 : 100;
   const revitalize = s.weapon === "revitalize" ? s.revitalize / 100 : 0;
   // Cat in Hell's rare jackpot is excluded from the expected treat yield.
-  const treatsPerAttack = (0.8 + (s.scaryClothing ? 0.1 : 0) + (s.weapon === "scary" ? 0.1 : 0)) * 1.2 * 1.2 * 1.15 * 1.04;
+  const selectedBasket = HALLOWEEN_BASKETS.find(item => item.id === s.basketLevel)!;
+  const treatsPerAttack = (selectedBasket.treatChance + (s.scaryClothing ? 10 : 0) + (s.weapon === "scary" ? 10 : 0)) / 100 * 1.2 * 1.2 * 1.15 * 1.04;
   const canMultiplier = (1 + s.factionBonus / 100) * (s.company === "grocery7" ? 1.1 : 1) * (book === "fuel" ? 2 : 1);
   const canCooldown = 2 * (s.company === "restaurant10" ? 0.75 : s.company.startsWith("grocery") ? 0.9 : 1) * (book === "self" ? 0.5 : 1);
   const boosterCooldown = booster === "fhc" ? 6 : canCooldown;

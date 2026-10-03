@@ -65,11 +65,11 @@ export function HalloweenStrategyBreakdown({ selected, baseline, noBook, setting
       <p>Compared with <strong>the same boosters without a book</strong>, the book gives <strong>{signed(selected.attacks - noBook.attacks)}</strong> attacks, <strong>{signed(selected.exchangedTreats - noBook.exchangedTreats)}</strong> treats, and <strong>{signed(selected.profit - noBook.profit, true)}</strong> net profit.</p>
     </div>}
 
-    <p className="halloween-energy-summary"><strong>Energy before returns:</strong> This strategy provides <strong>{count(suppliedEnergy)}E</strong> from energy sources such as regeneration, drugs, refills and boosters—<strong>{count(Math.abs(suppliedDifference))}E {suppliedDifference < 0 ? "less" : "more"} than the baseline</strong>.</p>
+    <p className="halloween-energy-summary"><strong>Energy before returns:</strong> This strategy provides <strong>{count(suppliedEnergy)}E</strong> from energy sources such as regeneration, drugs, refills and boosters. <strong>{count(Math.abs(suppliedDifference))}E</strong> {suppliedDifference < 0 ? "less" : "more"} than the baseline.</p>
     <p className="halloween-energy-summary"><strong>Energy returned:</strong> Dark Power provides another <strong>{count(basketEnergy)}E</strong>, including energy from Freebie &amp; Cashback.
-      {settings.weapon === "revitalize" && <> Revitalize adds a further <strong>{count(returnedEnergy)}E</strong>.</>}
+      {settings.weapon === "revitalize" && <> <strong>Revitalize</strong> adds a further <strong>{count(returnedEnergy)}E</strong>.</>}
     </p>
-    <p className="halloween-energy-summary"><strong>Total energy and attacks:</strong> Together, this gives <strong>{count(totalEnergy)}E</strong>, supporting approximately <strong>{count(selected.attacks)} attacks</strong>—<strong>{count(Math.abs(attackDifference))} {attackDifference < 0 ? "fewer" : "more"} than the baseline</strong>.</p>
+    <p className="halloween-energy-summary"><strong>Total energy and attacks:</strong> Together, this gives <strong>{count(totalEnergy)}E</strong>, supporting approximately <strong>{count(selected.attacks)} attacks</strong>. <strong>{count(Math.abs(attackDifference))}</strong> {attackDifference < 0 ? "fewer" : "more"} than the baseline.</p>
     {settings.weapon === "revitalize" ? <p>
       Your <strong>{count(settings.revitalize)}% Revitalize weapon</strong> earns approximately <strong>{rate} treats per attack</strong>.
     </p> : <p>Your <strong>scary weapon</strong> earns approximately <strong>{rate} treats per attack</strong>.</p>}

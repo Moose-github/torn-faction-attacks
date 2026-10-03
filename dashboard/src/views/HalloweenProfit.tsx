@@ -6,7 +6,7 @@ import { NumberField, PopoutButton } from "../components/TrainingCalculatorInput
 import { getHalloweenPrices, type HalloweenPriceSnapshot } from "../api/halloweenPrices";
 import { ENERGY_DRINK_TIERS } from "../utils/energyDrinkStrategy";
 import { compareHalloween, DEFAULT_HALLOWEEN, HALLOWEEN_BOOKS, HALLOWEEN_BOOSTERS,
-  HALLOWEEN_COMPANIES, simulateHalloween, validateHalloween,
+  HALLOWEEN_COMPANIES, HALLOWEEN_BASKETS, simulateHalloween, validateHalloween,
   type HalloweenBook, type HalloweenSettings, type HalloweenResult } from "../utils/halloweenProfit";
 import { formatMoney, formatCompact } from "./BookStrategy.helpers";
 import "./HalloweenProfit.css";
@@ -80,6 +80,7 @@ export function HalloweenProfit() {
     return () => { window.removeEventListener("keydown", close); window.removeEventListener("pointerdown", outside); };
   }, [popout]);
   const dailyXanax = parse(xanaxPerDay);
+  const basket = HALLOWEEN_BASKETS.find(item => item.id === options.basketLevel)!;
   const settings = React.useMemo(() => ({ ...options,
     ...Object.fromEntries(numberKeys.map(key => [key, parse(numbers[key])])), canPrices: prices.map(parse),
     drugInterval: 24 / dailyXanax,
@@ -122,13 +123,15 @@ export function HalloweenProfit() {
       <div><div className="panel-kicker"><Ghost size={18} /> SEASONAL CALCULATOR</div><h1>Halloween profit</h1>
         <p>Find the books and boosters that make your seven days of attacking most profitable.</p></div>
       <button type="button" className="book-strategy-popout-button" onClick={reset}><RotateCcw size={15} />Reset</button>
-      <div className="halloween-assumptions"><span>Max basket upgrades</span><span>100% attack success</span><span>All energy used for attacks</span><span>Full 7-day book overlap</span></div>
+      <div className="halloween-assumptions"><span>All basket upgrades purchased</span><span>Fixed {basket.name} basket</span><span>100% attack success</span><span>All energy used for attacks</span><span>Full 7-day book overlap</span></div>
     </section>
 
     <section className="panel book-strategy-input-panel halloween-settings" ref={panel}>
       <PanelHeader title="Event & prices" icon={<Settings2 size={18} />} />
       <div className="halloween-fields">
         {field("treatPrice", "Price per treat", "$", "Average net sale value per treat exchanged, including the extra item from Freebie. Editable planning estimate; not a live market quote.")}
+        <label className="book-strategy-field"><span>Basket level</span><select value={options.basketLevel} onChange={event => change("basketLevel", event.target.value as HalloweenSettings["basketLevel"])}>
+          {HALLOWEEN_BASKETS.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
         <label className="book-strategy-field"><span>Finishing weapon</span><select value={options.weapon} onChange={event => change("weapon", event.target.value as HalloweenSettings["weapon"])}>
           <option value="scary">Scary weapon</option><option value="revitalize">Revitalize weapon</option></select></label>
         {options.weapon === "revitalize" ? field("revitalize", "Revitalize chance", "%") : <div className="halloween-inline-note">Scary finish adds 10 percentage points to your treat chance.</div>}
@@ -237,11 +240,12 @@ export function HalloweenProfit() {
     {selected && baseline && selectedNoBook && <HalloweenStrategyBreakdown selected={selected} baseline={baseline} noBook={selectedNoBook} settings={settings} />}
     <section className="panel halloween-method"><details><summary>How the estimate works</summary>
       {selected && alternativeWeapon && <p><strong>Treats per attack</strong><br />
+        {basket.name} basket: {basket.treatChance}% base treat chance, fixed throughout the event.<br />
         Scary weapon: {(settings.weapon === "scary" ? selected : alternativeWeapon).treatsPerAttack.toLocaleString(undefined, { maximumFractionDigits: 6 })}<br />
         Revitalize weapon: {(settings.weapon === "revitalize" ? selected : alternativeWeapon).treatsPerAttack.toLocaleString(undefined, { maximumFractionDigits: 6 })}<br />
         Scary clothing {settings.scaryClothing ? "included" : "excluded"}. Cat in Hell excluded. Cashback and other basket rewards are calculated separately.
       </p>}
-      <p>This is an expected-value comparison, not a prediction of individual drops. All basket upgrades are owned, but Cat in Hell is excluded from the calculation. The basket starts empty, and every attack succeeds. Each book covers the full event; its remaining 24 days have no assigned value. No book purchase cost is assumed.</p>
+      <p>This is an expected-value comparison, not a prediction of individual drops. The selected basket level stays fixed throughout the event; automatic basket progression is not modelled. All basket upgrades are owned, but Cat in Hell is excluded from the calculation. The basket starts empty, and every attack succeeds. Each book covers the full event; its remaining 24 days have no assigned value. No book purchase cost is assumed.</p>
       <p>Only one finishing weapon is used. Revitalize returns 25E on a successful proc and gives up the scary-weapon treat bonus. Recycled energy is attacked again. Scary clothing is independent of weapon choice.</p>
       <p>Dark Power, Freebie energy, Cashback, Mortal Coil and hourly Inflation are included. Treats are exchanged repeatedly and returned energy is attacked while active. Reward value equals treats exchanged × your price per treat; Freebie item value is already included in that price. Fractional attacks and treats describe averages, so small real-world rounding differences are expected.</p>
       <p>The event starts at 12:00 TCT and runs for 168 hours with continuous activity and frequent treat exchanges. Supplies per attack and other event costs are fixed at $0. The schedule uses one-minute steps and immediate attacks, with no attack-rate limit, hospital time or overdoses. Natural regeneration is capped by maximum energy; other energy is spent before the next claim. A treat exchange is capped at 1,000E, and frequent exchanges minimise wasted energy.</p>

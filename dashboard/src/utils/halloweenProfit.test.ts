@@ -1,10 +1,43 @@
 import { describe, expect, it } from "vitest";
-import { compareHalloween, DEFAULT_HALLOWEEN, simulateHalloween, validateHalloween, type HalloweenSettings } from "./halloweenProfit";
+import { compareHalloween, DEFAULT_HALLOWEEN, simulateHalloween, validateHalloween, type HalloweenSettings, type HalloweenBasket } from "./halloweenProfit";
 
 const settings = (overrides: Partial<HalloweenSettings> = {}): HalloweenSettings => ({ ...DEFAULT_HALLOWEEN, ...overrides });
 const source = (result: ReturnType<typeof simulateHalloween>, name: string) => result.sources.find(row => row.name === name);
 
 describe("Halloween profit model", () => {
+  it.each([
+    { basketLevel: "horrifying", rates: [1.550016, 1.377792, 1.377792, 1.205568] },
+    { basketLevel: "petrifying", rates: [1.636128, 1.463904, 1.463904, 1.29168] },
+    { basketLevel: "nightmarish", rates: [1.72224, 1.550016, 1.550016, 1.377792] },
+  ] as { basketLevel: HalloweenBasket; rates: number[] }[])("keeps $basketLevel treat rates fixed for the full event", ({ basketLevel, rates }) => {
+    const variants = [
+      { weapon: "scary", scaryClothing: true }, { weapon: "revitalize", scaryClothing: true },
+      { weapon: "scary", scaryClothing: false }, { weapon: "revitalize", scaryClothing: false },
+    ] as const;
+    variants.forEach((variant, index) => {
+      const row = simulateHalloween(settings({ ...variant, basketLevel, specialRefills: 100 }), "fuel", "can30");
+      expect(row.treatsPerAttack).toBeCloseTo(rates[index], 10);
+      // Enough earned treats to cross basket thresholds, but the rate never changes.
+      expect(row.earnedTreats).toBeGreaterThan(2500);
+      expect(row.earnedTreats - 168).toBeCloseTo(row.attacks * rates[index], 6);
+    });
+  });
+  it("propagates basket level through returned energy, attacks and profit without changing spending", () => {
+    const rows = (["horrifying", "petrifying", "nightmarish"] as const)
+      .map(basketLevel => simulateHalloween(settings({ basketLevel }), "fuel", "can30"));
+    for (let i = 1; i < rows.length; i++) {
+      expect(rows[i].cost).toBe(rows[0].cost);
+      expect(rows[i].boosterCount).toBe(rows[0].boosterCount);
+      expect(rows[i].exchangedTreats).toBeGreaterThan(rows[i - 1].exchangedTreats);
+      expect(source(rows[i], "Dark Power returns")!.energy).toBeGreaterThan(source(rows[i - 1], "Dark Power returns")!.energy);
+      expect(rows[i].attacks).toBeGreaterThan(rows[i - 1].attacks);
+      expect(rows[i].profit).toBeGreaterThan(rows[i - 1].profit);
+    }
+  });
+  it("defaults to Nightmarish and rejects unknown basket levels", () => {
+    expect(DEFAULT_HALLOWEEN.basketLevel).toBe("nightmarish");
+    expect(validateHalloween(settings({ basketLevel: "unknown" as HalloweenBasket }))).toBe("Select a valid basket level.");
+  });
   it("compares each book with each booster exactly once", () => {
     const rows = compareHalloween(settings());
     expect(rows).toHaveLength(40);
