@@ -5,7 +5,7 @@ import { calculateHalloweenTier, expectedHalloweenRewards, halloweenEnhancedStat
 
 const settings: EnergyDrinkSettings = { factionPercent: 50, company: "none", maxCooldownHours: 48, startingCooldownHours: 0, spendingCap: null };
 const inputs = { ...defaultBookStrategyInputs, enhancerUseMode: { kind: "targetDay", day: 31 } as const };
-const tier = (changes: Partial<typeof defaultBookStrategyInputs> = {}, options: Partial<EnergyDrinkSettings> = {}, value = 700000) => calculateHalloweenTier({ ...inputs, ...changes }, 30, 3e6, { ...settings, ...options }, value)!;
+const tier = (changes: Partial<typeof defaultBookStrategyInputs> = {}, options: Partial<EnergyDrinkSettings> = {}, value = 750000) => calculateHalloweenTier({ ...inputs, ...changes }, 30, 3e6, { ...settings, ...options }, value)!;
 
 describe("max-basket Halloween rewards", () => {
   it("uses every multiplier and the rare-treat expectation", () => {
@@ -36,6 +36,14 @@ describe("max-basket Halloween rewards", () => {
 });
 
 describe("Halloween can strategies", () => {
+  it("prices earned treats without adding Freebie or Cashback income twice", () => {
+    const result = tier();
+    expect(result.extraProceeds).toBeCloseTo(result.extraRewards.earnedTreats * 750000, 5);
+    expect(result.baselineProceeds).toBeCloseTo(result.baselineRewards.earnedTreats * 750000, 5);
+    expect(result.canProceeds).toBeCloseTo(result.canRewards.earnedTreats * 750000, 5);
+    expect(tier({}, {}, 1500000).extraProceeds).toBeCloseTo(result.extraProceeds * 2, 5);
+  });
+
   it("fully covers seven attacking days and trains the remaining 24", () => {
     const result = tier();
     expect(result.plan.totalFhcs).toBe(395);

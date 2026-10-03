@@ -109,7 +109,7 @@ export function EnergyDrinkStrategy({ inputs, form, drinks, onDrinksChange, onFi
     {drinks.scenario === "halloween" ? <HalloweenStrategy inputs={inputs} form={form} drinks={drinks} settings={settings} invalid={invalid} onDrinksChange={onDrinksChange} onFieldChange={onFieldChange} /> : <>
     <section className="panel book-strategy-panel" aria-label="Energy drink tier comparison">
       <PanelHeader icon={<BatteryCharging size={17} />} title="Compare all can tiers" />
-      <p className="drink-note">Prices are illustrative, not live market prices. Enter your purchase price for the can you would use in each tier. Select a tier to view its graph.</p>
+      <p className="drink-note">Default can prices are based on the annual low point, not live market prices. Enter your purchase price for the can you would use in each tier. Select a tier to view its graph.</p>
       <div className="drink-table-scroll" tabIndex={0} role="region" aria-label="Scrollable can comparison">
         <table className="drink-table"><thead><tr>
           <th scope="col">Can tier</th><th scope="col">Price per can</th><th scope="col">Cans / spend</th><th scope="col">Book energy</th><th scope="col">Extra stats at day 31</th><th scope="col">Stats per $1bn</th><th scope="col">Earliest enhancer overtake</th>

@@ -4,11 +4,11 @@ import {
 } from "./bookStrategy";
 
 export const ENERGY_DRINK_TIERS = [
-  { energy: 5, name: "Goose Juice", price: "400k" },
-  { energy: 10, name: "Damp Valley", price: "700k" },
-  { energy: 15, name: "Crocozade", price: "1m" },
-  { energy: 20, name: "Munster / Santa Shooters", price: "1.8m" },
-  { energy: 25, name: "Red Cow / Rockstar Rudolph", price: "2m" },
+  { energy: 5, name: "Goose Juice", price: "250k" },
+  { energy: 10, name: "Damp Valley", price: "500k" },
+  { energy: 15, name: "Crocozade", price: "800k" },
+  { energy: 20, name: "Munster / Santa Shooters", price: "1.25m" },
+  { energy: 25, name: "Red Cow / Rockstar Rudolph", price: "1.75m" },
   { energy: 30, name: "Taurine Elite / X-MASS", price: "3m" },
 ] as const;
 
@@ -23,7 +23,7 @@ export type EnergyDrinkSettings = {
 
 export type EnergyDrinkForm = {
   scenario: "training" | "halloween";
-  rewardValue: string;
+  treatPrice: string;
   factionPercent: string;
   company: DrinkCompany;
   maxCooldownHours: string;
@@ -35,7 +35,7 @@ export type EnergyDrinkForm = {
 };
 
 export const DEFAULT_DRINK_FORM: EnergyDrinkForm = {
-  scenario: "training", rewardValue: "700k",
+  scenario: "training", treatPrice: "750k",
   factionPercent: "50", company: "none", maxCooldownHours: "48",
   startingCooldownHours: "0", spendingCap: "1b", capEnabled: false,
   prices: ENERGY_DRINK_TIERS.map((tier) => tier.price), selectedTier: 5,

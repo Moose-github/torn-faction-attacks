@@ -45,8 +45,8 @@ export function halloweenEnhancedStat(stat: number, count: number): number {
 type TrainingPoint = { day: number; cansStat: number; savingsStat: number; cansTrains: number; savingsTrains: number };
 export type HalloweenPoint = { day: number; cansStat: number; savingsStat: number; difference: number };
 
-export function calculateHalloweenTier(raw: BookStrategyInputs, base: number, price: number, settings: EnergyDrinkSettings, rewardValue: number) {
-  if (!Number.isFinite(price) || price <= 0 || !Number.isFinite(rewardValue) || rewardValue < 0 || rewardValue > 1e8) return null;
+export function calculateHalloweenTier(raw: BookStrategyInputs, base: number, price: number, settings: EnergyDrinkSettings, treatPrice: number) {
+  if (!Number.isFinite(price) || price <= 0 || !Number.isFinite(treatPrice) || treatPrice < 0 || treatPrice > 1e8) return null;
   if (!validSettings(settings) || !Number.isFinite(raw.dailyEnergy) || raw.dailyEnergy < 0 || raw.dailyEnergy > 10000) return null;
   const inputs = normalizeInputs({ ...raw, bookDurationDays: 31, bookBonusPercent: 0, graphDurationDays: Math.round(raw.graphDurationDays) });
   const plan = calculateDrinkPlan(base, price, settings);
@@ -59,8 +59,10 @@ export function calculateHalloweenTier(raw: BookStrategyInputs, base: number, pr
   const baselineRewards = expectedHalloweenRewards(normalEventEnergy, HALLOWEEN_DAYS * 24);
   const canRewards = expectedHalloweenRewards(normalEventEnergy + eventCanEnergy, HALLOWEEN_DAYS * 24);
   const extraRewards = expectedHalloweenRewards(eventCanEnergy);
-  const baselineProceeds = baselineRewards.rewardUnits * rewardValue;
-  const extraProceeds = extraRewards.rewardUnits * rewardValue;
+  // Net price per earned treat already includes the item-value benefit of
+  // Freebie and Cashback. Dark Power still contributes further earned treats.
+  const baselineProceeds = baselineRewards.earnedTreats * treatPrice;
+  const extraProceeds = extraRewards.earnedTreats * treatPrice;
   const canProceeds = baselineProceeds + extraProceeds;
   const growth = (days: number) => inputs.investmentEnabled ? (1 + inputs.annualRoiPercent / 100) ** (Math.max(0, days) / 365) : 1;
   const balancesAt = (day: number) => ({
@@ -141,7 +143,7 @@ export function calculateHalloweenTier(raw: BookStrategyInputs, base: number, pr
   const bookEnd = before[31];
   const allCansTrainedStat = statAfterTrainingEnergy(inputs, inputs.dailyEnergy * 24 + plan.energy);
   return {
-    base, price, rewardValue, inputs, plan, eventCans, eventCanEnergy, gymCanEnergy,
+    base, price, treatPrice, inputs, plan, eventCans, eventCanEnergy, gymCanEnergy,
     normalEventEnergy, baselineRewards, canRewards, extraRewards,
     baselineProceeds, extraProceeds, canProceeds,
     netExtraCash: extraProceeds - plan.cost,

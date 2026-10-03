@@ -19,9 +19,9 @@ type Props = {
 };
 
 export function HalloweenStrategy({ inputs, form, drinks, settings, invalid, onDrinksChange, onFieldChange }: Props) {
-  const rewardValue = parseNumber(drinks.rewardValue, NaN);
-  const rewardError = !Number.isFinite(rewardValue) || rewardValue < 0 || rewardValue > 1e8
-    ? "Enter an average net reward value between $0 and $100m." : null;
+  const treatPrice = parseNumber(drinks.treatPrice, NaN);
+  const rewardError = !Number.isFinite(treatPrice) || treatPrice < 0 || treatPrice > 1e8
+    ? "Enter a price per treat between $0 and $100m." : null;
   const timingError = form.enhancerMode === "targetDay" && inputs.enhancerUseMode.kind === "targetDay" && inputs.enhancerUseMode.day > HALLOWEEN_SEARCH_DAYS
     ? "Halloween projections support enhancer purchases up to day 3,650." : null;
   const rows = React.useMemo(() => invalid || rewardError || timingError ? [] : ENERGY_DRINK_TIERS.map((tier, index) =>
@@ -29,7 +29,7 @@ export function HalloweenStrategy({ inputs, form, drinks, settings, invalid, onD
       factionPercent: settings.factionPercent, company: settings.company,
       maxCooldownHours: settings.maxCooldownHours, startingCooldownHours: settings.startingCooldownHours,
       spendingCap: settings.spendingCap,
-    }, rewardValue)), [inputs, drinks.prices, settings.factionPercent, settings.company, settings.maxCooldownHours, settings.startingCooldownHours, settings.spendingCap, rewardValue, invalid, rewardError, timingError]);
+    }, treatPrice)), [inputs, drinks.prices, settings.factionPercent, settings.company, settings.maxCooldownHours, settings.startingCooldownHours, settings.spendingCap, treatPrice, invalid, rewardError, timingError]);
   const selected = rows[drinks.selectedTier];
   const validRows = rows.filter((row) => row !== null);
   const bestCash = validRows.reduce<(typeof validRows)[number] | null>((best, row) => !best || row.netExtraCash > best.netExtraCash ? row : best, null);
@@ -39,8 +39,8 @@ export function HalloweenStrategy({ inputs, form, drinks, settings, invalid, onD
     <section className="panel book-strategy-panel" aria-label="Halloween reward assumptions">
       <PanelHeader icon={<TrendingUp size={17} />} title="Halloween rewards" />
       <div className="halloween-reward-input">
-        <NumberField label="Average net reward value" value={drinks.rewardValue} onChange={(value) => onDrinksChange((current) => ({ ...current, rewardValue: value }))} suffix="$/reward" />
-        <p className="drink-note">An illustrative $700k per reward item, after selling fees. Include the average value of premium rewards and multipacks, but exclude Freebie, Cashback and returned energy: the calculator adds those separately. This is not a live market price.</p>
+        <NumberField label="Price per treat" value={drinks.treatPrice} onChange={(value) => onDrinksChange((current) => ({ ...current, treatPrice: value }))} suffix="$/treat" />
+        <p className="drink-note">Default: $750,000 per treat earned. Enter the average net sale proceeds per treat, including Freebie and Cashback benefits after selling fees. Proceeds equal treats earned × price per treat. Returned energy adds further attacks and treats separately; exclude its value from this price.</p>
       </div>
       <p className="drink-note">Expected {MAX_BASKET_TREATS_PER_ATTACK.toFixed(5)} treats per successful attack before exchange recycling. Assumes scary clothing and a scary finishing weapon, frequent exchanges, and all Dark Power energy used for more attacks. Normal-energy and Mortal Coil rewards are included equally in both strategies.</p>
       {rewardError || timingError ? <p className="drink-error" role="alert">{rewardError ?? timingError}</p> : null}
@@ -48,7 +48,7 @@ export function HalloweenStrategy({ inputs, form, drinks, settings, invalid, onD
 
     <section className="panel book-strategy-panel" aria-label="Halloween can tier comparison">
       <PanelHeader icon={<BatteryCharging size={17} />} title="Compare Halloween can tiers" />
-      <p className="drink-note">Extra attacks, treats and proceeds are above the no-cans baseline, including exchange recycling. Can prices are editable examples. Stats shown here are gym gains before enhancers.</p>
+      <p className="drink-note">Extra attacks, treats and proceeds are above the no-cans baseline, including exchange recycling. Default can prices are based on the annual low point, not live market prices, and can be edited. Stats shown here are gym gains before enhancers.</p>
       <div className="drink-table-scroll" tabIndex={0} role="region" aria-label="Scrollable Halloween comparison">
         <table className="drink-table halloween-table"><thead><tr>
           <th scope="col">Can tier</th><th scope="col">Price per can</th><th scope="col">Cans / spend</th><th scope="col">Halloween energy</th><th scope="col">Extra attacks / treats</th><th scope="col">Extra sale proceeds</th><th scope="col">Day-31 gym lead</th><th scope="col">First saving overtake</th>
@@ -114,7 +114,7 @@ export function HalloweenStrategy({ inputs, form, drinks, settings, invalid, onD
         <p>A fully upgraded Nightmarish basket, scary clothing and scary finishing weapon give an expected {MAX_BASKET_TREATS_PER_ATTACK.toFixed(5)} treats per attack. No Revitalize energy refund is assumed. Mortal Coil contributes 168 shared treats; one-time upgrade rewards and previously held treats are excluded.</p>
         <p>Freebie adds 10% to rewards and Dark Power energy; Cashback returns 10% of the original exchanged treats. Returned energy is attacked and resulting treats exchanged again. These are long-run expected values: fractional attacks and rewards are estimates, and exchange rounding and random variation are not simulated.</p>
         <p>Frequent exchanges and prompt attacks are assumed to avoid the 1,000-energy cap. Treats are not banked, so no Inflation income is credited. Returned energy is used only for attacks during Halloween, never also counted as gym energy or cash. Reward cans are sold, not consumed again.</p>
-        <p>The reward value is the net average sale value per reward, including premium reward outcomes but before Freebie or recycling. All proceeds become available on day 7. With investment enabled, saved can money grows from day 0 and both paths’ event proceeds grow from day 7.</p>
+        <p>Price per treat is the net average sale proceeds per earned treat, including premium rewards, multipacks, Freebie and Cashback. Proceeds equal earned treats × this price; Cashback treats and Freebie rewards are not priced again. Dark Power energy still generates additional attacks and earned treats, so its value must be excluded from the price. All proceeds become available on day 7. With investment enabled, saved can money grows from day 0 and both paths’ event proceeds grow from day 7.</p>
         <p>Both paths use their own balances to buy whole enhancers on the same day, at or after day 31. The first saving overtake is the first daily checkpoint where buying then puts saving ahead of cans buying then. If none is found within 3,650 days, automatic mode buys on day 31; this does not claim saving can never win. A chosen target stat uses the saving path before enhancers.</p>
         <p>Enhancer purchases are one event; individual booster cooldowns are not simulated. Each enhancer adds 1%, capped at 5 trillion per item. Leftover cash remains cash. Gym projections use the existing formula, fixed happiness, 50-energy trains and no 30% gym-book bonus. No later Halloween events are simulated.</p>
         <p>“Gym gain forgone” compares training the Halloween can energy instead, while keeping normal Halloween attacks identical. “Proceeds minus all can costs” subtracts the entire 31-day can bill; the remaining can energy still supplies gym gains.</p>
