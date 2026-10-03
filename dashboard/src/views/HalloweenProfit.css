@@ -1,0 +1,58 @@
+.halloween-profit { display: grid; gap: 18px; min-width: 0; }
+.halloween-profit .panel { padding: 20px; min-width: 0; }
+.halloween-heading { display: flex; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; gap: 16px; }
+.halloween-heading h1 { margin: 10px 0; font-size: 28px; }
+.halloween-heading p, .halloween-note, .halloween-wide, .halloween-method p { color: var(--text-muted); line-height: 1.6; font-size: 13px; }
+.halloween-heading p { margin: 0; }
+.halloween-heading .panel-kicker { color: #fb923c; letter-spacing: .06em; }
+.halloween-assumptions { display: flex; flex-wrap: wrap; gap: 8px; width: 100%; }
+.halloween-assumptions span { background: var(--panel-muted-bg); border: 1px solid var(--border-solid); border-radius: 20px; padding: 6px 10px; font-size: 12px; color: var(--text-main); }
+.halloween-fields { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 16px; align-items: end; }
+.halloween-profit select { background: var(--panel-bg-solid); border: 1px solid var(--border-solid); border-radius: 7px; color: var(--text-main); padding: 10px; width: 100%; min-width: 0; }
+.halloween-toggle { display: flex; align-items: center; gap: 9px; font-size: 13px; min-height: 40px; }
+.halloween-profit input[type=checkbox] { accent-color: #fb923c; width: 16px; height: 16px; flex-shrink: 0; }
+.halloween-inline-note { font-size: 12px; color: var(--text-muted); padding-bottom: 8px; line-height: 1.6; }
+.halloween-controls { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
+.halloween-popout { top: 60px; width: min(640px, calc(100vw - 72px)); max-height: min(75vh, 780px); overflow-y: auto; z-index: 20; }
+.halloween-popout-title { display: flex; align-items: center; justify-content: space-between; margin-bottom: 15px; }
+.halloween-popout-title button { border: 0; background: transparent; color: var(--text-main); cursor: pointer; padding: 7px; }
+.halloween-wide { grid-column: 1/-1; margin: 0; }
+.halloween-books { display: grid; grid-template-columns: repeat(auto-fit,minmax(190px,1fr)); gap: 10px; }
+.halloween-books label { display: flex; align-items: flex-start; gap: 8px; padding: 13px; border: 1px solid var(--border-solid); border-radius: 8px; cursor: pointer; }
+.halloween-books label.selected { border-color: #b66a39; background: rgba(251,146,60,.07); }
+.halloween-books strong { display: block; font-size: 13px; line-height: 1.5; }
+.halloween-books small { display: block; font-size: 12px; line-height: 1.5; margin-top: 7px; color: var(--text-muted); }
+.halloween-metrics { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 12px; }
+.halloween-profit .metric-card { min-width: 0; }
+.halloween-profit .metric-card-value { font-size: clamp(20px,2vw,27px); }
+.halloween-sort { display: flex; gap: 10px; align-items: center; font-size: 12px; }
+.halloween-table-scroll { overflow: auto; border: 1px solid var(--border-solid); border-radius: 8px; max-height: 560px; min-width: 0; }
+.halloween-table { width: 100%; border-collapse: collapse; text-align: left; font-variant-numeric: tabular-nums; font-size: 13px; }
+.halloween-table th { text-transform: uppercase; letter-spacing: .025em; font-size: 10px; color: var(--text-muted); background: var(--panel-muted-bg); position: sticky; top: 0; z-index: 1; }
+.halloween-table th, .halloween-table td { padding: 13px 12px; border-bottom: 1px solid var(--border-solid); white-space: nowrap; }
+.halloween-table td:first-child { white-space: normal; min-width: 175px; }
+.halloween-table tbody tr:last-child td { border-bottom: 0; }
+.halloween-profit .halloween-table tbody tr td { background: var(--panel-bg-solid); }
+.halloween-profit .halloween-table tbody tr:nth-child(even) td { background: var(--panel-muted-bg); }
+.halloween-profit .halloween-table tbody tr.selected td { background: color-mix(in srgb, var(--panel-bg-solid), #fb923c 12%); }
+.halloween-table tr.selected td:first-child { box-shadow: inset 3px 0 #fb923c; }
+.halloween-profit .halloween-table tr:has(button):hover td { background: var(--panel-hover-bg); cursor: pointer; }
+.halloween-table button { border: 0; color: var(--text-main); background: transparent; padding: 0; text-align: left; cursor: pointer; font: inherit; line-height: 1.5; }
+.halloween-table small { display: block; color: var(--text-muted); margin-top: 4px; }
+.halloween-positive { color: #16834c; font-weight: 600; }
+.halloween-negative, .halloween-error { color: #d42e4a; }
+:root[data-theme=dark] .halloween-positive { color: #83e1b0; }
+:root[data-theme=dark] .halloween-negative, :root[data-theme=dark] .halloween-error { color: #fda4af; }
+.halloween-chart { height: 330px; margin: 22px 0; }
+.halloween-breakdowns { display: grid; grid-template-columns: minmax(0,1.15fr) minmax(0,1fr); gap: 24px; }
+.halloween-breakdowns > div { min-width: 0; }
+.halloween-breakdowns .halloween-table { min-width: 470px; }
+.halloween-breakdowns h3 { font-size: 14px; margin: 4px 0 14px; }
+.halloween-insights { font-size: 13px; color: var(--text-muted); line-height: 1.7; }
+.halloween-insights strong { color: var(--text-main); }
+.halloween-insights p { padding-bottom: 14px; border-bottom: 1px solid var(--border-solid); }
+.halloween-method summary { cursor: pointer; font-weight: 600; font-size: 14px; }
+.halloween-method a { color: var(--accent); }
+.halloween-profit button:focus-visible, .halloween-profit input:focus-visible, .halloween-profit select:focus-visible { outline: 2px solid #fb923c; outline-offset: 3px; }
+@media(max-width:1100px) { .halloween-metrics, .halloween-fields { grid-template-columns: repeat(2,minmax(0,1fr)); } .halloween-breakdowns { grid-template-columns: 1fr; } }
+@media(max-width:650px) { .halloween-profit .panel { padding: 14px; } .halloween-fields, .halloween-metrics { grid-template-columns: 1fr; } .halloween-popout { position: static; width: 100%; max-height: none; margin-top: 14px; } .halloween-popout .book-strategy-popout-grid { grid-template-columns: 1fr; } .halloween-profit .panel-header { flex-wrap: wrap; gap: 12px; } .halloween-chart { height: 290px; } }
