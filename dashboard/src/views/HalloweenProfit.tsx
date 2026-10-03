@@ -10,6 +10,7 @@ import { compareHalloween, DEFAULT_HALLOWEEN, HALLOWEEN_BOOKS, HALLOWEEN_BOOSTER
   type HalloweenBook, type HalloweenSettings, type HalloweenResult } from "../utils/halloweenProfit";
 import { formatMoney, formatCompact } from "./BookStrategy.helpers";
 import "./HalloweenProfit.css";
+import { HalloweenStrategyBreakdown } from "./HalloweenStrategyBreakdown";
 
 type NumericKey = { [K in keyof HalloweenSettings]: HalloweenSettings[K] extends number ? K : never }[keyof HalloweenSettings];
 const numberKeys = Object.keys(DEFAULT_HALLOWEEN).filter(key => typeof DEFAULT_HALLOWEEN[key as keyof HalloweenSettings] === "number") as NumericKey[];
@@ -219,11 +220,6 @@ export function HalloweenProfit() {
             {selected.sources.filter(source => source.name !== "Attack supplies").map(source => <tr key={source.name}><td>{source.name}</td><td>{source.energy ? `${count(source.energy)}E` : "—"}</td><td>{source.count ? count(source.count) : "—"}</td><td>{formatMoney(source.cost)}</td></tr>)}
           </tbody></table></div></div>
           <div className="halloween-insights"><h3>What changes the outcome</h3>
-            {alternativeWeapon && <p><strong>Treats per attack</strong><br />
-              Scary weapon: {(settings.weapon === "scary" ? selected : alternativeWeapon).treatsPerAttack.toLocaleString(undefined, { maximumFractionDigits: 6 })}<br />
-              Revitalize weapon: {(settings.weapon === "revitalize" ? selected : alternativeWeapon).treatsPerAttack.toLocaleString(undefined, { maximumFractionDigits: 6 })}<br />
-              Scary clothing {settings.scaryClothing ? "included" : "excluded"}. Cat in Hell excluded. Cashback and other basket rewards are calculated separately.
-            </p>}
             <p><strong>{count(selected.exchangedTreats)} treats exchanged</strong><br />{count(selected.earnedTreats)} earned from attacks / Mortal Coil · {count(selected.cashbackTreats)} returned by Cashback · {count(selected.inflationTreats)} from Inflation.</p>
             {breakEvenBooster !== null && <p><strong>{formatMoney(breakEvenBooster)} per {selected.booster === "fhc" ? "FHC" : "can"}</strong><br />Maximum price for paid boosters to outperform using this book without them, at your current settings.</p>}
             {alternativeWeapon && <p><strong>{formatMoney(alternativeWeapon.profit - selected.profit)} profit change</strong><br />Switching to {settings.weapon === "scary" ? `${settings.revitalize}% Revitalize` : "a scary weapon"}, keeping this book and booster.<br />{alternativeWeapon.attacks >= selected.attacks ? "+" : ""}{count(alternativeWeapon.attacks - selected.attacks)} attacks ({count(alternativeWeapon.attacks)} total). Equipment purchase costs are excluded.</p>}
@@ -232,7 +228,13 @@ export function HalloweenProfit() {
         </div>
       </section>
     </>}
+    {selected && baseline && selectedNoBook && <HalloweenStrategyBreakdown selected={selected} baseline={baseline} noBook={selectedNoBook} settings={settings} />}
     <section className="panel halloween-method"><details><summary>How the estimate works</summary>
+      {selected && alternativeWeapon && <p><strong>Treats per attack</strong><br />
+        Scary weapon: {(settings.weapon === "scary" ? selected : alternativeWeapon).treatsPerAttack.toLocaleString(undefined, { maximumFractionDigits: 6 })}<br />
+        Revitalize weapon: {(settings.weapon === "revitalize" ? selected : alternativeWeapon).treatsPerAttack.toLocaleString(undefined, { maximumFractionDigits: 6 })}<br />
+        Scary clothing {settings.scaryClothing ? "included" : "excluded"}. Cat in Hell excluded. Cashback and other basket rewards are calculated separately.
+      </p>}
       <p>This is an expected-value comparison, not a prediction of individual drops. All basket upgrades are owned, but Cat in Hell is excluded from the calculation. The basket starts empty, and every attack succeeds. Each book covers the full event; its remaining 24 days have no assigned value. No book purchase cost is assumed.</p>
       <p>Only one finishing weapon is used. Revitalize returns 25E on a successful proc and gives up the scary-weapon treat bonus. Recycled energy is attacked again. Scary clothing is independent of weapon choice.</p>
       <p>Dark Power, Freebie energy, Cashback, Mortal Coil and hourly Inflation are included. Treats are exchanged repeatedly and returned energy is attacked while active. Reward value equals treats exchanged × your price per treat; Freebie item value is already included in that price. Fractional attacks and treats describe averages, so small real-world rounding differences are expected.</p>
