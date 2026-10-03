@@ -49,8 +49,8 @@ export function HalloweenStrategyBreakdown({ selected, baseline, noBook, setting
         This book increases natural energy regeneration by <strong>20%</strong>, providing <strong>{count(energy(selected, "Natural regeneration") - energy(noBook, "Natural regeneration"))}E more</strong> during the event. That energy supports additional attacks without increasing your booster spend.
       </p>}
       {selected.book === "fuel" && (usesCans ? <p>
-        This book doubles energy from cans before rounding. {paid && unboosted && paid.count > 0 && unboosted.count > 0 ? <>
-          Each can provides <strong>{count(paid.energy / paid.count)}E</strong> instead of <strong>{count(unboosted.energy / unboosted.count)}E</strong>, adding <strong>{count(paid.energy - unboosted.energy)}E</strong> across <strong>{count(paid.count)} cans</strong>, for the same can cost. Energy per can is rounded after perks are applied.
+        This book doubles energy from cans. {paid && unboosted && paid.count > 0 && unboosted.count > 0 ? <>
+          Each can provides <strong>{count(paid.energy / paid.count)}E</strong> instead of <strong>{count(unboosted.energy / unboosted.count)}E</strong>, adding <strong>{count(paid.energy - unboosted.energy)}E</strong> across <strong>{count(paid.count)} cans</strong>, for the same can cost.
         </> : "No cans are used with your current settings, so this book adds no energy."}
       </p> : <p>This book provides no additional energy with this strategy because it only affects energy drinks.</p>)}
       {selected.book === "ugly" && <>
@@ -65,11 +65,11 @@ export function HalloweenStrategyBreakdown({ selected, baseline, noBook, setting
       <p>Compared with <strong>the same boosters without a book</strong>, the book gives <strong>{signed(selected.attacks - noBook.attacks)}</strong> attacks, <strong>{signed(selected.exchangedTreats - noBook.exchangedTreats)}</strong> treats, and <strong>{signed(selected.profit - noBook.profit, true)}</strong> net profit.</p>
     </div>}
 
-    <p><strong>Energy before returns:</strong> This strategy provides <strong>{count(suppliedEnergy)}E</strong> from energy sources such as regeneration, drugs, refills and boosters—<strong>{count(Math.abs(suppliedDifference))}E {suppliedDifference < 0 ? "less" : "more"} than the baseline</strong>.</p>
-    <p><strong>Energy returned:</strong> Dark Power provides another <strong>{count(basketEnergy)}E</strong>, including energy from Freebie &amp; Cashback.
-      {settings.weapon === "revitalize" && <><br />Revitalize adds a further <strong>{count(returnedEnergy)}E</strong>.</>}
+    <p className="halloween-energy-summary"><strong>Energy before returns:</strong> This strategy provides <strong>{count(suppliedEnergy)}E</strong> from energy sources such as regeneration, drugs, refills and boosters—<strong>{count(Math.abs(suppliedDifference))}E {suppliedDifference < 0 ? "less" : "more"} than the baseline</strong>.</p>
+    <p className="halloween-energy-summary"><strong>Energy returned:</strong> Dark Power provides another <strong>{count(basketEnergy)}E</strong>, including energy from Freebie &amp; Cashback.
+      {settings.weapon === "revitalize" && <> Revitalize adds a further <strong>{count(returnedEnergy)}E</strong>.</>}
     </p>
-    <p><strong>Total energy and attacks:</strong> Together, this gives <strong>{count(totalEnergy)}E</strong>, supporting approximately <strong>{count(selected.attacks)} attacks</strong>—<strong>{count(Math.abs(attackDifference))} {attackDifference < 0 ? "fewer" : "more"} than the baseline</strong>.</p>
+    <p className="halloween-energy-summary"><strong>Total energy and attacks:</strong> Together, this gives <strong>{count(totalEnergy)}E</strong>, supporting approximately <strong>{count(selected.attacks)} attacks</strong>—<strong>{count(Math.abs(attackDifference))} {attackDifference < 0 ? "fewer" : "more"} than the baseline</strong>.</p>
     {settings.weapon === "revitalize" ? <p>
       Your <strong>{count(settings.revitalize)}% Revitalize weapon</strong> earns approximately <strong>{rate} treats per attack</strong>.
     </p> : <p>Your <strong>scary weapon</strong> earns approximately <strong>{rate} treats per attack</strong>.</p>}
