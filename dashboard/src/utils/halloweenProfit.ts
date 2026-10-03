@@ -28,7 +28,7 @@ export type HalloweenSettings = {
   treatPrice: number; weapon: "scary" | "revitalize"; revitalize: number; scaryClothing: boolean;
   donor: boolean; company: HalloweenCompany; factionBonus: number;
   maxCooldown: number; startingCooldown: number; canPrices: number[]; fhcPrice: number;
-  startingEnergy: number; preparationCost: number; specialRefills: number;
+  startingEnergy: number; specialRefills: number;
   drugPrice: number; drugInterval: number; drugDelay: number;
   jobPoints: number; dailyJobPoints: number; extraEnergy: number; greenEggs: number;
   attackCost: number; otherCost: number; startHour: number; sleepHours: number; sleepStart: number;
@@ -38,7 +38,7 @@ export const DEFAULT_HALLOWEEN: HalloweenSettings = {
   treatPrice: 750000, weapon: "scary", revitalize: 18, scaryClothing: true,
   donor: true, company: "none", factionBonus: 50, maxCooldown: 48, startingCooldown: 0,
   canPrices: [250000, 500000, 800000, 1250000, 1750000, 3000000], fhcPrice: 14000000,
-  startingEnergy: 1000, preparationCost: 0, specialRefills: 0, drugPrice: 875000,
+  startingEnergy: 1000, specialRefills: 0, drugPrice: 875000,
   drugInterval: 8, drugDelay: 0, jobPoints: 0, dailyJobPoints: 0,
   extraEnergy: 0, greenEggs: 0, attackCost: 0, otherCost: 0,
   startHour: 12, sleepHours: 0, sleepStart: 0, exchangeHours: 0,
@@ -56,7 +56,7 @@ export function validateHalloween(s: HalloweenSettings): string | null {
   const ranges: [keyof HalloweenSettings, number, number][] = [
     ["treatPrice", 0, 1e9], ["revitalize", 10, 24], ["factionBonus", 0, 50],
     ["maxCooldown", 24, 48], ["startingCooldown", 0, 100], ["fhcPrice", 0, 1e9],
-    ["startingEnergy", 0, 1000], ["preparationCost", 0, 1e12],
+    ["startingEnergy", 0, 1000],
     ["specialRefills", 0, 100], ["drugPrice", 0, 1e9], ["drugInterval", 6, 24],
     ["drugDelay", 0, 168], ["jobPoints", 0, 10000], ["dailyJobPoints", 0, 100],
     ["extraEnergy", 0, 1000], ["greenEggs", 0, 100], ["attackCost", 0, 1e9],
@@ -99,7 +99,7 @@ export function simulateHalloween(s: HalloweenSettings, book: HalloweenBook, boo
     row.energy += energy; row.count += count; row.cost += cost; sources.set(name, row);
   };
   let energy = s.startingEnergy, basket = 0, attacks = 0, earnedTreats = 0, exchangedTreats = 0;
-  let cashbackTreats = 0, inflationTreats = 0, cost = s.preparationCost + s.otherCost;
+  let cashbackTreats = 0, inflationTreats = 0, cost = s.otherCost;
   let wastedRegeneration = 0, wastedDarkEnergy = 0, boosterCount = 0;
   let cooldown = s.startingCooldown, nextDrug = s.drugDelay * 60, nextExchange = 0;
   let eggs = s.greenEggs, points = s.jobPoints, usedPoints = 0, refillDay = -1, currentDay = -1;
@@ -135,7 +135,7 @@ export function simulateHalloween(s: HalloweenSettings, book: HalloweenBook, boo
     }
     exchanging = false;
   };
-  source("Preparation / other costs", 0, 0, cost);
+  source("Other costs", 0, 0, cost);
   source("Starting energy", s.startingEnergy);
   for (let minute = 0; minute < 10080; minute++) {
     if (minute > 0) cooldown = Math.max(0, cooldown - 1 / 60);

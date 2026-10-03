@@ -91,7 +91,7 @@ export function HalloweenProfit() {
         {options.weapon === "revitalize" ? field("revitalize", "Revitalize chance", "%") : <div className="halloween-inline-note">Scary finish adds 10 percentage points to your treat chance.</div>}
         {toggle("scaryClothing", "Wear scary clothing")}
       </div>
-      <div className="halloween-controls">{["Energy & drugs", "Boosters & prices", "Company"].map(label =>
+      <div className="halloween-controls">{["Energy & drugs", "Boosters", "Prices", "Company"].map(label =>
         <PopoutButton key={label} label={label} icon={<Settings2 size={14} />} active={popout === label} onClick={() => setPopout(popout === label ? null : label)} />)}</div>
       {popout && <div className="book-strategy-popout halloween-popout" role="region" aria-label={popout}>
         <div className="halloween-popout-title"><strong>{popout}</strong><button type="button" aria-label="Close settings" onClick={() => setPopout(null)}><X size={18} /></button></div>
@@ -99,23 +99,24 @@ export function HalloweenProfit() {
           {popout === "Energy & drugs" && <>
             {toggle("donor", "Donator regeneration")}
             <p className="halloween-wide">Xanax is assumed for every strategy. Daily energy refills are always available and used on all eight calendar days; refill costs are excluded.</p>
-            {field("startingEnergy", "Starting energy", "E", "Energy already stacked when the event begins; include its cost in preparation cost.")}
-            {field("preparationCost", "Preparation cost", "$")}
+            {field("startingEnergy", "Starting energy", "E", "Energy already stacked when the event begins. Its cost is excluded from the comparison.")}
             {field("specialRefills", "Special energy refills", "refills", "Free refills, used before the first daily points refill; maximum 100.")}
             {field("extraEnergy", "Other one-off energy", "E", "One claim at the first active moment, after spending stored energy. Use for stock or newsletter energy; maximum 1,000E.")}
             {field("drugPrice", "Price per Xanax", "$")}
             {field("drugInterval", "Time between Xanax", "hours", "Planning interval, including time you wait after cooldown. No overdoses are simulated.")}
             {field("drugDelay", "Starting drug cooldown", "hours")}
           </>}
-          {popout === "Boosters & prices" && <>
+          {popout === "Boosters" && <>
             {field("factionBonus", "Faction can bonus", "%")}
             {field("maxCooldown", "Maximum booster cooldown", "hours")}
             {field("startingCooldown", "Starting booster cooldown", "hours")}
+            {field("greenEggs", "Available Green Easter eggs", "eggs", "500E and 6h cooldown each. Used before paid boosters; also included in the baseline. Eggs are valued at $0.")}
+          </>}
+          {popout === "Prices" && <>
             {field("fhcPrice", "Price per FHC", "$")}
             {ENERGY_DRINK_TIERS.map((tier, index) => <NumberField key={tier.energy} label={`${tier.energy}E can price`} title={tier.name} suffix="$" value={prices[index]}
               onChange={value => setPrices(current => current.map((price, i) => i === index ? value : price))} />)}
-            {field("greenEggs", "Available Green Easter eggs", "eggs", "500E and 6h cooldown each. Used before paid boosters; also included in the baseline.")}
-            <p className="halloween-wide">Default can prices are based on the annual low point, not live market prices. Enter your own purchase prices. Owned boosters still have a cost; eggs are valued at $0.</p>
+            <p className="halloween-wide">Default can prices are based on the annual low point, not live market prices. Enter your own purchase prices. Owned boosters still have a cost.</p>
           </>}
           {popout === "Company" && <>
             <label className="book-strategy-field halloween-wide"><span>Company specials</span><select value={options.company} onChange={event => change("company", event.target.value as HalloweenSettings["company"])}>
@@ -127,6 +128,7 @@ export function HalloweenProfit() {
         </div>
       </div>}
       <p className="halloween-note">Price per treat is a flat valuation of exchanged rewards. The $750,000 default is a planning estimate; changing it updates every strategy.</p>
+      <p className="halloween-note">Default item prices are based on the annual low for each item, not live market prices.</p>
     </section>
 
     <section className="panel"><PanelHeader title="Books to compare" aside="One book at a time" />
@@ -188,7 +190,7 @@ export function HalloweenProfit() {
       <p>Dark Power, Freebie energy, Cashback, Mortal Coil and hourly Inflation are included. Treats are exchanged repeatedly and returned energy is attacked while active. Reward value equals treats exchanged × your price per treat; Freebie item value is already included in that price. Fractional attacks and treats describe averages, so small real-world rounding differences are expected.</p>
       <p>The event starts at 12:00 TCT and runs for 168 hours with continuous activity and frequent treat exchanges. Supplies per attack and other event costs are fixed at $0. The schedule uses one-minute steps and immediate attacks, with no attack-rate limit, hospital time or overdoses. Natural regeneration is capped by maximum energy; other energy is spent before the next claim. A treat exchange is capped at 1,000E, and frequent exchanges minimise wasted energy.</p>
       <p>Xanax is used in every strategy. Daily energy refills reset at midnight TCT and are assumed available and used on all eight calendar dates, including the first day. Their cost is excluded from profit calculations. Special refills are used first. Up to 100 company points are redeemed daily. Jobs award new points at 18:00 TCT.</p>
-      <p>Eggs, cans and FHCs share booster cooldown. An item can be used while cooldown is below the maximum and may take it above that maximum. No further item is used until cooldown falls below the limit. Owned eggs are used first. Booster and preparation costs cover only this event; edit prices to reflect your own costs.</p>
+      <p>Eggs, cans and FHCs share booster cooldown. An item can be used while cooldown is below the maximum and may take it above that maximum. No further item is used until cooldown falls below the limit. Owned eggs are used first. Booster costs cover only this event; edit prices to reflect your own costs. Starting energy has no assigned cost.</p>
       <p>Mechanics: <a href="https://wiki.torn.com/wiki/Trick_or_Treat" target="_blank" rel="noreferrer">Torn Halloween wiki</a> · <a href="https://wiki.torn.com/wiki/Energy" target="_blank" rel="noreferrer">Energy</a> · <a href="https://wiki.torn.com/wiki/Books" target="_blank" rel="noreferrer">Books</a> · <a href="https://wiki.torn.com/wiki/Weapon_Bonus" target="_blank" rel="noreferrer">Weapon bonuses</a> · <a href="https://wiki.torn.com/wiki/Item_Cooldowns" target="_blank" rel="noreferrer">Cooldowns</a>.</p>
     </details></section>
   </div>;
