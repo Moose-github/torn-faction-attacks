@@ -73,9 +73,19 @@ describe("Halloween profit model", () => {
   });
   it("removes the scary finishing bonus when using Revitalize", () => {
     const row = simulateHalloween(settings({ weapon: "revitalize", revitalize: 24 }), "none", "none");
-    const expectedRate = 0.9 * 1.2 * 1.2 * 1.15 * 1.04 + 0.002;
+    const expectedRate = 0.9 * 1.2 * 1.2 * 1.15 * 1.04;
     expect((row.earnedTreats - 168) / row.attacks).toBeCloseTo(expectedRate, 10);
     expect(source(row, "Revitalize returns")?.energy).toBeCloseTo(row.attacks * 25 * 0.24, 7);
+  });
+  it.each([
+    { weapon: "scary" as const, scaryClothing: true, expectedRate: 1.72224 },
+    { weapon: "revitalize" as const, scaryClothing: true, expectedRate: 1.550016 },
+    { weapon: "scary" as const, scaryClothing: false, expectedRate: 1.550016 },
+    { weapon: "revitalize" as const, scaryClothing: false, expectedRate: 1.377792 },
+  ])("excludes Cat in Hell with $weapon and scary clothing $scaryClothing", ({ weapon, scaryClothing, expectedRate }) => {
+    const row = simulateHalloween(settings({ weapon, scaryClothing }), "none", "none");
+    expect(row.treatsPerAttack).toBeCloseTo(expectedRate, 10);
+    expect((row.earnedTreats - 168) / row.attacks).toBeCloseTo(expectedRate, 10);
   });
   it("models inactive energy caps and values final treats without post-event attacks", () => {
     const idle = simulateHalloween(settings({ sleepStart: 10, sleepHours: 8 }), "none", "none");

@@ -45,7 +45,7 @@ export const DEFAULT_HALLOWEEN: HalloweenSettings = {
 };
 export type HalloweenSource = { name: string; energy: number; count: number; cost: number };
 export type HalloweenResult = {
-  id: string; book: HalloweenBook; booster: string; attacks: number; earnedTreats: number;
+  id: string; book: HalloweenBook; booster: string; attacks: number; treatsPerAttack: number; earnedTreats: number;
   exchangedTreats: number; cashbackTreats: number; inflationTreats: number;
   revenue: number; cost: number; profit: number; roi: number | null; breakEvenTreatPrice: number;
   boosterCount: number; sources: HalloweenSource[]; wastedRegeneration: number; wastedDarkEnergy: number;
@@ -86,7 +86,8 @@ export function simulateHalloween(s: HalloweenSettings, book: HalloweenBook, boo
   if (!selectedBooster || !HALLOWEEN_BOOKS.some(b => b.id === book)) throw new Error("Unknown Halloween strategy.");
   const cap = book === "ugly" ? 250 : s.donor ? 150 : 100;
   const revitalize = s.weapon === "revitalize" ? s.revitalize / 100 : 0;
-  const treatsPerAttack = (0.8 + (s.scaryClothing ? 0.1 : 0) + (s.weapon === "scary" ? 0.1 : 0)) * 1.2 * 1.2 * 1.15 * 1.04 + 1000 / 500000;
+  // Cat in Hell's rare jackpot is excluded from the expected treat yield.
+  const treatsPerAttack = (0.8 + (s.scaryClothing ? 0.1 : 0) + (s.weapon === "scary" ? 0.1 : 0)) * 1.2 * 1.2 * 1.15 * 1.04;
   const canMultiplier = (1 + s.factionBonus / 100) * (s.company === "grocery7" ? 1.1 : 1) * (book === "fuel" ? 2 : 1);
   const canCooldown = 2 * (s.company === "restaurant10" ? 0.75 : s.company.startsWith("grocery") ? 0.9 : 1) * (book === "self" ? 0.5 : 1);
   const boosterCooldown = booster === "fhc" ? 6 : canCooldown;
@@ -213,7 +214,7 @@ export function simulateHalloween(s: HalloweenSettings, book: HalloweenBook, boo
   }
   const revenue = exchangedTreats * s.treatPrice;
   timeline[timeline.length - 1].profit = revenue - cost;
-  return { id: `${book}:${booster}`, book, booster, attacks, earnedTreats, exchangedTreats, cashbackTreats,
+  return { id: `${book}:${booster}`, book, booster, attacks, treatsPerAttack, earnedTreats, exchangedTreats, cashbackTreats,
     inflationTreats, revenue, cost, profit: revenue - cost, roi: cost ? (revenue - cost) / cost : null,
     breakEvenTreatPrice: exchangedTreats ? cost / exchangedTreats : 0,
     boosterCount, sources: [...sources.values()].filter(r => r.energy || r.cost || r.count),

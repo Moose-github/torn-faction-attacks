@@ -87,6 +87,11 @@ export function HalloweenProfit() {
   const best = ranked[0], worst = ranked[ranked.length - 1];
   const baseline = results.find(row => row.id === "none:none");
   const selected = ranked.find(row => row.id === selectedId) ?? best;
+  const energyLosses = selected ? [
+    { label: "regeneration lost", energy: selected.wastedRegeneration },
+    { label: "Dark Power lost to the cap", energy: selected.wastedDarkEnergy },
+    { label: "left after the event", energy: selected.unusedEnergy },
+  ].filter(row => Math.round(row.energy * 10) > 0) : [];
   const selectedNoBooster = results.find(row => row.book === selected?.book && row.booster === "none");
   const selectedNoBook = results.find(row => row.book === "none" && row.booster === selected?.booster);
   const alternativeWeapon = React.useMemo(() => selected && !error
@@ -184,7 +189,7 @@ export function HalloweenProfit() {
       </div>
       <section className="panel"><PanelHeader title="Strategy comparison" control={<label className="halloween-sort">Sort <select value={sort} onChange={event => setSort(event.target.value)}><option value="highest">Highest profit first</option><option value="lowest">Lowest profit first</option></select></label>} />
         <p className="halloween-note">{ranked.length} strategies · Select a row to inspect its profit and energy breakdown. Smaller figures show the difference from no book and no paid boosters, with the same weapon and energy settings. Quantities are expected averages.</p>
-        <div className="halloween-table-scroll"><table className="halloween-table"><thead><tr><th>Book / booster</th><th>Boosters</th><th>Attacks</th><th>Treats exchanged</th><th>Reward value</th><th>Total spent</th><th>Net profit</th><th>Extra vs baseline</th></tr></thead>
+        <div className="halloween-table-scroll"><table className="halloween-table"><thead><tr><th>Book / booster</th><th>Boosters</th><th>Attacks</th><th>Treats exchanged</th><th>Reward value</th><th>Total spent</th><th>Net profit</th></tr></thead>
           <tbody>{rows.map(row => <tr key={row.id} className={row.id === selected.id ? "selected" : ""} onClick={() => setSelectedId(row.id)}>
             <td><button type="button" aria-pressed={row.id === selected.id} onClick={() => setSelectedId(row.id)}>{bookName(row.book)}<small>{boosterName(row.booster)}</small></button></td>
             <td>{row.boosterCount || "—"}<BaselineDifference value={row.boosterCount} baseline={baseline.boosterCount} /></td>
@@ -192,7 +197,7 @@ export function HalloweenProfit() {
             <td>{count(row.exchangedTreats)}<BaselineDifference value={row.exchangedTreats} baseline={baseline.exchangedTreats} /></td>
             <td>{formatMoney(row.revenue)}<BaselineDifference value={row.revenue} baseline={baseline.revenue} money /></td>
             <td>{formatMoney(row.cost)}<BaselineDifference value={row.cost} baseline={baseline.cost} money /></td>
-            <td className={row.profit >= 0 ? "halloween-positive" : "halloween-negative"}>{formatMoney(row.profit)}<BaselineDifference value={row.profit} baseline={baseline.profit} money /></td><td>{formatMoney(row.profit - baseline.profit)}</td>
+            <td className={row.profit >= 0 ? "halloween-positive" : "halloween-negative"}>{formatMoney(row.profit)}<BaselineDifference value={row.profit} baseline={baseline.profit} money /></td>
           </tr>)}</tbody></table></div>
       </section>
       <section className="panel halloween-detail"><PanelHeader title={strategyName(selected)} aside="Selected strategy" />
@@ -214,17 +219,21 @@ export function HalloweenProfit() {
             {selected.sources.filter(source => source.name !== "Attack supplies").map(source => <tr key={source.name}><td>{source.name}</td><td>{source.energy ? `${count(source.energy)}E` : "—"}</td><td>{source.count ? count(source.count) : "—"}</td><td>{formatMoney(source.cost)}</td></tr>)}
           </tbody></table></div></div>
           <div className="halloween-insights"><h3>What changes the outcome</h3>
-            <p><strong>{count(selected.attacks)} expected attacks</strong><br />{selected.attacks >= baseline.attacks ? "+" : ""}{count(selected.attacks - baseline.attacks)} attacks versus the no-book / no-paid-booster baseline ({count(baseline.attacks)} attacks).</p>
+            {alternativeWeapon && <p><strong>Treats per attack</strong><br />
+              Scary weapon: {(settings.weapon === "scary" ? selected : alternativeWeapon).treatsPerAttack.toLocaleString(undefined, { maximumFractionDigits: 6 })}<br />
+              Revitalize weapon: {(settings.weapon === "revitalize" ? selected : alternativeWeapon).treatsPerAttack.toLocaleString(undefined, { maximumFractionDigits: 6 })}<br />
+              Scary clothing {settings.scaryClothing ? "included" : "excluded"}. Cat in Hell excluded. Cashback and other basket rewards are calculated separately.
+            </p>}
             <p><strong>{count(selected.exchangedTreats)} treats exchanged</strong><br />{count(selected.earnedTreats)} earned from attacks / Mortal Coil · {count(selected.cashbackTreats)} returned by Cashback · {count(selected.inflationTreats)} from Inflation.</p>
             {breakEvenBooster !== null && <p><strong>{formatMoney(breakEvenBooster)} per {selected.booster === "fhc" ? "FHC" : "can"}</strong><br />Maximum price for paid boosters to outperform using this book without them, at your current settings.</p>}
             {alternativeWeapon && <p><strong>{formatMoney(alternativeWeapon.profit - selected.profit)} profit change</strong><br />Switching to {settings.weapon === "scary" ? `${settings.revitalize}% Revitalize` : "a scary weapon"}, keeping this book and booster.<br />{alternativeWeapon.attacks >= selected.attacks ? "+" : ""}{count(alternativeWeapon.attacks - selected.attacks)} attacks ({count(alternativeWeapon.attacks)} total). Equipment purchase costs are excluded.</p>}
-            <p><strong>{count(selected.wastedRegeneration)}E regeneration lost</strong><br />{count(selected.wastedDarkEnergy)}E Dark Power lost to the cap · {count(selected.unusedEnergy)}E left after the event.</p>
+            {energyLosses.map(row => <p key={row.label}><strong>{count(row.energy)}E {row.label}</strong></p>)}
           </div>
         </div>
       </section>
     </>}
     <section className="panel halloween-method"><details><summary>How the estimate works</summary>
-      <p>This is an expected-value comparison, not a prediction of individual drops. All basket upgrades are owned, the basket starts empty, and every attack succeeds. Each book covers the full event; its remaining 24 days have no assigned value. No book purchase cost is assumed.</p>
+      <p>This is an expected-value comparison, not a prediction of individual drops. All basket upgrades are owned, but Cat in Hell is excluded from the calculation. The basket starts empty, and every attack succeeds. Each book covers the full event; its remaining 24 days have no assigned value. No book purchase cost is assumed.</p>
       <p>Only one finishing weapon is used. Revitalize returns 25E on a successful proc and gives up the scary-weapon treat bonus. Recycled energy is attacked again. Scary clothing is independent of weapon choice.</p>
       <p>Dark Power, Freebie energy, Cashback, Mortal Coil and hourly Inflation are included. Treats are exchanged repeatedly and returned energy is attacked while active. Reward value equals treats exchanged × your price per treat; Freebie item value is already included in that price. Fractional attacks and treats describe averages, so small real-world rounding differences are expected.</p>
       <p>The event starts at 12:00 TCT and runs for 168 hours with continuous activity and frequent treat exchanges. Supplies per attack and other event costs are fixed at $0. The schedule uses one-minute steps and immediate attacks, with no attack-rate limit, hospital time or overdoses. Natural regeneration is capped by maximum energy; other energy is spent before the next claim. A treat exchange is capped at 1,000E, and frequent exchanges minimise wasted energy.</p>
