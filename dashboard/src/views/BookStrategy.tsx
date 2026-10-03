@@ -1,4 +1,6 @@
 import React from "react";
+import { EnergyDrinkStrategy } from "./EnergyDrinkStrategy";
+import { DEFAULT_DRINK_FORM, type EnergyDrinkForm } from "../utils/energyDrinkStrategy";
 import { NumberField, PerkInputs, PopoutButton } from "../components/TrainingCalculatorInputs";
 import {
   Activity,
@@ -97,6 +99,7 @@ const IIB_X_WARP_POWER = 3;
 export function BookStrategy() {
   const [mode, setMode] = React.useState<BookStrategyMode>("enhancers");
   const [form, setForm] = React.useState<BookStrategyForm>(DEFAULT_FORM);
+  const [drinks, setDrinks] = React.useState<EnergyDrinkForm>(DEFAULT_DRINK_FORM);
   const [timingForm, setTimingForm] = React.useState<BookTimingForm>(DEFAULT_TIMING_FORM);
   const [iibForm, setIibForm] = React.useState<IgnoranceIsBlissForm>(DEFAULT_IIB_FORM);
   const [sharedSettings, setSharedSettings] = React.useState<SharedTrainingSettings>(DEFAULT_SHARED_SETTINGS);
@@ -109,7 +112,7 @@ export function BookStrategy() {
   const effectiveTimingForm = React.useMemo(() => applySharedSettings(timingForm, sharedSettings), [sharedSettings, timingForm]);
   const effectiveIibForm = React.useMemo(() => applySharedSettings(iibForm, sharedSettings), [iibForm, sharedSettings]);
   const inputs = React.useMemo(() => inputsFromForm(effectiveForm, energyMode), [effectiveForm, energyMode]);
-  const result = React.useMemo(() => calculateBookStrategy(inputs), [inputs]);
+  const result = React.useMemo(() => calculateBookStrategy(mode === "drinks" ? inputsFromForm(DEFAULT_FORM, "total") : inputs), [inputs, mode]);
   const enhancerMarkerDay = result.enhancerUse.day;
 
   function updateSharedSetting<K extends keyof SharedTrainingSettings>(field: K, value: SharedTrainingSettings[K]) {
@@ -119,7 +122,7 @@ export function BookStrategy() {
   function updateField<K extends keyof BookStrategyForm>(field: K, value: BookStrategyForm[K]) {
     setForm((current) => {
       const next = { ...current, [field]: value };
-      if (field !== "postBookTrainingMonthsOutOfFour" || typeof value !== "string") {
+      if (mode !== "enhancers" || field !== "postBookTrainingMonthsOutOfFour" || typeof value !== "string") {
         return next;
       }
 
@@ -201,6 +204,7 @@ export function BookStrategy() {
 
   function resetDefaults() {
     setForm(DEFAULT_FORM);
+    setDrinks(DEFAULT_DRINK_FORM);
     setTimingForm(DEFAULT_TIMING_FORM);
     setIibForm(DEFAULT_IIB_FORM);
     setSharedSettings(DEFAULT_SHARED_SETTINGS);
@@ -266,7 +270,7 @@ export function BookStrategy() {
           <p className="eyebrow">Calculator</p>
           <h2>Book Strategy</h2>
           <p>
-            Compares expected stat growth from FHC book training versus saving the cash for later stat enhancers
+            Compare book training, energy drinks and saving for stat enhancers
           </p>
         </div>
         <button type="button" className="panel-action-button" onClick={resetDefaults}>
@@ -285,6 +289,15 @@ export function BookStrategy() {
             aria-selected={mode === "enhancers"}
           >
             Enhancers
+          </button>
+          <button
+            type="button"
+            className={mode === "drinks" ? "active" : ""}
+            onClick={() => setMode("drinks")}
+            role="tab"
+            aria-selected={mode === "drinks"}
+          >
+            Energy Drinks
           </button>
           <button
             type="button"
@@ -574,6 +587,25 @@ export function BookStrategy() {
           </div>
         </CollapsiblePanel>
           </>
+        ) : mode === "drinks" ? (
+          <EnergyDrinkStrategy
+            inputs={inputs}
+            form={effectiveForm}
+            drinks={drinks}
+            onDrinksChange={setDrinks}
+            onFieldChange={updateField}
+            sharedSettings={sharedSettings}
+            onSharedSettingChange={updateSharedSetting}
+            energyControls={<EnergyInputs
+              settings={sharedSettings}
+              energyMode={energyMode}
+              dailyEnergy={dailyEnergy}
+              startingEnergy={form.startingEnergy}
+              onEnergyModeChange={setEnergyMode}
+              onSettingChange={updateSharedSetting}
+              onStartingEnergyChange={(value) => updateField("startingEnergy", value)}
+            />}
+          />
         ) : mode === "timing" ? (
           <BookTimingComparisonView
             form={effectiveTimingForm}

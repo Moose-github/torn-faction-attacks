@@ -1,0 +1,33 @@
+.book-strategy-layout > .book-strategy-mode-tabs { grid-template-columns: repeat(5, minmax(0, 1fr)); width: min(100%, 900px); }
+.energy-drink-view { display: grid; gap: 16px; min-width: 0; }
+.energy-drink-view select { width: 100%; min-width: 0; min-height: 36px; padding: 7px 9px; color: var(--text-main); background: var(--panel-bg-solid); border: 1px solid var(--border-solid); border-radius: var(--radius-sm); }
+.drink-note { margin: 0; color: var(--text-muted); font-size: .8rem; line-height: 1.55; }
+.drink-checkbox { display: flex; gap: 9px; align-items: center; color: var(--text-main); font-size: .82rem; }
+.drink-table-scroll { max-width: 100%; overflow-x: auto; border: 1px solid var(--border-soft); border-radius: 8px; }
+.drink-table { width: 100%; min-width: 1000px; border-collapse: collapse; font-size: .82rem; text-align: left; font-variant-numeric: tabular-nums; }
+.drink-table th, .drink-table td { padding: 12px; border-bottom: 1px solid var(--border-soft); vertical-align: middle; }
+.drink-table thead th { color: var(--text-muted); background: var(--panel-muted-bg); font-size: .74rem; }
+.drink-table tbody th { width: 190px; font-weight: 600; }
+.drink-table tbody tr:last-child > * { border-bottom: 0; }
+.drink-table tr.is-selected { background: var(--panel-active-bg); }
+.drink-table small { display: block; margin-top: 5px; color: var(--text-muted); font-size: .72rem; line-height: 1.4; }
+.drink-table .book-strategy-field { width: 105px; }
+.drink-table .book-strategy-field-label { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.drink-tier-button { border: 1px solid var(--border-solid); border-radius: 6px; color: var(--text-main); background: var(--panel-bg-solid); padding: 6px 10px; cursor: pointer; font-weight: 800; }
+.drink-tier-button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--panel-bg-solid); }
+.drink-tier-button:focus-visible, .drink-table-scroll:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.drink-verdict { margin: 0; color: var(--text-main); font-size: .85rem; line-height: 1.6; }
+.drink-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.drink-metric { display: grid; align-content: start; gap: 8px; border: 1px solid var(--border-soft); background: var(--panel-muted-bg); padding: 14px; border-radius: 8px; }
+.drink-metric span, .drink-metric small { color: var(--text-muted); font-size: .75rem; line-height: 1.5; }
+.drink-metric strong { color: var(--text-heading); font-size: 1.25rem; }
+.drink-chart { height: 380px; width: 100%; min-width: 0; }
+.drink-methodology summary { cursor: pointer; font-weight: 800; }
+.drink-methodology p { color: var(--text-muted); font-size: .82rem; line-height: 1.65; }
+.drink-error { color: #ef4444; }
+@media (max-width: 800px) {
+  .drink-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .book-strategy-layout > .book-strategy-mode-tabs { grid-template-columns: repeat(3, minmax(0, 1fr)); width: 100%; }
+  .drink-chart { height: 310px; }
+}
+@media (max-width: 440px) { .drink-metrics { grid-template-columns: minmax(0, 1fr); } }

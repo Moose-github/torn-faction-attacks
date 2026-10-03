@@ -11,7 +11,7 @@ import {
 import { parseNumber } from "../utils/numberInput";
 export { parseNumber } from "../utils/numberInput";
 
-export type BookStrategyMode = "enhancers" | "timing" | "iib" | "conclusions";
+export type BookStrategyMode = "enhancers" | "drinks" | "timing" | "iib" | "conclusions";
 export type EnergyMode = "total" | "breakdown";
 export type EnhancerModeKind = EnhancerUseMode["kind"];
 export type PopoutKind = "energy" | "perks" | "investment" | "prices";

@@ -35,6 +35,8 @@ export type FhcPlan = {
   totalFhcs: number;
   energy: number;
   cost: number;
+  /** Optional schedule for other booster strategies, in hours from book start. */
+  useTimesHours?: readonly number[];
 };
 
 export type BookStrategyPoint = {
@@ -243,12 +245,12 @@ export const defaultIgnoranceIsBlissInputs: IgnoranceIsBlissInputs = {
   energyPerTrain: defaultBookStrategyInputs.energyPerTrain,
 };
 
-export function calculateBookStrategy(rawInputs: BookStrategyInputs): BookStrategyResult {
+export function calculateBookStrategy(rawInputs: BookStrategyInputs, boosterPlan?: FhcPlan, earliestSearchMaxDay?: number): BookStrategyResult {
   const inputs = normalizeInputs(rawInputs);
   const perkMultiplier = perkProduct(inputs);
-  const fhcPlan = calculateFhcPlan(inputs);
+  const fhcPlan = boosterPlan ?? calculateFhcPlan(inputs);
   const bookEnd = calculateBookEnd(inputs, perkMultiplier, fhcPlan);
-  const enhancerUse = findEnhancerUse(inputs, perkMultiplier, fhcPlan, bookEnd);
+  const enhancerUse = findEnhancerUse(inputs, perkMultiplier, fhcPlan, bookEnd, earliestSearchMaxDay);
   const series = buildSeries(inputs, perkMultiplier, fhcPlan, enhancerUse.day, enhancerUse.enhancersUsed);
   const endpoint = series[series.length - 1];
   const breakEvenDay = calculateBreakEvenDay(enhancerUse, series);
@@ -702,6 +704,11 @@ export function gainPerTrain(
     baseGain *
     bookMultiplier
   );
+}
+
+export function statAfterTrainingEnergy(rawInputs: BookStrategyInputs, energy: number): number {
+  const inputs = normalizeInputs(rawInputs);
+  return advanceStat(inputs.startingStat, completeTrains(energy, inputs.energyPerTrain), inputs, perkProduct(inputs), true);
 }
 
 function calculateBookEnd(
@@ -1211,6 +1218,11 @@ function bookEnergyAtDay(
 function fhcsAvailableAtDay(day: number, inputs: BookStrategyInputs, fhcPlan: FhcPlan): number {
   if (day < 0) {
     return 0;
+  }
+
+  if (fhcPlan.useTimesHours) {
+    const hours = day * 24 + 1e-9;
+    return fhcPlan.useTimesHours.filter((time) => time <= hours).length;
   }
 
   const furtherUsed = Math.min(
