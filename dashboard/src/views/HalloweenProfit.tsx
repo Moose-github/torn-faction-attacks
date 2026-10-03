@@ -12,8 +12,8 @@ import { formatMoney, formatCompact } from "./BookStrategy.helpers";
 import "./HalloweenProfit.css";
 import { HalloweenStrategyBreakdown } from "./HalloweenStrategyBreakdown";
 
-type NumericKey = { [K in keyof HalloweenSettings]: HalloweenSettings[K] extends number ? K : never }[keyof HalloweenSettings];
-const numberKeys = Object.keys(DEFAULT_HALLOWEEN).filter(key => typeof DEFAULT_HALLOWEEN[key as keyof HalloweenSettings] === "number") as NumericKey[];
+type NumericKey = Exclude<{ [K in keyof HalloweenSettings]: HalloweenSettings[K] extends number ? K : never }[keyof HalloweenSettings], "drugInterval">;
+const numberKeys = Object.keys(DEFAULT_HALLOWEEN).filter(key => key !== "drugInterval" && typeof DEFAULT_HALLOWEEN[key as keyof HalloweenSettings] === "number") as NumericKey[];
 const initialNumbers = () => Object.fromEntries(numberKeys.map(key => [key, String(DEFAULT_HALLOWEEN[key])])) as Record<NumericKey, string>;
 const parse = (value: string) => {
   const match = value.replace(/[$,\s]/g, "").match(/^(-?\d+(?:\.\d+)?|\.\d+)([kmb])?$/i);
@@ -35,6 +35,7 @@ function BaselineDifference({ value, baseline, money = false }: { value: number;
 export function HalloweenProfit() {
   const [options, setOptions] = React.useState(DEFAULT_HALLOWEEN);
   const [numbers, setNumbers] = React.useState(initialNumbers);
+  const [xanaxPerDay, setXanaxPerDay] = React.useState(String(24 / DEFAULT_HALLOWEEN.drugInterval));
   const [prices, setPrices] = React.useState<string[]>(ENERGY_DRINK_TIERS.map(tier => tier.price));
   const [books, setBooks] = React.useState<HalloweenBook[]>(HALLOWEEN_BOOKS.map(book => book.id));
   const [popout, setPopout] = React.useState<string | null>(null);
@@ -78,10 +79,13 @@ export function HalloweenProfit() {
     window.addEventListener("keydown", close); window.addEventListener("pointerdown", outside);
     return () => { window.removeEventListener("keydown", close); window.removeEventListener("pointerdown", outside); };
   }, [popout]);
+  const dailyXanax = parse(xanaxPerDay);
   const settings = React.useMemo(() => ({ ...options,
     ...Object.fromEntries(numberKeys.map(key => [key, parse(numbers[key])])), canPrices: prices.map(parse),
-  }) as HalloweenSettings, [options, numbers, prices]);
-  const error = validateHalloween(settings);
+    drugInterval: 24 / dailyXanax,
+  }) as HalloweenSettings, [options, numbers, prices, dailyXanax]);
+  const error = !Number.isFinite(dailyXanax) || dailyXanax < 1 || dailyXanax > 4
+    ? "Enter Xanax/day between 1 and 4." : validateHalloween(settings);
   const results = React.useMemo(() => error ? [] : compareHalloween(settings), [settings, error]);
   const ranked = results.filter(row => books.includes(row.book)).sort((a, b) => b.profit - a.profit);
   const rows = sort === "lowest" ? [...ranked].reverse() : ranked;
@@ -107,6 +111,7 @@ export function HalloweenProfit() {
   const toggle = (key: "donor" | "scaryClothing", label: string) =>
     <label className="halloween-toggle"><input type="checkbox" checked={options[key]} onChange={event => change(key, event.target.checked)} />{label}</label>;
   const reset = () => { resetPrices(); setPriceNotice(null); setOptions(DEFAULT_HALLOWEEN); setNumbers(initialNumbers());
+    setXanaxPerDay(String(24 / DEFAULT_HALLOWEEN.drugInterval));
     setBooks(HALLOWEEN_BOOKS.map(b => b.id)); setSelectedId(null); setPopout(null); setSort("highest"); };
   const bonusProfit = selected && selectedNoBooster ? selected.profit - selectedNoBooster.profit : 0;
   const boosterSpend = selected?.sources.find(source => source.name === boosterName(selected.booster))?.cost ?? 0;
@@ -136,19 +141,19 @@ export function HalloweenProfit() {
         <div className="book-strategy-popout-grid">
           {popout === "Energy & drugs" && <>
             {toggle("donor", "Donator regeneration")}
-            <p className="halloween-wide">Xanax is assumed for every strategy. Daily energy refills are always available and used on all eight calendar days; refill costs are excluded.</p>
+            <p className="halloween-wide">Daily energy refills are used every day. Max natural energy use is assumed.</p>
             {field("startingEnergy", "Starting energy", "E", "Energy already stacked when the event begins. Its cost is excluded from the comparison.")}
             {field("specialRefills", "Special energy refills", "refills", "Free refills, used before the first daily points refill; maximum 100.")}
             {field("extraEnergy", "Other one-off energy", "E", "One claim at the first active moment, after spending stored energy. Use for stock or newsletter energy; maximum 1,000E.")}
+            {field("greenEggs", "Available Green Easter eggs", "eggs", "500E and 6h cooldown each. Used before paid boosters; also included in the baseline. Eggs are valued at $0.")}
             {field("drugPrice", "Price per Xanax", "$")}
-            {field("drugInterval", "Time between Xanax", "hours", "Planning interval, including time you wait after cooldown. No overdoses are simulated.")}
+            <NumberField label="Xanax/day" value={xanaxPerDay} onChange={setXanaxPerDay} title="Average daily use, spaced evenly over 24 hours. Enter 1 to 4; decimals are allowed. Starting drug cooldown still applies. No overdoses are simulated." />
             {field("drugDelay", "Starting drug cooldown", "hours")}
           </>}
           {popout === "Boosters" && <>
             {field("factionBonus", "Faction can bonus", "%")}
             {field("maxCooldown", "Maximum booster cooldown", "hours")}
             {field("startingCooldown", "Starting booster cooldown", "hours")}
-            {field("greenEggs", "Available Green Easter eggs", "eggs", "500E and 6h cooldown each. Used before paid boosters; also included in the baseline. Eggs are valued at $0.")}
           </>}
           {popout === "Prices" && <>
             <div className="halloween-wide halloween-price-actions">
@@ -185,8 +190,8 @@ export function HalloweenProfit() {
     {error ? <section className="panel halloween-error" role="alert">{error}</section> : best && bestWithoutBook && baseline && selected && <>
       <div className="halloween-metrics">
         <MetricCard label="Highest net profit" value={formatMoney(best.profit)} detail={strategyName(best)} icon={<Trophy size={16} />} />
-        <MetricCard label="Best without a book" value={formatMoney(bestWithoutBook.profit)} detail={boosterName(bestWithoutBook.booster)} icon={<Wallet size={16} />} />
         <MetricCard label="Best uplift over baseline" value={formatMoney(best.profit - baseline.profit)} detail="Compared with no book and no paid boosters" icon={<Wallet size={16} />} />
+        <MetricCard label="Best without a book" value={formatMoney(bestWithoutBook.profit)} detail={boosterName(bestWithoutBook.booster)} icon={<Wallet size={16} />} />
         <MetricCard label="Baseline net profit" value={formatMoney(baseline.profit)} detail="Same weapon, company, drugs, refills and free energy" icon={<Swords size={16} />} />
       </div>
       <section className="panel"><PanelHeader title="Strategy comparison" control={<label className="halloween-sort">Sort <select value={sort} onChange={event => setSort(event.target.value)}><option value="highest">Highest profit first</option><option value="lowest">Lowest profit first</option></select></label>} />
