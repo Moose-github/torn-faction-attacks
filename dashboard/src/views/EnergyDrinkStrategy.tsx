@@ -109,7 +109,7 @@ export function EnergyDrinkStrategy({ inputs, form, drinks, onDrinksChange, onFi
     {drinks.scenario === "halloween" ? <HalloweenStrategy inputs={inputs} form={form} drinks={drinks} settings={settings} invalid={invalid} onDrinksChange={onDrinksChange} onFieldChange={onFieldChange} /> : <>
     <section className="panel book-strategy-panel" aria-label="Energy drink tier comparison">
       <PanelHeader icon={<BatteryCharging size={17} />} title="Compare all can tiers" />
-      <p className="drink-note">Default can prices are based on the annual low point, not live market prices. Enter your purchase price for the can you would use in each tier. Select a tier to view its graph.</p>
+      <p className="drink-note">Default can prices are based on the annual low point, not live market prices. Enter your purchase price for the can you would use in each tier. Select any tier row to update its graph and stat lead.</p>
       <div className="drink-table-scroll" tabIndex={0} role="region" aria-label="Scrollable can comparison">
         <table className="drink-table"><thead><tr>
           <th scope="col">Can tier</th><th scope="col">Price per can</th><th scope="col">Cans / spend</th><th scope="col">Book energy</th><th scope="col">Extra stats at day 31</th><th scope="col">Stats per $1bn</th><th scope="col">Earliest enhancer overtake</th>
@@ -117,7 +117,7 @@ export function EnergyDrinkStrategy({ inputs, form, drinks, onDrinksChange, onFi
           const row = rows[index];
           const use = row?.strategy.enhancerUse;
           const remaining = use?.investmentBalance != null ? Math.max(0, use.investmentBalance - use.enhancersUsed * inputs.statEnhancerPrice) : null;
-          return <tr key={tier.energy} className={index === drinks.selectedTier ? "is-selected" : ""}>
+          return <tr key={tier.energy} className={index === drinks.selectedTier ? "is-selected" : ""} onClick={() => updateDrink("selectedTier", index)} onFocus={() => updateDrink("selectedTier", index)}>
             <th scope="row"><button className="drink-tier-button" aria-pressed={index === drinks.selectedTier} onClick={() => updateDrink("selectedTier", index)}>{tier.energy}E tier</button><small>{tier.name}</small></th>
             <td><NumberField label={`${tier.energy}E can price`} value={drinks.prices[index]} onChange={(v) => onDrinksChange((current) => ({ ...current, prices: current.prices.map((p, i) => i === index ? v : p) }))} /></td>
             {row ? <>
@@ -125,7 +125,7 @@ export function EnergyDrinkStrategy({ inputs, form, drinks, onDrinksChange, onFi
               <td>{formatCompact(row.plan.energy)}E<small>{row.energyPerCan}E / can</small></td>
               <td>{formatStat(row.strategy.bookEnd.lead)}<small>Book alone: {formatStat(row.bookOnlyGain)}</small></td>
               <td>{row.plan.cost > 0 ? formatStat(row.gainPerBillion) : "—"}</td>
-              <td>{use?.day != null ? <>Day {formatCompact(use.day)}<small>{use.enhancersUsed} enhancers · {formatMoney(remaining ?? 0)} left</small></> : <>{row.plan.totalFhcs === 0 ? "No cans purchased" : `Not within ${formatCompact(row.searchDays)} days`}<small>{row.strategy.endpoint.enhancersAffordable} affordable by day {formatCompact(row.inputs.graphDurationDays)}</small></>}</td>
+              <td>{use?.day != null ? <>Day {formatCompact(use.day)}<small>{formatStat(use.strategyTwoBeforeEnhancers ?? 0)} stat before enhancers</small><small>{use.enhancersUsed} enhancers · {formatMoney(remaining ?? 0)} left</small></> : <>{row.plan.totalFhcs === 0 ? "No cans purchased" : `Not within ${formatCompact(row.searchDays)} days`}<small>{row.strategy.endpoint.enhancersAffordable} affordable by day {formatCompact(row.inputs.graphDurationDays)}</small></>}</td>
             </> : <td colSpan={5}>{invalid ? "Check inputs above" : "Enter a positive price; projected enhancer purchases must stay below 10,000."}</td>}
           </tr>;
         })}</tbody></table>
@@ -139,7 +139,7 @@ export function EnergyDrinkStrategy({ inputs, form, drinks, onDrinksChange, onFi
         <div className="drink-metrics">
           <Metric label="Can budget" value={formatMoney(selected.plan.cost)} detail={`${formatCompact(selected.plan.totalFhcs)} cans${selected.unspentCap === null ? "" : ` · ${formatMoney(selected.unspentCap)} below cap`}`} />
           <Metric label="Extra stats at day 31" value={formatStat(selected.strategy.bookEnd.lead)} detail={`Book alone adds ${formatStat(selected.bookOnlyGain)}`} />
-          <Metric label="Enhancers purchased" value={purchase?.day != null ? String(purchase.enhancersUsed) : "None"} detail={purchase?.day != null ? `Day ${formatCompact(purchase.day)} · ${formatMoney(cashLeft ?? 0)} cash left` : "No purchase in this scenario"} />
+          <Metric label="Enhancers purchased" value={purchase?.day != null ? String(purchase.enhancersUsed) : "None"} detail={purchase?.day != null ? `${formatMoney(purchase.enhancersUsed * selectedResult.inputs.statEnhancerPrice)} spent · Day ${formatCompact(purchase.day)} · ${formatMoney(cashLeft ?? 0)} cash left` : "$0 spent · No purchase in this scenario"} />
           <Metric label={`Stat lead at day ${formatCompact(selectedResult.endpoint.day)}`} value={formatStat(Math.abs(selectedResult.endpoint.difference))} detail={Math.abs(selectedResult.endpoint.difference) < 0.5 ? "Strategies tied" : selectedResult.endpoint.difference > 0 ? "Enhancers ahead" : "Cans ahead"} />
         </div>
         <div className="drink-chart" role="img" aria-label={`Projected stat growth for ${selected.base}E cans versus enhancers`}>

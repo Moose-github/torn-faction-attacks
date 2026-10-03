@@ -8,6 +8,7 @@
 .drink-table th, .drink-table td { padding: 12px; border-bottom: 1px solid var(--border-soft); vertical-align: middle; }
 .drink-table thead th { color: var(--text-muted); background: var(--panel-muted-bg); font-size: .74rem; }
 .drink-table tbody th { width: 190px; font-weight: 600; }
+.drink-table tbody tr { cursor: pointer; }
 .drink-table tbody tr:last-child > * { border-bottom: 0; }
 .drink-table tr.is-selected { background: var(--panel-active-bg); }
 .drink-table small { display: block; margin-top: 5px; color: var(--text-muted); font-size: .72rem; line-height: 1.4; }

@@ -48,13 +48,13 @@ export function HalloweenStrategy({ inputs, form, drinks, settings, invalid, onD
 
     <section className="panel book-strategy-panel" aria-label="Halloween can tier comparison">
       <PanelHeader icon={<BatteryCharging size={17} />} title="Compare Halloween can tiers" />
-      <p className="drink-note">Extra attacks, treats and proceeds are above the no-cans baseline, including exchange recycling. Default can prices are based on the annual low point, not live market prices, and can be edited. Stats shown here are gym gains before enhancers.</p>
+      <p className="drink-note">Extra attacks, treats and proceeds are above the no-cans baseline, including exchange recycling. Default can prices are based on the annual low point, not live market prices, and can be edited. Stats shown here are gym gains before enhancers. Select any tier row to update its graph and stat lead.</p>
       <div className="drink-table-scroll" tabIndex={0} role="region" aria-label="Scrollable Halloween comparison">
         <table className="drink-table halloween-table"><thead><tr>
           <th scope="col">Can tier</th><th scope="col">Price per can</th><th scope="col">Cans / spend</th><th scope="col">Halloween energy</th><th scope="col">Extra attacks / treats</th><th scope="col">Extra sale proceeds</th><th scope="col">Day-31 gym lead</th><th scope="col">First saving overtake</th>
         </tr></thead><tbody>{ENERGY_DRINK_TIERS.map((tier, index) => {
           const row = rows[index];
-          return <tr key={tier.energy} className={index === drinks.selectedTier ? "is-selected" : ""}>
+          return <tr key={tier.energy} className={index === drinks.selectedTier ? "is-selected" : ""} onClick={() => onDrinksChange((current) => ({ ...current, selectedTier: index }))} onFocus={() => onDrinksChange((current) => ({ ...current, selectedTier: index }))}>
             <th scope="row"><button className="drink-tier-button" aria-pressed={index === drinks.selectedTier} onClick={() => onDrinksChange((current) => ({ ...current, selectedTier: index }))}>{tier.energy}E tier</button><small>{tier.name}</small></th>
             <td><NumberField label={`${tier.energy}E can price`} value={drinks.prices[index]} onChange={(value) => onDrinksChange((current) => ({ ...current, prices: current.prices.map((price, i) => i === index ? value : price) }))} /></td>
             {row ? <>
@@ -81,8 +81,8 @@ export function HalloweenStrategy({ inputs, form, drinks, settings, invalid, onD
           <Metric label={`Stat lead at day ${selected.endpoint.day}`} value={formatStat(Math.abs(selected.endpoint.difference))} detail={Math.abs(selected.endpoint.difference) < 0.5 ? "Strategies tied" : selected.endpoint.difference > 0 ? "Saving strategy ahead" : "Halloween cans ahead"} />
         </div>
         <div className="halloween-funding" aria-label="Enhancer funding comparison">
-          <Funding label="Halloween cans" proceeds={selected.canProceeds} baseline={selected.baselineProceeds} principal={0} enhancers={selected.purchase.cansEnhancers} cash={selected.purchase.cansCashLeft} />
-          <Funding label="Save the can money" proceeds={selected.baselineProceeds} baseline={selected.baselineProceeds} principal={selected.plan.cost} enhancers={selected.purchase.savingsEnhancers} cash={selected.purchase.savingsCashLeft} />
+          <Funding label="Halloween cans" proceeds={selected.canProceeds} baseline={selected.baselineProceeds} principal={0} enhancers={selected.purchase.cansEnhancers} enhancerPrice={selected.inputs.statEnhancerPrice} cash={selected.purchase.cansCashLeft} />
+          <Funding label="Save the can money" proceeds={selected.baselineProceeds} baseline={selected.baselineProceeds} principal={selected.plan.cost} enhancers={selected.purchase.savingsEnhancers} enhancerPrice={selected.inputs.statEnhancerPrice} cash={selected.purchase.savingsCashLeft} />
         </div>
         <p className="drink-note">{selected.purchase.day === null ? "The saving strategy does not reach the selected stat within 3,650 days, so neither strategy buys enhancers in this projection." : `Both buy whole enhancers on day ${selected.purchase.day}${selected.purchase.day > selected.inputs.graphDurationDays ? ", beyond the displayed graph" : ""}.`}{" "}
           {form.enhancerMode === "earliestOvertake" && selected.firstSavingOvertakeDay === null ? "No saving overtake was found in the ten-year search, so automatic mode uses day 31." : null}
@@ -128,12 +128,13 @@ function Metric({ label, value, detail }: { label: string; value: string; detail
   return <div className="drink-metric"><span>{label}</span><strong>{value}</strong><small>{detail}</small></div>;
 }
 
-function Funding({ label, proceeds, baseline, principal, enhancers, cash }: { label: string; proceeds: number; baseline: number; principal: number; enhancers: number; cash: number | null }) {
+function Funding({ label, proceeds, baseline, principal, enhancers, enhancerPrice, cash }: { label: string; proceeds: number; baseline: number; principal: number; enhancers: number; enhancerPrice: number; cash: number | null }) {
   return <div className="halloween-funding-card"><h3>{label}</h3><dl>
     <div><dt>Can money saved from day 0</dt><dd>{formatMoney(principal)}</dd></div>
     <div><dt>Shared Halloween proceeds</dt><dd>{formatMoney(baseline)}</dd></div>
     <div><dt>Additional can-funded proceeds</dt><dd>{formatMoney(proceeds - baseline)}</dd></div>
     <div><dt>Enhancers at selected purchase</dt><dd>{cash === null ? "No purchase" : enhancers}</dd></div>
+    <div><dt>Amount spent on enhancers</dt><dd>{formatMoney(cash === null ? 0 : enhancers * enhancerPrice)}</dd></div>
     <div><dt>Cash left after purchase</dt><dd>{cash === null ? "—" : formatMoney(cash)}</dd></div>
   </dl></div>;
 }
