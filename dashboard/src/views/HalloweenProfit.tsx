@@ -58,7 +58,7 @@ export function HalloweenProfit() {
   const field = (key: NumericKey, label: string, suffix?: string, title?: string, disabled = false) =>
     <NumberField key={key} label={label} value={numbers[key]} suffix={suffix} title={title} disabled={disabled}
       onChange={value => setNumbers(current => ({ ...current, [key]: value }))} />;
-  const toggle = (key: "donor" | "scaryClothing" | "dailyRefill" | "firstRefill", label: string) =>
+  const toggle = (key: "donor" | "scaryClothing", label: string) =>
     <label className="halloween-toggle"><input type="checkbox" checked={options[key]} onChange={event => change(key, event.target.checked)} />{label}</label>;
   const reset = () => { setOptions(DEFAULT_HALLOWEEN); setNumbers(initialNumbers()); setPrices(ENERGY_DRINK_TIERS.map(t => t.price));
     setBooks(HALLOWEEN_BOOKS.map(b => b.id)); setSelectedId(null); setPopout(null); setSort("highest"); };
@@ -83,26 +83,21 @@ export function HalloweenProfit() {
         {options.weapon === "revitalize" ? field("revitalize", "Revitalize chance", "%") : <div className="halloween-inline-note">Scary finish adds 10 percentage points to your treat chance.</div>}
         {toggle("scaryClothing", "Wear scary clothing")}
       </div>
-      <div className="halloween-controls">{["Energy & drugs", "Boosters & prices", "Company", "Activity & costs"].map(label =>
+      <div className="halloween-controls">{["Energy & drugs", "Boosters & prices", "Company"].map(label =>
         <PopoutButton key={label} label={label} icon={<Settings2 size={14} />} active={popout === label} onClick={() => setPopout(popout === label ? null : label)} />)}</div>
       {popout && <div className="book-strategy-popout halloween-popout" role="region" aria-label={popout}>
         <div className="halloween-popout-title"><strong>{popout}</strong><button type="button" aria-label="Close settings" onClick={() => setPopout(null)}><X size={18} /></button></div>
         <div className="book-strategy-popout-grid">
           {popout === "Energy & drugs" && <>
-            {toggle("donor", "Donator regeneration")}{toggle("dailyRefill", "Daily points refill")}
-            {toggle("firstRefill", "First day's refill available")}
-            {field("pointPrice", "Price per point", "$", "Each daily energy refill costs 30 points.", !options.dailyRefill)}
+            {toggle("donor", "Donator regeneration")}
+            <p className="halloween-wide">Xanax is assumed for every strategy. Daily energy refills are always available and used on all eight calendar days; refill costs are excluded.</p>
             {field("startingEnergy", "Starting energy", "E", "Energy already stacked when the event begins; include its cost in preparation cost.")}
             {field("preparationCost", "Preparation cost", "$")}
             {field("specialRefills", "Special energy refills", "refills", "Free refills, used before the first daily points refill; maximum 100.")}
             {field("extraEnergy", "Other one-off energy", "E", "One claim at the first active moment, after spending stored energy. Use for stock or newsletter energy; maximum 1,000E.")}
-            <label className="book-strategy-field"><span>Drug</span><select value={options.drug} onChange={event => {
-              const drug = event.target.value as HalloweenSettings["drug"]; change("drug", drug);
-              setNumbers(current => ({ ...current, drugPrice: drug === "lsd" ? "22k" : "875k", drugInterval: "8" }));
-            }}><option value="none">None</option><option value="xanax">Xanax · 250E</option><option value="lsd">LSD · 50E</option></select></label>
-            {field("drugPrice", "Price per drug", "$", undefined, options.drug === "none")}
-            {field("drugInterval", "Time between drugs", "hours", "Planning interval, including time you wait after cooldown. No overdoses are simulated.", options.drug === "none")}
-            {field("drugDelay", "Starting drug cooldown", "hours", undefined, options.drug === "none")}
+            {field("drugPrice", "Price per Xanax", "$")}
+            {field("drugInterval", "Time between Xanax", "hours", "Planning interval, including time you wait after cooldown. No overdoses are simulated.")}
+            {field("drugDelay", "Starting drug cooldown", "hours")}
           </>}
           {popout === "Boosters & prices" && <>
             {field("factionBonus", "Faction can bonus", "%")}
@@ -120,14 +115,6 @@ export function HalloweenProfit() {
             {field("jobPoints", "Banked job points", "JP", "Redeem up to 100 per calendar day.", !HALLOWEEN_COMPANIES.find(c => c.id === options.company)?.energy)}
             {field("dailyJobPoints", "Job points earned daily", "JP", "Added at 18:00 TCT.", !HALLOWEEN_COMPANIES.find(c => c.id === options.company)?.energy)}
             <p className="halloween-wide">Grocery: −10% can cooldown, plus +10% can energy at 7★. Restaurant: −25% can cooldown and 3E/JP. Farm: 7E/JP. Candle / Game shop: 5E/JP. Company benefits apply only to the selected company.</p>
-          </>}
-          {popout === "Activity & costs" && <>
-            {field("startHour", "Event start", "TCT hour", "Your assigned start between 10:00 and 16:00. The event runs for exactly 168 hours.")}
-            {field("sleepHours", "Daily inactive time", "hours", "No attacks, exchanges or item use while inactive. Natural regeneration stops at your energy cap.")}
-            {field("sleepStart", "Inactive from", "TCT hour", "Use decimal hours: 23.5 means 23:30.")}
-            {field("exchangeHours", "Time between exchanges", "hours", "0 means frequent exchanges to recycle Dark Power. Larger intervals can lose energy to the 1,000E cap. The final exchange is made before your last active minute ends.")}
-            {field("attackCost", "Supplies per attack", "$", "Average ammo, medical and temporary-item expense per attack.")}
-            {field("otherCost", "Other event costs", "$", "Include company fees or other fixed expenses here.")}
           </>}
         </div>
       </div>}
@@ -177,7 +164,7 @@ export function HalloweenProfit() {
             <p><strong>{count(selected.exchangedTreats)} treats exchanged</strong><br />{count(selected.earnedTreats)} earned from attacks / Mortal Coil · {count(selected.cashbackTreats)} returned by Cashback · {count(selected.inflationTreats)} from Inflation.</p>
             {breakEvenBooster !== null && <p><strong>{formatMoney(breakEvenBooster)} per {selected.booster === "fhc" ? "FHC" : "can"}</strong><br />Maximum price for paid boosters to outperform using this book without them, at your current settings.</p>}
             {alternativeWeapon && <p><strong>{formatMoney(alternativeWeapon.profit - selected.profit)} profit change</strong><br />Switching to {settings.weapon === "scary" ? `${settings.revitalize}% Revitalize` : "a scary weapon"}, keeping this book and booster. Equipment purchase costs are excluded.</p>}
-            <p><strong>{count(selected.wastedRegeneration)}E regeneration lost</strong><br />{count(selected.wastedDarkEnergy)}E Dark Power lost to the cap · {count(selected.unusedEnergy)}E left after your last active period.</p>
+            <p><strong>{count(selected.wastedRegeneration)}E regeneration lost</strong><br />{count(selected.wastedDarkEnergy)}E Dark Power lost to the cap · {count(selected.unusedEnergy)}E left after the event.</p>
           </div>
         </div>
       </section>
@@ -186,8 +173,8 @@ export function HalloweenProfit() {
       <p>This is an expected-value comparison, not a prediction of individual drops. All basket upgrades are owned, the basket starts empty, and every attack succeeds. Each book covers the full event; its remaining 24 days have no assigned value. No book purchase cost is assumed.</p>
       <p>Only one finishing weapon is used. Revitalize returns 25E on a successful proc and gives up the scary-weapon treat bonus. Recycled energy is attacked again. Scary clothing is independent of weapon choice.</p>
       <p>Dark Power, Freebie energy, Cashback, Mortal Coil and hourly Inflation are included. Treats are exchanged repeatedly and returned energy is attacked while active. Reward value equals treats exchanged × your price per treat; Freebie item value is already included in that price. Fractional attacks and treats describe averages, so small real-world rounding differences are expected.</p>
-      <p>The schedule uses one-minute steps and immediate attacks while active, with no attack-rate limit, hospital time or overdoses. Natural regeneration is capped by maximum energy; other energy is spent before the next claim. A treat exchange is capped at 1,000E. Frequent exchanges minimise wasted energy; delayed exchanges trade energy for Inflation. Treats left after a final inactive period are sold after the event; their returned energy cannot earn more Halloween treats.</p>
-      <p>Daily paid refills cost 30 points and reset at midnight TCT. The seven-day event spans eight calendar dates; the first refill can be disabled if already used. Special refills are used first. Up to 100 company points are redeemed daily. Jobs award new points at 18:00 TCT.</p>
+      <p>The event starts at 12:00 TCT and runs for 168 hours with continuous activity and frequent treat exchanges. Supplies per attack and other event costs are fixed at $0. The schedule uses one-minute steps and immediate attacks, with no attack-rate limit, hospital time or overdoses. Natural regeneration is capped by maximum energy; other energy is spent before the next claim. A treat exchange is capped at 1,000E, and frequent exchanges minimise wasted energy.</p>
+      <p>Xanax is used in every strategy. Daily energy refills reset at midnight TCT and are assumed available and used on all eight calendar dates, including the first day. Their cost is excluded from profit calculations. Special refills are used first. Up to 100 company points are redeemed daily. Jobs award new points at 18:00 TCT.</p>
       <p>Eggs, cans and FHCs share booster cooldown. An item can be used while cooldown is below the maximum and may take it above that maximum. No further item is used until cooldown falls below the limit. Owned eggs are used first. Booster and preparation costs cover only this event; edit prices to reflect your own costs.</p>
       <p>Mechanics: <a href="https://wiki.torn.com/wiki/Trick_or_Treat" target="_blank" rel="noreferrer">Torn Halloween wiki</a> · <a href="https://wiki.torn.com/wiki/Energy" target="_blank" rel="noreferrer">Energy</a> · <a href="https://wiki.torn.com/wiki/Books" target="_blank" rel="noreferrer">Books</a> · <a href="https://wiki.torn.com/wiki/Weapon_Bonus" target="_blank" rel="noreferrer">Weapon bonuses</a> · <a href="https://wiki.torn.com/wiki/Item_Cooldowns" target="_blank" rel="noreferrer">Cooldowns</a>.</p>
     </details></section>

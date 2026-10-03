@@ -29,10 +29,19 @@ describe("Halloween profit model", () => {
     expect(second.cost).toBe(first.cost);
     expect(second.attacks).toBe(first.attacks);
   });
-  it("includes eight calendar-day refills and can exclude the first day", () => {
-    const result = simulateHalloween(settings(), "ugly", "none");
-    expect(source(result, "Daily point refills")).toMatchObject({ count: 8, energy: 2000, cost: 8 * 30 * 35000 });
-    expect(source(simulateHalloween(settings({ firstRefill: false }), "none", "none"), "Daily point refills")?.count).toBe(7);
+  it("includes eight free calendar-day refills, a 1,000E stack and Xanax in every strategy", () => {
+    for (const result of compareHalloween(settings())) {
+      expect(source(result, "Daily point refills")).toMatchObject({ count: 8, energy: result.book === "ugly" ? 2000 : 1200, cost: 0 });
+      expect(source(result, "Starting energy")?.energy).toBe(1000);
+      expect(source(result, "Xanax")).toMatchObject({ count: 21, energy: 5250, cost: 21 * 875000 });
+    }
+  });
+  it("still uses all daily refills when an entire partial event day is inactive", () => {
+    for (const sleepStart of [0, 10]) {
+      const result = simulateHalloween(settings({ sleepStart, sleepHours: 16 }), "ugly", "none");
+      expect(source(result, "Daily point refills")).toMatchObject({ count: 8, energy: 2000, cost: 0 });
+      expect(result.sources.reduce((sum, row) => sum + row.energy, 0)).toBeCloseTo(result.attacks * 25 + result.unusedEnergy, 5);
+    }
   });
   it("does not stack books or apply can-only bonuses to FHCs", () => {
     const base = simulateHalloween(settings(), "none", "fhc");

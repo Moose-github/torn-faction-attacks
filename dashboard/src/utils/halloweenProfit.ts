@@ -28,8 +28,7 @@ export type HalloweenSettings = {
   treatPrice: number; weapon: "scary" | "revitalize"; revitalize: number; scaryClothing: boolean;
   donor: boolean; company: HalloweenCompany; factionBonus: number;
   maxCooldown: number; startingCooldown: number; canPrices: number[]; fhcPrice: number;
-  startingEnergy: number; preparationCost: number; dailyRefill: boolean; firstRefill: boolean;
-  pointPrice: number; specialRefills: number; drug: "none" | "xanax" | "lsd";
+  startingEnergy: number; preparationCost: number; specialRefills: number;
   drugPrice: number; drugInterval: number; drugDelay: number;
   jobPoints: number; dailyJobPoints: number; extraEnergy: number; greenEggs: number;
   attackCost: number; otherCost: number; startHour: number; sleepHours: number; sleepStart: number;
@@ -39,8 +38,7 @@ export const DEFAULT_HALLOWEEN: HalloweenSettings = {
   treatPrice: 750000, weapon: "scary", revitalize: 18, scaryClothing: true,
   donor: true, company: "none", factionBonus: 50, maxCooldown: 48, startingCooldown: 0,
   canPrices: [250000, 500000, 800000, 1250000, 1750000, 3000000], fhcPrice: 14000000,
-  startingEnergy: 150, preparationCost: 0, dailyRefill: true, firstRefill: true,
-  pointPrice: 35000, specialRefills: 0, drug: "xanax", drugPrice: 875000,
+  startingEnergy: 1000, preparationCost: 0, specialRefills: 0, drugPrice: 875000,
   drugInterval: 8, drugDelay: 0, jobPoints: 0, dailyJobPoints: 0,
   extraEnergy: 0, greenEggs: 0, attackCost: 0, otherCost: 0,
   startHour: 12, sleepHours: 0, sleepStart: 0, exchangeHours: 0,
@@ -58,8 +56,8 @@ export function validateHalloween(s: HalloweenSettings): string | null {
   const ranges: [keyof HalloweenSettings, number, number][] = [
     ["treatPrice", 0, 1e9], ["revitalize", 10, 24], ["factionBonus", 0, 50],
     ["maxCooldown", 24, 48], ["startingCooldown", 0, 100], ["fhcPrice", 0, 1e9],
-    ["startingEnergy", 0, 1000], ["preparationCost", 0, 1e12], ["pointPrice", 0, 1e7],
-    ["specialRefills", 0, 100], ["drugPrice", 0, 1e9], ["drugInterval", s.drug === "lsd" ? 400 / 60 : 6, 24],
+    ["startingEnergy", 0, 1000], ["preparationCost", 0, 1e12],
+    ["specialRefills", 0, 100], ["drugPrice", 0, 1e9], ["drugInterval", 6, 24],
     ["drugDelay", 0, 168], ["jobPoints", 0, 10000], ["dailyJobPoints", 0, 100],
     ["extraEnergy", 0, 1000], ["greenEggs", 0, 100], ["attackCost", 0, 1e9],
     ["otherCost", 0, 1e12], ["startHour", 10, 16], ["sleepHours", 0, 16],
@@ -166,15 +164,15 @@ export function simulateHalloween(s: HalloweenSettings, book: HalloweenBook, boo
         claim("Other one-off energy", s.extraEnergy);
         for (let refill = 0; refill < s.specialRefills; refill++) claim("Special refills", cap, 1);
       }
-      if (s.dailyRefill && refillDay !== day && (day > 0 || s.firstRefill)) {
-        claim("Daily point refills", cap, 1, 30 * s.pointPrice); refillDay = day;
+      if (refillDay !== day) {
+        claim("Daily point refills", cap, 1); refillDay = day;
       }
       if (jpEnergy && points > 0 && usedPoints < 100) {
         const redeem = Math.min(points, 100 - usedPoints);
         claim("Company job points", redeem * jpEnergy, redeem); points -= redeem; usedPoints += redeem;
       }
-      if (s.drug !== "none" && minute >= nextDrug) {
-        claim(s.drug === "xanax" ? "Xanax" : "LSD", s.drug === "xanax" ? 250 : 50, 1, s.drugPrice);
+      if (minute >= nextDrug) {
+        claim("Xanax", 250, 1, s.drugPrice);
         nextDrug = minute + s.drugInterval * 60;
       }
       // Booster cooldown is shared. Owned eggs are consumed before the paid booster.
@@ -187,6 +185,19 @@ export function simulateHalloween(s: HalloweenSettings, book: HalloweenBook, boo
       if (minute >= nextExchange || minute === lastActiveMinute) {
         exchange(); nextExchange = minute + s.exchangeHours * 60;
       }
+    }
+    // Daily refills are guaranteed by the comparison assumptions, including a
+    // brief refill/attack visit if a partial event day is entirely inactive.
+    const dayEnds = Math.floor((absoluteMinute + 1) / 1440) !== day || minute === 10079;
+    if (refillDay !== day && dayEnds) {
+      attack(energy); energy = 0;
+      if (!started) {
+        started = true;
+        claim("Other one-off energy", s.extraEnergy);
+        for (let refill = 0; refill < s.specialRefills; refill++) claim("Special refills", cap, 1);
+      }
+      claim("Daily point refills", cap, 1); refillDay = day;
+      exchange();
     }
     if ((minute + 1) % 60 === 0) timeline.push({ hour: (minute + 1) / 60, profit: exchangedTreats * s.treatPrice - cost });
   }
