@@ -29,6 +29,10 @@ export function HalloweenStrategyBreakdown({ selected, baseline, noBook, setting
   const revenueDifference = selected.revenue - baseline.revenue;
   const profitDifference = selected.profit - baseline.profit;
   const returnedEnergy = energy(selected, "Revitalize returns");
+  const suppliedEnergy = directEnergy(selected);
+  const suppliedDifference = suppliedEnergy - directEnergy(baseline);
+  const basketEnergy = energy(selected, "Dark Power returns");
+  const totalEnergy = suppliedEnergy + basketEnergy + returnedEnergy;
   const rate = selected.treatsPerAttack.toLocaleString(undefined, { maximumFractionDigits: 6 });
 
   return <section className="panel halloween-strategy-breakdown">
@@ -61,8 +65,9 @@ export function HalloweenStrategyBreakdown({ selected, baseline, noBook, setting
       <p>Compared with <strong>the same boosters without a book</strong>, the book gives <strong>{signed(selected.attacks - noBook.attacks)}</strong> attacks, <strong>{signed(selected.exchangedTreats - noBook.exchangedTreats)}</strong> treats, and <strong>{signed(selected.profit - noBook.profit, true)}</strong> net profit.</p>
     </div>}
 
-    <p>This strategy supplies <strong>{count(directEnergy(selected))}E</strong> before energy returned by basket rewards or Revitalize, a change of <strong>{signed(directEnergy(selected) - directEnergy(baseline))}E</strong> from the baseline. Including energy returned through basket rewards{settings.weapon === "revitalize" ? " and Revitalize" : ""}, this supports approximately <strong>{count(selected.attacks)} attacks</strong> in total (<strong>{signed(attackDifference)}</strong> versus baseline).</p>
-    <p>Basket rewards return approximately <strong>{count(energy(selected, "Dark Power returns"))}E</strong>{settings.weapon === "revitalize" && <>; Revitalize returns a further <strong>{count(returnedEnergy)}E</strong></>}. These returns are already included in the attack total above.</p>
+    <p><strong>Energy before returns:</strong> This strategy provides <strong>{count(suppliedEnergy)}E</strong> from energy sources such as regeneration, drugs, refills and boosters—<strong>{count(Math.abs(suppliedDifference))}E {suppliedDifference < 0 ? "less" : "more"} than the baseline</strong>.</p>
+    <p><strong>Energy returned:</strong> Basket rewards provide another <strong>{count(basketEnergy)}E</strong>{settings.weapon === "revitalize" && <>, and Revitalize adds <strong>{count(returnedEnergy)}E</strong></>}.</p>
+    <p><strong>Total energy and attacks:</strong> Together, this gives <strong>{count(totalEnergy)}E</strong>, supporting approximately <strong>{count(selected.attacks)} attacks</strong>—<strong>{count(Math.abs(attackDifference))} {attackDifference < 0 ? "fewer" : "more"} than the baseline</strong>.</p>
     {settings.weapon === "revitalize" ? <p>
       Your <strong>{count(settings.revitalize)}% Revitalize weapon</strong> funds approximately <strong>{count(returnedEnergy / 25)} attacks</strong> through its energy returns, within the total above. Each attack earns approximately <strong>{rate} treats</strong>.
     </p> : <p>Your <strong>scary weapon</strong> earns approximately <strong>{rate} treats per attack</strong>.</p>}
