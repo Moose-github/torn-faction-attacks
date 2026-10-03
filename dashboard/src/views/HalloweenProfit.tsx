@@ -3,6 +3,7 @@ import { Ghost, RotateCcw, Settings2, X, Trophy, TrendingDown, Wallet, Swords } 
 import { CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { MetricCard, PanelHeader } from "../components/Common";
 import { NumberField, PopoutButton } from "../components/TrainingCalculatorInputs";
+import { getHalloweenPrices, type HalloweenPriceSnapshot } from "../api/halloweenPrices";
 import { ENERGY_DRINK_TIERS } from "../utils/energyDrinkStrategy";
 import { compareHalloween, DEFAULT_HALLOWEEN, HALLOWEEN_BOOKS, HALLOWEEN_BOOSTERS,
   HALLOWEEN_COMPANIES, simulateHalloween, validateHalloween,
@@ -38,6 +39,36 @@ export function HalloweenProfit() {
   const [popout, setPopout] = React.useState<string | null>(null);
   const [selectedId, setSelectedId] = React.useState<string | null>(null);
   const [sort, setSort] = React.useState("highest");
+  const [loadingPrices, setLoadingPrices] = React.useState(false);
+  const [priceError, setPriceError] = React.useState<string | null>(null);
+  const [priceSnapshot, setPriceSnapshot] = React.useState<HalloweenPriceSnapshot | null>(null);
+  const [priceNotice, setPriceNotice] = React.useState<string | null>(null);
+  const priceRequest = React.useRef<AbortController | null>(null);
+  React.useEffect(() => () => priceRequest.current?.abort(), []);
+  const resetPrices = () => {
+    priceRequest.current?.abort(); priceRequest.current = null;
+    setLoadingPrices(false); setPriceError(null); setPriceSnapshot(null);
+    setPrices(ENERGY_DRINK_TIERS.map(tier => tier.price));
+    setNumbers(current => ({ ...current, fhcPrice: String(DEFAULT_HALLOWEEN.fhcPrice) }));
+    setPriceNotice("FHC and can prices reset to the default annual lows.");
+  };
+  const useWeav3rPrices = async () => {
+    priceRequest.current?.abort();
+    const controller = new AbortController(); priceRequest.current = controller;
+    setLoadingPrices(true); setPriceError(null); setPriceNotice(null);
+    try {
+      const snapshot = await getHalloweenPrices(controller.signal);
+      if (controller.signal.aborted) return;
+      setPrices(ENERGY_DRINK_TIERS.map(tier => String(snapshot.cans.find(can => can.energy === tier.energy)!.price)));
+      setNumbers(current => ({ ...current, fhcPrice: String(snapshot.fhc.price) }));
+      setPriceSnapshot(snapshot);
+    } catch (error) {
+      if (!controller.signal.aborted) setPriceError(`${error instanceof Error ? error.message : "Unable to load Weav3r prices."} Your prices have not been changed.`);
+    } finally {
+      if (priceRequest.current === controller) { priceRequest.current = null; setLoadingPrices(false); }
+    }
+  };
+  const clearPriceSource = () => { setPriceSnapshot(null); setPriceNotice(null); setPriceError(null); };
   const panel = React.useRef<HTMLElement>(null);
   React.useEffect(() => {
     if (!popout) return;
@@ -65,10 +96,10 @@ export function HalloweenProfit() {
   const change = <K extends keyof HalloweenSettings>(key: K, value: HalloweenSettings[K]) => setOptions(current => ({ ...current, [key]: value }));
   const field = (key: NumericKey, label: string, suffix?: string, title?: string, disabled = false) =>
     <NumberField key={key} label={label} value={numbers[key]} suffix={suffix} title={title} disabled={disabled}
-      onChange={value => setNumbers(current => ({ ...current, [key]: value }))} />;
+      onChange={value => { if (key === "fhcPrice") clearPriceSource(); setNumbers(current => ({ ...current, [key]: value })); }} />;
   const toggle = (key: "donor" | "scaryClothing", label: string) =>
     <label className="halloween-toggle"><input type="checkbox" checked={options[key]} onChange={event => change(key, event.target.checked)} />{label}</label>;
-  const reset = () => { setOptions(DEFAULT_HALLOWEEN); setNumbers(initialNumbers()); setPrices(ENERGY_DRINK_TIERS.map(t => t.price));
+  const reset = () => { resetPrices(); setPriceNotice(null); setOptions(DEFAULT_HALLOWEEN); setNumbers(initialNumbers());
     setBooks(HALLOWEEN_BOOKS.map(b => b.id)); setSelectedId(null); setPopout(null); setSort("highest"); };
   const bonusProfit = selected && selectedNoBooster ? selected.profit - selectedNoBooster.profit : 0;
   const boosterSpend = selected?.sources.find(source => source.name === boosterName(selected.booster))?.cost ?? 0;
@@ -113,9 +144,17 @@ export function HalloweenProfit() {
             {field("greenEggs", "Available Green Easter eggs", "eggs", "500E and 6h cooldown each. Used before paid boosters; also included in the baseline. Eggs are valued at $0.")}
           </>}
           {popout === "Prices" && <>
-            {field("fhcPrice", "Price per FHC", "$")}
+            <div className="halloween-wide halloween-price-actions">
+              <button type="button" className="book-strategy-popout-button" disabled={loadingPrices} onClick={useWeav3rPrices}>{loadingPrices ? "Loading Weav3r prices…" : "Use Weav3r prices"}</button>
+              <button type="button" className="book-strategy-popout-button" onClick={resetPrices}><RotateCcw size={14} />Reset to annual lows</button>
+            </div>
+            <p className="halloween-wide">Applies to FHCs and all six can tiers. Uses Weav3r's reported market prices and the cheaper can where a tier has two variants. Prices can be edited after loading.</p>
+            {priceError && <p className="halloween-wide halloween-error" role="alert">{priceError}</p>}
+            {priceSnapshot && <p className="halloween-wide" role="status">Weav3r prices applied. Oldest snapshot: {new Date(priceSnapshot.generatedAt * 1000).toLocaleString()}. Market values may lag current listings.</p>}
+            {priceNotice && <p className="halloween-wide" role="status">{priceNotice}</p>}
+            {field("fhcPrice", "Price per FHC", "$", undefined, loadingPrices)}
             {ENERGY_DRINK_TIERS.map((tier, index) => <NumberField key={tier.energy} label={`${tier.energy}E can price`} title={tier.name} suffix="$" value={prices[index]}
-              onChange={value => setPrices(current => current.map((price, i) => i === index ? value : price))} />)}
+              disabled={loadingPrices} onChange={value => { clearPriceSource(); setPrices(current => current.map((price, i) => i === index ? value : price)); }} />)}
             <p className="halloween-wide">Default can prices are based on the annual low point, not live market prices. Enter your own purchase prices. Owned boosters still have a cost.</p>
           </>}
           {popout === "Company" && <>
