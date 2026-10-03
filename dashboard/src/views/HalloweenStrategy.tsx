@@ -14,22 +14,28 @@ type Props = {
   drinks: EnergyDrinkForm;
   settings: EnergyDrinkSettings;
   invalid: string | null;
+  calculation: ReturnType<typeof useHalloweenStrategies>;
   onDrinksChange: React.Dispatch<React.SetStateAction<EnergyDrinkForm>>;
   onFieldChange: <K extends keyof BookStrategyForm>(field: K, value: BookStrategyForm[K]) => void;
 };
 
-export function HalloweenStrategy({ inputs, form, drinks, settings, invalid, onDrinksChange, onFieldChange }: Props) {
+export function useHalloweenStrategies({ inputs, form, drinks, settings, invalid }: Pick<Props, "inputs" | "form" | "drinks" | "settings" | "invalid">) {
   const treatPrice = parseNumber(drinks.treatPrice, NaN);
   const rewardError = !Number.isFinite(treatPrice) || treatPrice < 0 || treatPrice > 1e8
     ? "Enter a price per treat between $0 and $100m." : null;
   const timingError = form.enhancerMode === "targetDay" && inputs.enhancerUseMode.kind === "targetDay" && inputs.enhancerUseMode.day > HALLOWEEN_SEARCH_DAYS
     ? "Halloween projections support enhancer purchases up to day 3,650." : null;
-  const rows = React.useMemo(() => invalid || rewardError || timingError ? [] : ENERGY_DRINK_TIERS.map((tier, index) =>
+  const rows = React.useMemo(() => drinks.scenario !== "halloween" || invalid || rewardError || timingError ? [] : ENERGY_DRINK_TIERS.map((tier, index) =>
     calculateHalloweenTier(inputs, tier.energy, parseNumber(drinks.prices[index], NaN), {
       factionPercent: settings.factionPercent, company: settings.company,
       maxCooldownHours: settings.maxCooldownHours, startingCooldownHours: settings.startingCooldownHours,
       spendingCap: settings.spendingCap,
-    }, treatPrice)), [inputs, drinks.prices, settings.factionPercent, settings.company, settings.maxCooldownHours, settings.startingCooldownHours, settings.spendingCap, treatPrice, invalid, rewardError, timingError]);
+    }, treatPrice)), [inputs, drinks.scenario, drinks.prices, settings.factionPercent, settings.company, settings.maxCooldownHours, settings.startingCooldownHours, settings.spendingCap, treatPrice, invalid, rewardError, timingError]);
+  return { rows, rewardError, timingError };
+}
+
+export function HalloweenStrategy({ form, drinks, invalid, calculation, onDrinksChange, onFieldChange }: Props) {
+  const { rows, rewardError, timingError } = calculation;
   const selected = rows[drinks.selectedTier];
   const validRows = rows.filter((row) => row !== null);
   const bestCash = validRows.reduce<(typeof validRows)[number] | null>((best, row) => !best || row.netExtraCash > best.netExtraCash ? row : best, null);

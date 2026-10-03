@@ -28,8 +28,6 @@ export type EnergyDrinkForm = {
   company: DrinkCompany;
   maxCooldownHours: string;
   startingCooldownHours: string;
-  spendingCap: string;
-  capEnabled: boolean;
   prices: string[];
   selectedTier: number;
 };
@@ -37,7 +35,7 @@ export type EnergyDrinkForm = {
 export const DEFAULT_DRINK_FORM: EnergyDrinkForm = {
   scenario: "training", treatPrice: "750k",
   factionPercent: "50", company: "none", maxCooldownHours: "48",
-  startingCooldownHours: "0", spendingCap: "1b", capEnabled: false,
+  startingCooldownHours: "0",
   prices: ENERGY_DRINK_TIERS.map((tier) => tier.price), selectedTier: 5,
 };
 

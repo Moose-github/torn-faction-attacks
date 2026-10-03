@@ -118,6 +118,7 @@ export function calculateHalloweenTier(raw: BookStrategyInputs, base: number, pr
   const savingsEnhancers = purchaseCash ? Math.floor(purchaseCash.savings / inputs.statEnhancerPrice) : 0;
   const purchase = {
     day: purchaseDay, cansEnhancers, savingsEnhancers,
+    savingsStatBefore: purchaseDay === null ? null : before[purchaseDay].savingsStat,
     cansBalance: purchaseCash?.cans ?? null, savingsBalance: purchaseCash?.savings ?? null,
     cansCashLeft: purchaseCash ? purchaseCash.cans - cansEnhancers * inputs.statEnhancerPrice : null,
     savingsCashLeft: purchaseCash ? purchaseCash.savings - savingsEnhancers * inputs.statEnhancerPrice : null,
