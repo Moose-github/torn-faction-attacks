@@ -120,7 +120,7 @@ export function HalloweenProfit() {
 
   return <div className="halloween-profit">
     <section className="panel halloween-heading">
-      <div><div className="panel-kicker"><Ghost size={18} /> SEASONAL CALCULATOR</div><h1>Halloween profit</h1>
+      <div><div className="panel-kicker"><Ghost size={18} /> Halloween calculator</div><h1>Halloween profit</h1>
         <p>Find the books and boosters that make your seven days of attacking most profitable.</p></div>
       <button type="button" className="book-strategy-popout-button" onClick={reset}><RotateCcw size={15} />Reset</button>
       <div className="halloween-assumptions"><span>All basket upgrades purchased</span><span>Fixed {basket.name} basket</span><span>100% attack success</span><span>All energy used for attacks</span><span>Full 7-day book overlap</span></div>
