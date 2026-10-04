@@ -55,9 +55,9 @@ export function HalloweenStrategyBreakdown({ selected, baseline, noBook, setting
         </> : "No cans are used with your current settings, so this book adds no energy."}
       </p> : <p>This book provides no additional energy with this strategy because it only affects energy drinks.</p>)}
       {selected.book === "ugly" && <>
-        <p>This book raises maximum energy to <strong>250E</strong> from <strong>{normalCap}E</strong>. Each daily refill provides <strong>{250 - normalCap}E more</strong>, adding <strong>{count(energy(selected, "Daily point refills") - energy(noBook, "Daily point refills"))}E</strong> across <strong>{count(source(selected, "Daily point refills")?.count ?? 0)} daily refills</strong>.</p>
+        <p>This book raises maximum energy to <strong>250E</strong> from <strong>{normalCap}E</strong>. Daily refills top up to this higher limit, adding <strong>{count(energy(selected, "Daily point refills") - energy(noBook, "Daily point refills"))}E more</strong> across <strong>{count(source(selected, "Daily point refills")?.count ?? 0)} daily refills</strong>, after accounting for energy already held.</p>
         {energy(selected, "Special refills") > 0 && <p>Your special refills also add <strong>{count(energy(selected, "Special refills") - energy(noBook, "Special refills"))}E more</strong> with this book.</p>}
-        {selected.booster === "fhc" && <p>Each FHC also provides <strong>250E</strong> instead of <strong>{normalCap}E</strong>, adding another <strong>{count(energy(selected, booster.name) - energy(noBook, booster.name))}E</strong>.</p>}
+        {selected.booster === "fhc" && <p>Each FHC also refills energy to <strong>250E</strong> instead of <strong>{normalCap}E</strong>, adding another <strong>{count(energy(selected, booster.name) - energy(noBook, booster.name))}E</strong> after accounting for energy already held.</p>}
         {usesCans && <p>Energy per can is unchanged.</p>}
       </>}
       {selected.book === "self" && (usesCans ? <p>

@@ -5,6 +5,44 @@ const settings = (overrides: Partial<HalloweenSettings> = {}): HalloweenSettings
 const source = (result: ReturnType<typeof simulateHalloween>, name: string) => result.sources.find(row => row.name === name);
 
 describe("Halloween profit model", () => {
+  it.each(["scary", "revitalize"] as const)("requires the full 25E before attacking with %s", weapon => {
+    const input = settings({ weapon, revitalize: 17.3, darkPower: false, mortalCoil: false, drugDelay: 168 });
+    // The first daily refill resets all three scenarios to the same energy bar.
+    // Only the 25E start can afford an attack before that refill, even with Revitalize.
+    const empty = simulateHalloween({ ...input, startingEnergy: 0 }, "none", "none");
+    const short = simulateHalloween({ ...input, startingEnergy: 24 }, "none", "none");
+    const full = simulateHalloween({ ...input, startingEnergy: 25 }, "none", "none");
+    expect(short.attacks).toBe(empty.attacks);
+    expect(full.attacks).toBe(empty.attacks + 1);
+    expect(source(short, "Daily point refills")!.energy).toBeCloseTo(source(empty, "Daily point refills")!.energy - 24, 8);
+    expect(short.unusedEnergy).toBeCloseTo(empty.unusedEnergy, 8);
+  });
+  it.each(["scary", "revitalize"] as const)("carries energy between claims and charges only whole attacks with %s", weapon => {
+    const input = settings({ weapon, revitalize: 17.3, darkPower: false, mortalCoil: false,
+      startingEnergy: 0, drugDelay: 168, attackCost: 3000 });
+    const row = simulateHalloween(input, "none", "can5");
+    expect(Number.isInteger(row.attacks)).toBe(true);
+    expect(row.unusedEnergy).toBeGreaterThanOrEqual(0);
+    expect(row.unusedEnergy).toBeLessThan(25);
+    expect(source(row, "Attack supplies")).toMatchObject({ count: row.attacks, cost: row.attacks * 3000 });
+    const externalEnergy = row.sources.filter(item => item.name !== "Revitalize returns").reduce((sum, item) => sum + item.energy, 0);
+    const returnedPerAttack = weapon === "revitalize" ? 25 * input.revitalize / 100 : 0;
+    // Every completed attack pays 25 first; its own return cannot fund that same attack.
+    const affordable = 1 + Math.floor((externalEnergy - 25 + 1e-8) / (25 - returnedPerAttack));
+    expect(row.attacks).toBe(affordable);
+    expect(row.unusedEnergy).toBeCloseTo(externalEnergy - row.attacks * (25 - returnedPerAttack), 6);
+    expect(source(row, "5E cans")!.energy).toBe(row.boosterCount * 8);
+    // Individual 8E cans cannot fund attacks alone: their remainders must accumulate.
+    const noCans = simulateHalloween(input, "none", "none");
+    expect(row.attacks).toBeGreaterThan(noCans.attacks);
+  });
+  it("tops up special refills and FHCs instead of adding a full bar over carried energy", () => {
+    const input = settings({ startingEnergy: 24, darkPower: false, mortalCoil: false, drugDelay: 168, specialRefills: 1 });
+    const row = simulateHalloween(input, "none", "fhc");
+    expect(source(row, "Special refills")).toMatchObject({ count: 1, energy: 126 });
+    expect(source(row, "FHCs")!.energy).toBeLessThan(row.boosterCount * 150);
+    expect(row.sources.reduce((sum, item) => sum + item.energy, 0)).toBeCloseTo(row.attacks * 25 + row.unusedEnergy, 6);
+  });
   it.each(Array.from({ length: 8 }, (_, bits) => ({
     darkPower: Boolean(bits & 1), freebie: Boolean(bits & 2), cashback: Boolean(bits & 4),
   })))("conserves rewards and energy with Dark Power=$darkPower Freebie=$freebie Cashback=$cashback", upgrades => {
@@ -21,13 +59,15 @@ describe("Halloween profit model", () => {
         const expectedAttacks = (externalEnergy + energyPerTreat * 168 / (1 - returnedRate))
           / (energyPerAttack - energyPerTreat * row.treatsPerAttack / (1 - returnedRate));
         expect(row.attacks).toBeLessThanOrEqual(expectedAttacks + 1e-6);
-        const attacksWithRemainder = (externalEnergy + energyPerTreat * (168 - row.unexchangedTreats) / (1 - returnedRate))
-          / (energyPerAttack - energyPerTreat * row.treatsPerAttack / (1 - returnedRate));
+        const rewardTreats = row.exchanges.reduce((sum, batch) => sum + batch.treats + batch.freebieTreats, 0);
+        const darkEnergy = upgrades.darkPower ? rewardTreats * 5 : 0;
+        const attacksWithRemainder = (externalEnergy + darkEnergy - row.unusedEnergy) / energyPerAttack;
         expect(row.attacks).toBeCloseTo(attacksWithRemainder, 6);
-        expect(row.exchangedTreats).toBeCloseTo((row.earnedTreats - row.unexchangedTreats) / (1 - returnedRate), 6);
-        expect(row.cashbackTreats).toBeCloseTo(row.exchangedTreats * returnedRate, 6);
-        expect(source(row, "Dark Power returns")?.energy ?? 0).toBeCloseTo(row.exchangedTreats * energyPerTreat, 5);
-        expect(row.revenue).toBeCloseTo(row.exchangedTreats * input.treatPrice * (upgrades.freebie ? 1 : 1 / 1.1), 3);
+        expect(Number.isInteger(row.attacks)).toBe(true);
+        expect(row.exchangedTreats + row.unexchangedTreats).toBeCloseTo(row.earnedTreats + row.cashbackTreats, 6);
+        expect(row.cashbackTreats).toBe(row.exchanges.reduce((sum, batch) => sum + (upgrades.cashback ? Math.floor(batch.treats / 10) : 0), 0));
+        expect(source(row, "Dark Power returns")?.energy ?? 0).toBe(darkEnergy);
+        expect(row.revenue).toBeCloseTo(rewardTreats * input.treatPrice / 1.1, 3);
         expect(row.profit).toBeCloseTo(row.revenue - row.cost, 3);
         expect(row.timeline.at(-1)?.profit).toBe(row.profit);
         expect(row.sources.reduce((total, item) => total + item.energy, 0)).toBeCloseTo(row.attacks * 25 + row.unusedEnergy, 5);
@@ -44,14 +84,17 @@ describe("Halloween profit model", () => {
     expect(disabled.effectiveTreatPrice).toBeCloseTo(750000 / 1.1, 6);
     expect(disabled.attacks).toBe(enabled.attacks);
     expect(disabled.exchangedTreats).toBe(enabled.exchangedTreats);
-    disabled.timeline.forEach((point, index) => expect(point.profit).toBeCloseTo(enabled.timeline[index].profit / 1.1, 3));
+    expect(disabled.revenue).toBeCloseTo(disabled.exchangedTreats * 750000 / 1.1, 3);
+    const freebieRewards = enabled.exchanges.reduce((sum, batch) => sum + batch.freebieTreats, 0);
+    expect(enabled.revenue - disabled.revenue).toBeCloseTo(freebieRewards * 750000 / 1.1, 3);
+    disabled.timeline.forEach((point, index) => expect(point.profit).toBeLessThanOrEqual(enabled.timeline[index].profit));
   });
   it.each([false, true])("honours disabled Dark Power and Cashback=$cashback during delayed and final exchanges", cashback => {
     const row = simulateHalloween(settings({ darkPower: false, freebie: false, cashback, exchangeHours: 24, sleepHours: 16 }), "none", "none");
     expect(source(row, "Dark Power returns")).toBeUndefined();
     expect(row.wastedDarkEnergy).toBe(0);
-    expect(row.exchangedTreats).toBeCloseTo((row.earnedTreats - row.unexchangedTreats) / (cashback ? 0.9 : 1), 6);
-    expect(row.cashbackTreats).toBeCloseTo(cashback ? row.exchangedTreats * 0.1 : 0, 6);
+    expect(row.exchangedTreats + row.unexchangedTreats).toBeCloseTo(row.earnedTreats + row.cashbackTreats, 6);
+    expect(row.cashbackTreats).toBe(row.exchanges.reduce((sum, batch) => sum + (cashback ? Math.floor(batch.treats / 10) : 0), 0));
     expect(row.revenue).toBeCloseTo(row.exchangedTreats * 750000 / 1.1, 3);
   });
   it.each(["scary", "revitalize"] as const)("toggles Mortal Coil's hourly treats and recycled energy with %s", weapon => {
@@ -114,7 +157,7 @@ describe("Halloween profit model", () => {
   it("conserves money, energy and treats including recursive reward returns", () => {
     for (const weapon of ["scary", "revitalize"] as const) {
       const result = simulateHalloween(settings({ weapon, attackCost: 3000 }), "fuel", "can25");
-      expect(result.revenue).toBeCloseTo(result.exchangedTreats * 750000, 3);
+      expect(result.revenue).toBeCloseTo(result.exchangedTreats * result.effectiveTreatPrice, 3);
       expect(result.cost).toBeCloseTo(result.sources.reduce((sum, row) => sum + row.cost, 0), 3);
       expect(result.profit).toBeCloseTo(result.revenue - result.cost, 3);
       expect(result.sources.reduce((sum, row) => sum + row.energy, 0)).toBeCloseTo(result.attacks * 25 + result.unusedEnergy, 5);
@@ -131,7 +174,10 @@ describe("Halloween profit model", () => {
   });
   it("includes eight free calendar-day refills, a 1,000E stack and Xanax in every strategy", () => {
     for (const result of compareHalloween(settings())) {
-      expect(source(result, "Daily point refills")).toMatchObject({ count: 8, energy: result.book === "ugly" ? 2000 : 1200, cost: 0 });
+      expect(source(result, "Daily point refills")).toMatchObject({ count: 8, cost: 0 });
+      const cap = result.book === "ugly" ? 250 : 150;
+      expect(source(result, "Daily point refills")!.energy).toBeGreaterThan(8 * (cap - 25));
+      expect(source(result, "Daily point refills")!.energy).toBeLessThanOrEqual(8 * cap);
       expect(source(result, "Starting energy")?.energy).toBe(1000);
       expect(source(result, "Xanax")).toMatchObject({ count: 21, energy: 5250, cost: 21 * 875000 });
     }
@@ -139,7 +185,9 @@ describe("Halloween profit model", () => {
   it("still uses all daily refills when an entire partial event day is inactive", () => {
     for (const sleepStart of [0, 10]) {
       const result = simulateHalloween(settings({ sleepStart, sleepHours: 16 }), "ugly", "none");
-      expect(source(result, "Daily point refills")).toMatchObject({ count: 8, energy: 2000, cost: 0 });
+      expect(source(result, "Daily point refills")).toMatchObject({ count: 8, cost: 0 });
+      expect(source(result, "Daily point refills")!.energy).toBeGreaterThan(8 * 225);
+      expect(source(result, "Daily point refills")!.energy).toBeLessThanOrEqual(2000);
       expect(result.sources.reduce((sum, row) => sum + row.energy, 0)).toBeCloseTo(result.attacks * 25 + result.unusedEnergy, 5);
     }
   });
@@ -150,7 +198,8 @@ describe("Halloween profit model", () => {
       expect(source(row, "FHCs")).toEqual(source(base, "FHCs"));
     }
     const ugly = simulateHalloween(settings(), "ugly", "fhc");
-    expect(source(ugly, "FHCs")?.energy).toBe(ugly.boosterCount * 250);
+    expect(source(ugly, "FHCs")!.energy).toBeGreaterThan(ugly.boosterCount * 225);
+    expect(source(ugly, "FHCs")!.energy).toBeLessThanOrEqual(ugly.boosterCount * 250);
     expect(source(ugly, "Natural regeneration")?.energy).toBe(5040);
     expect(source(simulateHalloween(settings(), "higher", "none"), "Natural regeneration")?.energy).toBe(6048);
   });
@@ -202,7 +251,7 @@ describe("Halloween profit model", () => {
     expect(frequent.wastedDarkEnergy).toBe(0);
     expect(delayed).toEqual(frequent);
   });
-  it.each([false, true])("exchanges whole baskets in multiples of ten without exceeding the energy cap (Freebie=$freebie)", freebie => {
+  it.each([false, true])("prefers multiples of ten until 120 and respects the energy cap (Freebie=$freebie)", freebie => {
     for (const weapon of ["scary", "revitalize"] as const) {
       for (const row of compareHalloween(settings({ freebie, weapon, greenEggs: 2, extraEnergy: 1000 }))) {
         expect(row.exchanges.length).toBeGreaterThan(0);
@@ -210,9 +259,10 @@ describe("Halloween profit model", () => {
         let exchanged = 0, cashback = 0, darkEnergy = 0;
         for (const batch of row.exchanges) {
           expect(batch.treats).toBeGreaterThanOrEqual(100);
-          expect(batch.treats % 10).toBe(0);
-          expect(batch.freebieTreats).toBe(freebie ? batch.treats / 10 : 0);
-          expect(batch.cashbackTreats).toBe(batch.treats / 10);
+          expect(Number.isInteger(batch.treats)).toBe(true);
+          if (batch.treats < 120) expect(batch.treats % 10).toBe(0);
+          expect(batch.freebieTreats).toBe(freebie ? Math.floor(batch.treats / 10) : 0);
+          expect(batch.cashbackTreats).toBe(Math.floor(batch.treats / 10));
           expect(batch.energyReturned).toBe((batch.treats + batch.freebieTreats) * 5);
           expect(batch.energyBefore).toBeGreaterThanOrEqual(0);
           expect(batch.energyBefore + batch.energyReturned).toBeLessThanOrEqual(1000);
@@ -222,34 +272,37 @@ describe("Halloween profit model", () => {
         expect(cashback).toBe(row.cashbackTreats);
         expect(darkEnergy).toBe(source(row, "Dark Power returns")?.energy);
         expect(row.unexchangedTreats).toBeGreaterThanOrEqual(0);
-        expect(row.unexchangedTreats).toBeLessThan(110);
+        expect(row.unexchangedTreats, row.id).toBeLessThan(200);
         expect(row.earnedTreats + cashback).toBeCloseTo(exchanged + row.unexchangedTreats, 6);
       }
     }
   });
   it("accounts for the energy already held when exchanging a stacked basket", () => {
     // A second 1,000E claim leaves too much energy at both 100 and 110 treats.
-    // Keep attacking until the whole basket reaches the next safe multiple of ten.
+    // After the grace window, exchange at the first affordable whole-basket size.
     const row = simulateHalloween(settings({ extraEnergy: 1000 }), "none", "none");
     const first = row.exchanges[0];
-    expect(first.treats).toBe(120);
-    expect(first.energyBefore).toBeGreaterThan(200);
+    expect(first.treats).toBe(121);
+    expect(first.energyBefore).toBe(250);
     expect(first.energyBefore + first.energyReturned).toBeLessThanOrEqual(1000);
     expect(first.cashbackTreats).toBe(12);
     expect(first.freebieTreats).toBe(12);
-    expect(first.energyReturned).toBe(660);
+    expect(first.energyReturned).toBe(665);
   });
-  it("uses 100-treat exchanges for standard strategies and leaves the final remainder unexchanged", () => {
+  it("tries 100 and 110 before exchanging overshoots of 120 without waiting for 130", () => {
+    let skippedTarget = false;
     for (const row of compareHalloween(settings())) {
-      expect(row.exchanges.every(batch => batch.treats === 100)).toBe(true);
+      expect(row.exchanges.every(batch => [100, 110, 120, 121].includes(batch.treats))).toBe(true);
+      if (row.exchanges.some(batch => batch.treats === 121)) skippedTarget = true;
       expect(row.unexchangedTreats).toBeGreaterThanOrEqual(0);
-      expect(row.unexchangedTreats).toBeLessThan(100);
+      expect(row.unexchangedTreats, row.id).toBeLessThan(120);
     }
+    expect(skippedTarget).toBe(true);
   });
   it("excludes leftover treats from revenue and never attacks energy received after the event", () => {
     const row = simulateHalloween(settings({ sleepStart: 10, sleepHours: 8 }), "none", "none");
     expect(row.unexchangedTreats).toBeGreaterThan(0);
-    expect(row.revenue).toBe(row.exchangedTreats * row.effectiveTreatPrice);
+    expect(row.revenue).toBeCloseTo(row.exchangedTreats * row.effectiveTreatPrice, 5);
     expect(row.earnedTreats - 168).toBeCloseTo(row.attacks * row.treatsPerAttack, 6);
     expect(row.sources.reduce((sum, item) => sum + item.energy, 0)).toBeCloseTo(row.attacks * 25 + row.unusedEnergy, 5);
     expect(row.exchanges.filter(batch => batch.afterEvent).reduce((sum, batch) => sum + batch.energyReturned, 0))
