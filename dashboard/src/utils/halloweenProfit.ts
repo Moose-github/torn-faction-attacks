@@ -79,7 +79,7 @@ export type HalloweenResult = {
   refills: HalloweenRefill[];
   revenue: number; cost: number; profit: number; roi: number | null; breakEvenTreatPrice: number; effectiveTreatPrice: number;
   boosterCount: number; sources: HalloweenSource[]; wastedRegeneration: number; wastedDarkEnergy: number;
-  unusedEnergy: number; timeline: { hour: number; profit: number }[];
+  wastedClaimEnergy: number; unusedEnergy: number; timeline: { hour: number; profit: number }[];
 };
 
 export function validateHalloween(s: HalloweenSettings): string | null {
@@ -161,7 +161,7 @@ export function simulateHalloween(s: HalloweenSettings, book: HalloweenBook, boo
   };
   let energy = s.startingEnergy, basket = 0, attacks = 0, earnedTreats = 0, exchangedTreats = 0;
   let cashbackTreats = 0, rewardTreats = 0, cost = s.otherCost;
-  let wastedRegeneration = 0, wastedDarkEnergy = 0, boosterCount = 0;
+  let wastedRegeneration = 0, wastedDarkEnergy = 0, wastedClaimEnergy = 0, boosterCount = 0;
   let cooldown = s.startingCooldown, nextDrug = s.drugDelay * 60;
   let eggs = s.greenEggs, points = s.jobPoints, usedPoints = 0, refillDay = -1, currentDay = -1;
   let specialRefills = s.specialRefills, currentMinute = 0;
@@ -176,9 +176,11 @@ export function simulateHalloween(s: HalloweenSettings, book: HalloweenBook, boo
     if (energy >= 25) return false;
     const empty = energy === 0;
     let name: string, spend = 0;
-    if (specialRefills > 0 && (empty || forceSpecial)) {
+    // Special refills must be exhausted before the daily refill can be used,
+    // including when the midnight deadline forces a top-up over carried energy.
+    if (specialRefills > 0 && (empty || forceSpecial || forceDaily)) {
       name = "Special refills"; specialRefills--;
-    } else if (refillDay !== currentDay && (empty || forceDaily)) {
+    } else if (specialRefills === 0 && refillDay !== currentDay && (empty || forceDaily)) {
       name = "Daily point refills"; refillDay = currentDay;
     } else if (booster === "fhc" && eggs === 0 && cooldown < s.maxCooldown - 1e-8 && (empty || forceFhc)) {
       name = selectedBooster.name; spend = boosterPrice; boosterCount++; cooldown += boosterCooldown;
@@ -190,6 +192,8 @@ export function simulateHalloween(s: HalloweenSettings, book: HalloweenBook, boo
     source(name, added, 1, spend); cost += spend; energy += added;
     return true;
   };
+  const exchangeEnergy = (quantity: number) => s.darkPower
+    ? 5 * (quantity + (s.freebie ? Math.floor(quantity / 10) : 0)) : 0;
   const exchange = (afterEvent = false) => {
     // Torn exchanges the entire basket. Never select a partial batch or exchange fractions.
     const quantity = basket;
@@ -211,7 +215,7 @@ export function simulateHalloween(s: HalloweenSettings, book: HalloweenBook, boo
     const freebieTreats = s.freebie ? Math.floor(quantity / 10) : 0;
     // Cashback is calculated before Freebie (Torn patch #218, 16 November 2021).
     const cashback = s.cashback ? Math.floor(quantity / 10) : 0;
-    const darkEnergy = s.darkPower ? 5 * (quantity + freebieTreats) : 0;
+    const darkEnergy = exchangeEnergy(quantity);
     // A rare stacked drop can exceed the cap even from empty. Spend every affordable
     // attack first, then exchange the whole basket and record unavoidable lost energy.
     if (!afterEvent && energy + darkEnergy > 1000 && !(darkEnergy > 1000 && energy < 25)) return false;
@@ -229,8 +233,10 @@ export function simulateHalloween(s: HalloweenSettings, book: HalloweenBook, boo
   };
   const attack = () => {
     while (true) {
-      // Take a refill opportunity at zero before exchanging treats or claiming more energy.
-      if (energy === 0 && useRefill()) continue;
+      // Prefer refills at zero only when the refill and pending exchange both fit.
+      // Otherwise exchange first: more refill-funded attacks would grow the basket
+      // and turn an oversized drop into avoidable Dark Power waste.
+      if (energy === 0 && cap + exchangeEnergy(basket) <= 1000 && useRefill()) continue;
       const exchanged = exchange();
       if (energy < 25) {
         // A small exchange can leave Cashback that funds another exchange, even when
@@ -252,8 +258,10 @@ export function simulateHalloween(s: HalloweenSettings, book: HalloweenBook, boo
     }
   };
   const claim = (name: string, amount: number, count = 0, spend = 0) => {
-    source(name, amount, count, spend); cost += spend;
-    energy += amount; attack();
+    const accepted = Math.min(amount, Math.max(0, 1000 - energy));
+    wastedClaimEnergy += amount - accepted;
+    source(name, accepted, count, spend); cost += spend;
+    energy += accepted; attack();
   };
   source("Other costs", 0, 0, cost);
   source("Starting energy", s.startingEnergy);
@@ -312,7 +320,7 @@ export function simulateHalloween(s: HalloweenSettings, book: HalloweenBook, boo
         started = true;
         claim("Other one-off energy", s.extraEnergy);
       }
-      if (useRefill(true)) attack();
+      while (refillDay !== day && useRefill(true)) attack();
     }
     if ((minute + 1) % 60 === 0) timeline.push({ hour: (minute + 1) / 60, profit: rewardTreats * s.treatPrice / 1.1 - cost });
   }
@@ -332,7 +340,7 @@ export function simulateHalloween(s: HalloweenSettings, book: HalloweenBook, boo
     // Express break-even in the same with-Freebie units as the price input.
     breakEvenTreatPrice: rewardTreats ? cost * 1.1 / rewardTreats : 0,
     boosterCount, sources: [...sources.values()].filter(r => r.energy || r.cost || r.count),
-    wastedRegeneration, wastedDarkEnergy, unusedEnergy: energy, timeline };
+    wastedRegeneration, wastedDarkEnergy, wastedClaimEnergy, unusedEnergy: energy, timeline };
 }
 
 /** Interpolated empirical percentiles: the central 80% of simulated event outcomes. */
@@ -355,7 +363,7 @@ export function estimateHalloween(s: HalloweenSettings, book: HalloweenBook, boo
   const total = { ...first, exchanges: [], refills: [], sources: [], timeline: first.timeline.map(point => ({ ...point })) } as HalloweenResult;
   const totals = new Map(first.sources.map(row => [row.name, { ...row }]));
   const averagedFields = ["attacks", "earnedTreats", "exchangedTreats", "cashbackTreats", "unexchangedTreats",
-    "rewardTreats", "revenue", "cost", "profit", "boosterCount", "wastedRegeneration", "wastedDarkEnergy", "unusedEnergy"] as const;
+    "rewardTreats", "revenue", "cost", "profit", "boosterCount", "wastedRegeneration", "wastedDarkEnergy", "wastedClaimEnergy", "unusedEnergy"] as const;
   for (let run = 1; run < runs; run++) {
     const row = simulateHalloween(s, book, booster, (SIMULATION_SEED + Math.imul(run, 0x9e3779b9)) >>> 0);
     profits.push(row.profit);
