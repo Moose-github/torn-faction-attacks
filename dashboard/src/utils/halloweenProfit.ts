@@ -40,7 +40,7 @@ export type HalloweenSettings = {
   drugPrice: number; drugInterval: number; drugDelay: number;
   jobPoints: number; dailyJobPoints: number; extraEnergy: number; greenEggs: number;
   attackCost: number; otherCost: number; startHour: number; sleepHours: number; sleepStart: number;
-  exchangeHours: number;
+  exchangeHours: number; // Legacy setting; exchanges now follow the fixed batch/cap policy.
 };
 export const DEFAULT_HALLOWEEN: HalloweenSettings = {
   basketLevel: "nightmarish",
@@ -54,9 +54,13 @@ export const DEFAULT_HALLOWEEN: HalloweenSettings = {
   startHour: 12, sleepHours: 0, sleepStart: 0, exchangeHours: 0,
 };
 export type HalloweenSource = { name: string; energy: number; count: number; cost: number };
+export type HalloweenExchange = {
+  treats: number; freebieTreats: number; cashbackTreats: number;
+  energyBefore: number; energyReturned: number; afterEvent: boolean;
+};
 export type HalloweenResult = {
   id: string; book: HalloweenBook; booster: string; attacks: number; treatsPerAttack: number; earnedTreats: number;
-  exchangedTreats: number; cashbackTreats: number;
+  exchangedTreats: number; cashbackTreats: number; unexchangedTreats: number; exchanges: HalloweenExchange[];
   revenue: number; cost: number; profit: number; roi: number | null; breakEvenTreatPrice: number; effectiveTreatPrice: number;
   boosterCount: number; sources: HalloweenSource[]; wastedRegeneration: number; wastedDarkEnergy: number;
   unusedEnergy: number; timeline: { hour: number; profit: number }[];
@@ -86,7 +90,7 @@ export function validateHalloween(s: HalloweenSettings): string | null {
   return null;
 }
 
-/** Expected-value model: one-minute activity schedule, immediate attacks/exchanges while active.
+/** Expected-value model: one-minute schedule, attacks split at whole-basket exchange boundaries.
  * Source mechanics: wiki.torn.com/wiki/{Energy,Trick_or_Treat,Weapon_Bonus,Points_Market}.
  * The entered treat value includes Freebie. Disabling it removes the 10% item bonus
  * from that valuation as well as its bonus Dark Power energy.
@@ -98,11 +102,8 @@ export function simulateHalloween(s: HalloweenSettings, book: HalloweenBook, boo
   if (!selectedBooster || !HALLOWEEN_BOOKS.some(b => b.id === book)) throw new Error("Unknown Halloween strategy.");
   const cap = book === "ugly" ? 250 : s.donor ? 150 : 100;
   const revitalize = s.weapon === "revitalize" ? s.revitalize / 100 : 0;
-  const cashbackRate = s.cashback ? 0.1 : 0;
-  const freebieMultiplier = s.freebie ? 1.1 : 1;
   const rewardValueMultiplier = s.freebie ? 1 : 1 / 1.1;
   const effectiveTreatPrice = s.treatPrice * rewardValueMultiplier;
-  const darkEnergyPerTreat = s.darkPower ? 5 * freebieMultiplier : 0;
   // Cat in Hell's rare jackpot is excluded from the expected treat yield.
   const selectedBasket = HALLOWEEN_BASKETS.find(item => item.id === s.basketLevel)!;
   const treatsPerAttack = (selectedBasket.treatChance + (s.scaryClothing ? 10 : 0) + (s.weapon === "scary" ? 10 : 0)) / 100 * 1.2 * 1.2 * 1.15 * 1.04;
@@ -117,42 +118,57 @@ export function simulateHalloween(s: HalloweenSettings, book: HalloweenBook, boo
     const row = sources.get(name) ?? { name, energy: 0, count: 0, cost: 0 };
     row.energy += energy; row.count += count; row.cost += cost; sources.set(name, row);
   };
-  let energy = s.startingEnergy, basket = 0, attacks = 0, earnedTreats = 0, exchangedTreats = 0;
+  let energy = s.startingEnergy, basket = 0, treatCredit = 0, attacks = 0, earnedTreats = 0, exchangedTreats = 0;
   let cashbackTreats = 0, cost = s.otherCost;
   let wastedRegeneration = 0, wastedDarkEnergy = 0, boosterCount = 0;
-  let cooldown = s.startingCooldown, nextDrug = s.drugDelay * 60, nextExchange = 0;
+  let cooldown = s.startingCooldown, nextDrug = s.drugDelay * 60;
   let eggs = s.greenEggs, points = s.jobPoints, usedPoints = 0, refillDay = -1, currentDay = -1;
-  let started = false, exchanging = false;
+  let started = false;
+  const exchanges: HalloweenExchange[] = [];
   const timeline: HalloweenResult["timeline"] = [{ hour: 0, profit: -cost }];
   const awake = (minute: number) => ((s.startHour * 60 + minute - s.sleepStart * 60 + 1440) % 1440) >= s.sleepHours * 60;
-  let lastActiveMinute = 10079;
-  while (!awake(lastActiveMinute)) lastActiveMinute--;
-  const attack = (amount: number) => {
-    const hits = amount / (25 * (1 - revitalize));
-    attacks += hits;
-    const treats = hits * treatsPerAttack;
-    earnedTreats += treats; basket += treats;
-    const returned = hits * revitalize * 25;
-    source("Revitalize returns", returned);
-    const attackSpend = hits * s.attackCost;
-    source("Attack supplies", 0, hits, attackSpend); cost += attackSpend;
+  const exchange = (afterEvent = false) => {
+    // Torn exchanges the entire basket. Never select a partial batch or exchange fractions.
+    const quantity = basket;
+    if (quantity < 100 || quantity % 10 !== 0) return;
+    const freebieTreats = s.freebie ? Math.floor(quantity / 10) : 0;
+    // Cashback is calculated before Freebie (Torn patch #218, 16 November 2021).
+    const cashback = s.cashback ? Math.floor(quantity / 10) : 0;
+    const darkEnergy = s.darkPower ? 5 * (quantity + freebieTreats) : 0;
+    if (energy + darkEnergy > 1000) return;
+    exchanges.push({ treats: quantity, freebieTreats, cashbackTreats: cashback,
+      energyBefore: energy, energyReturned: darkEnergy, afterEvent });
+    basket = cashback;
+    cashbackTreats += cashback; exchangedTreats += quantity;
+    energy += darkEnergy;
+    source("Dark Power returns", darkEnergy);
+  };
+  const attack = () => {
+    const energyPerAttack = 25 * (1 - revitalize);
+    exchange();
+    while (energy > 1e-9) {
+      // Target 100 treats, then the next multiple of ten if the energy cap blocks that exchange.
+      // Retain average drops/Revitalize between these discrete exchange boundaries.
+      // This lets the whole basket be exchanged before continuing to use the energy stack.
+      const nextBatch = Math.max(100, (Math.floor((basket + 1e-8) / 10) + 1) * 10);
+      const hits = Math.min(energy / energyPerAttack, (nextBatch - basket - treatCredit) / treatsPerAttack);
+      energy = Math.max(0, energy - hits * energyPerAttack);
+      attacks += hits;
+      const treats = hits * treatsPerAttack;
+      earnedTreats += treats;
+      // Carry fractional expected drops forward separately; only whole treats enter the basket.
+      treatCredit += treats;
+      const wholeTreats = Math.floor(treatCredit + 1e-9);
+      basket += wholeTreats; treatCredit = Math.max(0, treatCredit - wholeTreats);
+      source("Revitalize returns", hits * revitalize * 25);
+      const attackSpend = hits * s.attackCost;
+      source("Attack supplies", 0, hits, attackSpend); cost += attackSpend;
+      exchange();
+    }
   };
   const claim = (name: string, amount: number, count = 0, spend = 0) => {
-    source(name, amount, count, spend); cost += spend; attack(amount);
-    if (!exchanging && s.exchangeHours === 0) exchange();
-  };
-  const exchange = () => {
-    exchanging = true;
-    // Cashback + Dark Power form a convergent loop, including Revitalize on recycled attacks.
-    for (let i = 0; i < 200 && basket > 1e-9; i++) {
-      const quantity = basket; basket = quantity * cashbackRate;
-      cashbackTreats += basket; exchangedTreats += quantity;
-      const darkEnergy = quantity * darkEnergyPerTreat;
-      const usable = Math.min(1000, darkEnergy);
-      wastedDarkEnergy += darkEnergy - usable;
-      claim("Dark Power returns", usable);
-    }
-    exchanging = false;
+    source(name, amount, count, spend); cost += spend;
+    energy += amount; attack();
   };
   source("Other costs", 0, 0, cost);
   source("Starting energy", s.startingEnergy);
@@ -175,8 +191,7 @@ export function simulateHalloween(s: HalloweenSettings, book: HalloweenBook, boo
       earnedTreats += 1;
     }
     if (active) {
-      attack(energy); energy = 0;
-      if (s.exchangeHours === 0) exchange();
+      attack();
       if (!started) {
         started = true;
         claim("Other one-off energy", s.extraEnergy);
@@ -200,38 +215,28 @@ export function simulateHalloween(s: HalloweenSettings, book: HalloweenBook, boo
       while (booster !== "none" && eggs === 0 && cooldown < s.maxCooldown - 1e-8) {
         claim(selectedBooster.name, boosterEnergy, 1, boosterPrice); boosterCount++; cooldown += boosterCooldown;
       }
-      if (minute >= nextExchange || minute === lastActiveMinute) {
-        exchange(); nextExchange = minute + s.exchangeHours * 60;
-      }
     }
     // Daily refills are guaranteed by the comparison assumptions, including a
     // brief refill/attack visit if a partial event day is entirely inactive.
     const dayEnds = Math.floor((absoluteMinute + 1) / 1440) !== day || minute === 10079;
     if (refillDay !== day && dayEnds) {
-      attack(energy); energy = 0;
+      attack();
       if (!started) {
         started = true;
         claim("Other one-off energy", s.extraEnergy);
         for (let refill = 0; refill < s.specialRefills; refill++) claim("Special refills", cap, 1);
       }
       claim("Daily point refills", cap, 1); refillDay = day;
-      exchange();
     }
     if ((minute + 1) % 60 === 0) timeline.push({ hour: (minute + 1) / 60, profit: exchangedTreats * effectiveTreatPrice - cost });
   }
-  // Sell treats accrued during a final inactive period after the event. Returned energy
-  // can no longer earn Halloween treats, so it is recorded as unused, never recycled.
-  if (basket > 1e-9) {
-    const exchanged = basket / (1 - cashbackRate);
-    exchangedTreats += exchanged; cashbackTreats += exchanged * cashbackRate;
-    const dark = exchanged * darkEnergyPerTreat;
-    const accepted = Math.min(Math.max(0, 1000 - energy), dark);
-    energy += accepted; wastedDarkEnergy += dark - accepted;
-    source("Dark Power returns", accepted);
-  }
+  // The same batch/cap rules apply after the event, but returned energy cannot fund attacks.
+  // Keep any non-qualifying basket (and Cashback remainder) out of exchanged reward value.
+  exchange(true);
   const revenue = exchangedTreats * effectiveTreatPrice;
   timeline[timeline.length - 1].profit = revenue - cost;
   return { id: `${book}:${booster}`, book, booster, attacks, treatsPerAttack, earnedTreats, exchangedTreats, cashbackTreats,
+    unexchangedTreats: basket + treatCredit, exchanges,
     revenue, cost, profit: revenue - cost, roi: cost ? (revenue - cost) / cost : null,
     effectiveTreatPrice,
     // Express break-even in the same with-Freebie units as the price input.
