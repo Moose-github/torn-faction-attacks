@@ -5,8 +5,8 @@ import { MetricCard, PanelHeader } from "../components/Common";
 import { NumberField, PopoutButton } from "../components/TrainingCalculatorInputs";
 import { getHalloweenPrices, type HalloweenPriceSnapshot } from "../api/halloweenPrices";
 import { ENERGY_DRINK_TIERS } from "../utils/energyDrinkStrategy";
-import { compareHalloween, DEFAULT_HALLOWEEN, HALLOWEEN_BOOKS, HALLOWEEN_BOOSTERS,
-  HALLOWEEN_COMPANIES, HALLOWEEN_BASKETS, simulateHalloween, validateHalloween,
+import { DEFAULT_HALLOWEEN, HALLOWEEN_BOOKS, HALLOWEEN_BOOSTERS,
+  HALLOWEEN_COMPANIES, HALLOWEEN_BASKETS, HALLOWEEN_REVITALIZE_RUNS, estimateHalloween, validateHalloween,
   type HalloweenBook, type HalloweenSettings, type HalloweenResult } from "../utils/halloweenProfit";
 import { formatMoney, formatCompact } from "./BookStrategy.helpers";
 import "./HalloweenProfit.css";
@@ -85,9 +85,28 @@ export function HalloweenProfit() {
     ...Object.fromEntries(numberKeys.map(key => [key, parse(numbers[key])])), canPrices: prices.map(parse),
     drugInterval: 24 / dailyXanax,
   }) as HalloweenSettings, [options, numbers, prices, dailyXanax]);
-  const error = !Number.isFinite(dailyXanax) || dailyXanax < 1 || dailyXanax > 4
+  const validationError = !Number.isFinite(dailyXanax) || dailyXanax < 1 || dailyXanax > 4
     ? "Enter Xanax/day between 1 and 4." : validateHalloween(settings);
-  const results = React.useMemo(() => error ? [] : compareHalloween(settings), [settings, error]);
+  const [calculation, setCalculation] = React.useState<{
+    settings: HalloweenSettings; results: HalloweenResult[]; error: string | null;
+  } | null>(null);
+  React.useEffect(() => {
+    if (validationError) return;
+    let cancelled = false;
+    const finish = (results: HalloweenResult[], error: string | null) => {
+      if (!cancelled) setCalculation({ settings, results, error });
+    };
+    const worker = new Worker(new URL("../workers/halloweenProfitWorker.ts", import.meta.url), { type: "module" });
+    worker.onmessage = (event: MessageEvent<{ results: HalloweenResult[]; error: string | null }>) => {
+      finish(event.data.results, event.data.error);
+    };
+    worker.onerror = () => finish([], "Unable to calculate Halloween strategies. Try changing an input or reloading the page.");
+    worker.postMessage(settings);
+    return () => { cancelled = true; worker.terminate(); };
+  }, [settings, validationError]);
+  const currentCalculation = calculation?.settings === settings ? calculation : null;
+  const error = validationError ?? currentCalculation?.error;
+  const results = error ? [] : currentCalculation?.results ?? [];
   const ranked = results.filter(row => books.includes(row.book)).sort((a, b) => b.profit - a.profit);
   const rows = sort === "lowest" ? [...ranked].reverse() : ranked;
   const best = ranked[0];
@@ -102,7 +121,7 @@ export function HalloweenProfit() {
   const selectedNoBooster = results.find(row => row.book === selected?.book && row.booster === "none");
   const selectedNoBook = results.find(row => row.book === "none" && row.booster === selected?.booster);
   const alternativeWeapon = React.useMemo(() => selected && !error
-    ? simulateHalloween({ ...settings, weapon: settings.weapon === "scary" ? "revitalize" : "scary" }, selected.book, selected.booster) : null,
+    ? estimateHalloween({ ...settings, weapon: settings.weapon === "scary" ? "revitalize" : "scary" }, selected.book, selected.booster) : null,
   [settings, selected, error]);
   const chart = selected?.timeline.map((point, index) => ({ ...point, baseline: baseline?.timeline[index].profit }));
   const change = <K extends keyof HalloweenSettings>(key: K, value: HalloweenSettings[K]) => setOptions(current => ({ ...current, [key]: value }));
@@ -154,7 +173,7 @@ export function HalloweenProfit() {
             {toggle("donor", "Donator regeneration")}
             <p className="halloween-wide">Daily energy refills are used every day. Max natural energy use is assumed.</p>
             {field("startingEnergy", "Starting energy", "E", "Energy already stacked when the event begins. Its cost is excluded from the comparison.")}
-            {field("specialRefills", "Special energy refills", "refills", "Free refills, used before the first daily points refill; maximum 100.")}
+            {field("specialRefills", "Special energy refills", "refills", "Free refills, prioritised at 0E; maximum 100.")}
             {field("extraEnergy", "Other one-off energy", "E", "One claim at the first active moment, after spending stored energy. Use for stock or newsletter energy; maximum 1,000E.")}
             {field("greenEggs", "Available Green Easter eggs", "eggs", "500E and 6h cooldown each. Used before paid boosters; also included in the baseline. Eggs are valued at $0.")}
             {field("drugPrice", "Price per Xanax", "$")}
@@ -199,6 +218,7 @@ export function HalloweenProfit() {
         <input type="checkbox" checked={books.includes(book.id)} disabled={book.id === "none"} onChange={event => setBooks(current => event.target.checked ? [...current, book.id] : current.filter(id => id !== book.id))} />
         <span><strong>{book.name}</strong><small>{book.description}</small></span></label>)}</div>
     </section>
+    {!error && !currentCalculation && <section className="panel" role="status">Calculating strategies{settings.weapon === "revitalize" ? ` across ${HALLOWEEN_REVITALIZE_RUNS} Revitalize runs` : ""}…</section>}
     {error ? <section className="panel halloween-error" role="alert">{error}</section> : best && bestWithoutBook && baseline && selected && <>
       <div className="halloween-metrics">
         <MetricCard label="Highest net profit" value={formatMoney(best.profit)} detail={strategyName(best)} icon={<Trophy size={16} />} />
@@ -207,7 +227,7 @@ export function HalloweenProfit() {
         <MetricCard label="Baseline net profit" value={formatMoney(baseline.profit)} detail="Same weapon, company, drugs, refills and free energy" icon={<Swords size={16} />} />
       </div>
       <section className="panel"><PanelHeader title="Strategy comparison" control={<label className="halloween-sort">Sort <select value={sort} onChange={event => setSort(event.target.value)}><option value="highest">Highest profit first</option><option value="lowest">Lowest profit first</option></select></label>} />
-        <p className="halloween-note">{ranked.length} strategies · Select a row to inspect its profit and energy breakdown. Smaller figures show the difference from no book and no paid boosters, with the same weapon and energy settings. Attacks are whole actions; treat drops and Revitalize returns use expected averages.</p>
+        <p className="halloween-note">{ranked.length} strategies · Select a row to inspect its profit and energy breakdown. Smaller figures show the difference from no book and no paid boosters, with the same weapon and energy settings. Each simulation uses whole attacks and fixed average treat drops.{settings.weapon === "revitalize" && <> Figures average {HALLOWEEN_REVITALIZE_RUNS} repeatable Revitalize runs.</>}</p>
         <div className="halloween-table-scroll"><table className="halloween-table"><thead><tr><th>Book / booster</th><th>Boosters</th><th>Attacks</th><th>Treats exchanged</th><th>Reward value</th><th>Total spent</th><th>Net profit</th></tr></thead>
           <tbody>{rows.map(row => <tr key={row.id} className={row.id === selected.id ? "selected" : ""} onClick={() => setSelectedId(row.id)}>
             <td><button type="button" aria-pressed={row.id === selected.id} onClick={() => setSelectedId(row.id)}>{bookName(row.book)}<small>{boosterName(row.booster)}</small></button></td>
@@ -258,9 +278,9 @@ export function HalloweenProfit() {
       <p>This is an expected-value comparison, not a prediction of individual drops. The selected basket level stays fixed throughout the event; automatic basket progression is not modelled. The Upgrades settings control Dark Power, Freebie, Cashback and Mortal Coil. All other basket upgrades are assumed owned, but Cat in Hell and Inflation are excluded from the calculation. The basket starts empty, and every attack succeeds. Each book covers the full event; its remaining 24 days have no assigned value. No book purchase cost is assumed.</p>
       <p>Only one finishing weapon is used. Revitalize returns 25E on a successful proc and gives up the scary-weapon treat bonus. Recycled energy is attacked again.</p>
       <p>Dark Power is {settings.darkPower ? "enabled" : "disabled"}, Freebie is {settings.freebie ? "enabled" : "disabled"}, and Cashback is {settings.cashback ? "enabled" : "disabled"}. Mortal Coil is {settings.mortalCoil ? "enabled, adding one treat per hour (168 over the event)" : "disabled"}. Exchanges target 100 treats and exchange the whole basket. With Freebie and Dark Power enabled, a 100-treat exchange returns 550E and requires no more than 450E already held. If an attack skips 100, the model tries for 110 or 120. Once the basket reaches 120 or more, it exchanges at the first safe opportunity, even if the total is not a multiple of 10. Freebie and Cashback are rounded down per batch; Cashback is calculated before Freebie. Leftover treats stay in the basket and are excluded from profit.</p>
-      <p>The entered price per treat includes Freebie's item bonus; disabling Freebie divides that value by 1.1. Revenue and the graph account for the actual whole Freebie rewards in each batch; the effective value per treat reflects any rounding. Break-even is quoted in the same units as the price input. Every attack requires 25E upfront. Revitalize's expected energy return is added after the attack, and unused energy carries forward until another attack is affordable. Treat drops and Revitalize still use averages rather than random outcomes; fractional expected treats carry forward until a whole treat is earned.</p>
-      <p>The event starts at 12:00 TCT and runs for 168 hours with continuous activity. Supplies per attack and other event costs are fixed at $0. The schedule uses one-minute steps and whole attacks, with no attack-rate limit, hospital time or overdoses. Natural regeneration is capped by maximum energy. Refills and FHCs top up the energy bar, accounting for energy already held. Exchanges never raise energy above 1,000E. Returned energy funds more attacks during the event, but cannot fund Halloween attacks after the event ends.</p>
-      <p>Xanax is used in every strategy. Daily energy refills reset at midnight TCT and are assumed available and used on all eight calendar dates, including the first day. Their cost is excluded from profit calculations. Special refills are used first. Up to 100 company points are redeemed daily. Jobs award new points at 18:00 TCT.</p>
+      <p>The entered price per treat includes Freebie's item bonus; disabling Freebie divides that value by 1.1. Revenue and the graph account for the actual whole Freebie rewards in each batch; the effective value per treat reflects any rounding. Break-even is quoted in the same units as the price input. Every attack requires 25E upfront. Revitalize rolls the selected chance after each attack, returning either 25E or nothing. Returned energy can fund more whole attacks, and unused energy carries forward. Revitalize results average {HALLOWEEN_REVITALIZE_RUNS} runs with repeatable rolls shared across strategies, so displayed averages may include fractional attacks or procs. Treat drops remain at their fixed average rate and reward values use your flat price per treat; fractional expected treats carry forward until a whole treat is earned.</p>
+      <p>The event starts at 12:00 TCT and runs for 168 hours with continuous activity. Supplies per attack and other event costs are fixed at $0. The schedule uses one-minute steps and whole attacks, with no attack-rate limit, hospital time or overdoses. Natural regeneration is capped by maximum energy. Daily and special refills aim for 0E, waiting for other energy to fund another attack where practical; daily refills are always used before the day ends. For FHCs, energy is spent on attacks in preparation for cooldown becoming available, then each FHC is used immediately. A remainder below 25E never delays an FHC and is deducted from the energy it adds. Exchanges never raise energy above 1,000E. Returned energy funds more attacks during the event, but cannot fund Halloween attacks after the event ends.</p>
+      <p>Xanax is used in every strategy. Daily energy refills reset at midnight TCT and are assumed available and used on all eight calendar dates, including the first day. Their cost is excluded from profit calculations. Special refills take priority at 0E and are all used before the event ends. Up to 100 company points are redeemed daily. Jobs award new points at 18:00 TCT.</p>
       <p>Eggs, cans and FHCs share booster cooldown. An item can be used while cooldown is below the maximum and may take it above that maximum. No further item is used until cooldown falls below the limit. Owned eggs are used first. Booster costs cover only this event; edit prices to reflect your own costs. Starting energy has no assigned cost.</p>
       <p>Mechanics: <a href="https://wiki.torn.com/wiki/Trick_or_Treat" target="_blank" rel="noreferrer">Torn Halloween wiki</a> · <a href="https://wiki.torn.com/wiki/Energy" target="_blank" rel="noreferrer">Energy</a> · <a href="https://wiki.torn.com/wiki/Books" target="_blank" rel="noreferrer">Books</a> · <a href="https://wiki.torn.com/wiki/Weapon_Bonus" target="_blank" rel="noreferrer">Weapon bonuses</a> · <a href="https://wiki.torn.com/wiki/Item_Cooldowns" target="_blank" rel="noreferrer">Cooldowns</a>.</p>
     </details></section>
