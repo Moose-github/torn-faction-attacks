@@ -47,12 +47,15 @@ export function HalloweenTreatReturns({ selected }: { selected: HalloweenResult 
     energyReturns.length ? `${energyReturns.join(" and ")} ${energyReturns.length > 1 ? "return" : "returns"} energy for more attacks` : ""].filter(Boolean).join("; ");
   const laterRound = data.parts.length - 1;
   const previous = active && active.id > 0 && active.id < laterRound ? data.parts[active.id - 1] : null;
+  const calculation = active && previous && previous.treats > 0 && previous.per25 !== null
+    ? `${rate(previous.per25)} × ${format(active.treats / previous.treats)} ≈ ${rate(active.per25)} treats per 25E.` : null;
   const detail = !active
     ? "Select a block or a row to explore that contribution. All blocks together show the treats exchanged from supplied energy and its returns."
+    : calculation ? <><strong>{active.label}:</strong> {format(active.treats, 1)} treats exchanged per event.<br /><strong>{calculation}</strong></>
     : `${active.label}: ${format(active.treats, 1)} treats exchanged per event (${rate(active.per25)} per 25E supplied). ${active.id === 0
       ? "These came from attacks funded by the original energy sources."
       : active.id === laterRound ? "This combines the sixth and all later rounds."
-      : previous && previous.treats > 0 && previous.per25 !== null ? `(${rate(previous.per25)} × ${format(active.treats / previous.treats)}) ≈ ${rate(active.per25)} treats per 25E.` : "These came from the previous round’s Cashback or returned energy."}`;
+      : "These came from the previous round’s Cashback or returned energy."}`;
   const activate = (id: number) => ({ onMouseEnter: () => setActiveRound(id), onFocus: () => setActiveRound(id), onClick: () => setActiveRound(id) });
 
   return <section className="halloween-distribution-card halloween-treat-returns" aria-label="How 25E keeps producing treats">
