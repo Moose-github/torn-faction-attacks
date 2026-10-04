@@ -1,9 +1,10 @@
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { Bar, BarChart, CartesianGrid, ReferenceArea, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { getSimulatedTreatsPerAttack, type HalloweenResult } from "../utils/halloweenProfit";
+import { getSimulatedTreatsPerAttack, type HalloweenResult, type HalloweenSettings } from "../utils/halloweenProfit";
 import { getHalloweenProfitDistribution, getHalloweenTreatSources, type HalloweenProfitBin } from "../utils/halloweenDistributions";
 import { formatMoney } from "./BookStrategy.helpers";
 import { HalloweenTreatReturns } from "./HalloweenTreatReturns";
+import { useHalloweenTreatOrigins } from "./useHalloweenTreatOrigins";
 import "./HalloweenDistributions.css";
 
 const precise = (value: number) => value.toLocaleString(undefined, { maximumSignificantDigits: 3 });
@@ -21,8 +22,10 @@ function ProfitTooltip({ active, payload }: { active?: boolean; payload?: { payl
   </div>;
 }
 
-export function HalloweenDistributions({ selected, strategyName }: { selected: HalloweenResult; strategyName: string }) {
-  const [open, setOpen] = useState(false);
+export function HalloweenDistributions({ settings, selected, strategyName, open, onOpenChange }: {
+  settings: HalloweenSettings; selected: HalloweenResult; strategyName: string; open: boolean; onOpenChange: (open: boolean) => void;
+}) {
+  const trace = useHalloweenTreatOrigins(settings, selected, open);
   const distribution = useMemo(() => getHalloweenProfitDistribution(selected.profitSamples), [selected.profitSamples]);
   const observedRate = getSimulatedTreatsPerAttack(selected);
   const treatSources = getHalloweenTreatSources(selected);
@@ -30,10 +33,14 @@ export function HalloweenDistributions({ selected, strategyName }: { selected: H
   const padding = singleProfit ? Math.max(1, Math.abs(distribution.minimum) * 0.01) : 0;
 
   return <section className="panel halloween-distributions">
-    <details open={open} onToggle={event => setOpen(event.currentTarget.open)}>
+    <details open={open} onToggle={event => onOpenChange(event.currentTarget.open)}>
       <summary>Simulation outcomes</summary>
       {open && <div className="halloween-distributions-content">
-        <HalloweenTreatReturns />
+        {trace.result ? <HalloweenTreatReturns selected={trace.result} /> : <section className="halloween-distribution-card halloween-return-loading">
+          <h3>How 25E keeps producing treats</h3>
+          {trace.error ? <><p className="halloween-error" role="alert">{trace.error}</p><button type="button" className="book-strategy-popout-button" onClick={trace.retry}>Try again</button></>
+            : <p className="halloween-note" role="status">Tracing the selected strategy’s returns across {selected.simulationRuns.toLocaleString()} simulated events…</p>}
+        </section>}
         <p className="halloween-note">{strategyName} · {selected.simulationRuns.toLocaleString()} simulated events. The results below update with the selected strategy and Refine estimate.</p>
         <div className="halloween-distributions-grid">
           <div className="halloween-distribution-card">

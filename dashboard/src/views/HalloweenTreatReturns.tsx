@@ -1,70 +1,108 @@
-import { useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { HalloweenResult } from "../utils/halloweenProfit";
+import { getHalloweenTreatReturnBreakdown } from "../utils/halloweenDistributions";
 
-// Fixed teaching example: Nightmarish, scary weapon/clothing, all return upgrades,
-// no Mortal Coil or Revitalize. The simulator's selected-strategy results stay separate.
-const INITIAL_TREATS = 1.72224;
-const CASHBACK = 0.1;
-const DARK_POWER_TREATS = 5.5 / 25 * INITIAL_TREATS;
-const RETURN_RATIO = CASHBACK + DARK_POWER_TREATS;
-const TOTAL_TREATS = INITIAL_TREATS / (1 - RETURN_RATIO);
-const format = (value: number, digits = 5) => value.toLocaleString(undefined, { maximumFractionDigits: digits });
-const names = ["Original attack", "First returns", "Second returns", "Third returns", "Fourth returns", "All later returns"];
-const rounds = (() => {
-  const regions: { x: number; y: number; width: number; height: number; treats: number }[] = [];
-  let x = 0, width = 1, height = 1;
-  for (let index = 0; index < 5; index++) {
-    if (index % 2 === 0) {
-      const slice = width * (1 - RETURN_RATIO);
-      regions.push({ x, y: 0, width: slice, height, treats: INITIAL_TREATS * RETURN_RATIO ** index });
-      x += slice; width -= slice;
-    } else {
-      const slice = height * (1 - RETURN_RATIO);
-      regions.push({ x, y: height - slice, width, height: slice, treats: INITIAL_TREATS * RETURN_RATIO ** index });
-      height -= slice;
-    }
-  }
-  regions.push({ x, y: 0, width, height, treats: TOTAL_TREATS * RETURN_RATIO ** 5 });
-  return regions;
-})();
+const format = (value: number, digits = 4) => value.toLocaleString(undefined,
+  value > 0 && value < 0.0001 ? { maximumSignificantDigits: 2 } : { maximumFractionDigits: digits });
+const rate = (value: number | null) => value === null ? "—" : format(value);
 
-export function HalloweenTreatReturns() {
+function ReturnFormula() {
+  const brace = <span className="halloween-formula-brace" aria-hidden="true"><svg viewBox="0 0 100 10" preserveAspectRatio="none">
+    <path d="M1 1 C1 5 5 5 10 5 H43 C48 5 49 7 50 9 C51 7 52 5 57 5 H90 C95 5 99 5 99 1" />
+  </svg></span>;
+  return <div className="halloween-return-formula" role="img"
+    aria-label="0.1 from Cashback, plus 5 times 1.1 divided by 25, times 1.72224 from Dark Power-funded attacks, equals 0.4788928 additional treats per treat exchanged.">
+    <div className="halloween-formula-inputs" aria-hidden="true">
+      <span className="halloween-formula-term">
+        <span className="halloween-formula-value">0.1</span>
+        {brace}<span className="halloween-formula-label">Cashback</span>
+      </span>
+      <span className="halloween-formula-symbol">+</span>
+      <span className="halloween-formula-term">
+        <span className="halloween-formula-value">
+          <span className="halloween-formula-fraction"><span>5 × 1.1</span><span>25</span></span>
+          <span>× 1.72224</span>
+        </span>
+        {brace}<span className="halloween-formula-label">Dark Power-funded attacks</span>
+      </span>
+    </div>
+    <span className="halloween-formula-result" aria-hidden="true">= <strong>0.4788928</strong></span>
+  </div>;
+}
+
+export function HalloweenTreatReturns({ selected }: { selected: HalloweenResult }) {
+  const data = useMemo(() => getHalloweenTreatReturnBreakdown(selected), [selected]);
   const [activeRound, setActiveRound] = useState<number | null>(null);
-  const detail = activeRound === null
-    ? "Every new batch generates another, smaller batch. All the blocks together form the final total."
-    : activeRound === 0
-      ? `Original 25E → one attack → ${format(INITIAL_TREATS)} treats.`
-      : activeRound < 5
-        ? `${format(rounds[activeRound - 1].treats)} × ${format(RETURN_RATIO * 100)}% = ${format(rounds[activeRound].treats)} more treats.`
-        : `All further rounds together add ${format(rounds[5].treats)} treats.`;
+  const square = useRef<HTMLDivElement>(null);
+  const [size, setSize] = useState(0);
+  useEffect(() => {
+    if (!square.current) return;
+    const observer = new ResizeObserver(entries => setSize(entries[0].contentRect.width));
+    observer.observe(square.current);
+    return () => observer.disconnect();
+  }, []);
+  const active = data.parts.find(part => part.id === activeRound);
+  const energyReturns = ["Dark Power", "Revitalize"].filter(name => selected.sources.some(source => source.name === `${name} returns` && source.energy > 0));
+  const returnText = [selected.cashbackTreats > 0 ? "Cashback adds treats for the next round" : "",
+    energyReturns.length ? `${energyReturns.join(" and ")} ${energyReturns.length > 1 ? "return" : "returns"} energy for more attacks` : ""].filter(Boolean).join("; ");
+  const laterRound = data.parts.length - 1;
+  const previous = active && active.id > 0 && active.id < laterRound ? data.parts[active.id - 1] : null;
+  const detail = !active
+    ? "Select a block or a row to explore that contribution. All blocks together show the treats exchanged from supplied energy and its returns."
+    : `${active.label}: ${format(active.treats, 1)} treats exchanged per event (${rate(active.per25)} per 25E supplied). ${active.id === 0
+      ? "These came from attacks funded by the original energy sources."
+      : active.id === laterRound ? "This combines the sixth and all later rounds."
+      : previous && previous.treats > 0 ? `This round contributed ${format(active.treats / previous.treats * 100, 1)}% as many exchanged treats as the previous round.` : "These came from the previous round’s Cashback or returned energy."}`;
+  const activate = (id: number) => ({ onMouseEnter: () => setActiveRound(id), onFocus: () => setActiveRound(id), onClick: () => setActiveRound(id) });
 
   return <section className="halloween-distribution-card halloween-treat-returns" aria-label="How 25E keeps producing treats">
     <div className="halloween-return-explanation">
       <h3>How 25E keeps producing treats</h3>
-      <p className="halloween-return-example">Simplified geometric-series example</p>
-      <p>Your original <strong>25E</strong> funds one attack, earning <strong>{format(INITIAL_TREATS)} treats</strong> on average. Exchanging those treats gives Cashback and Dark Power energy, which funds more attacks.</p>
-      <p>Each treat exchanged generates another <strong>{format(RETURN_RATIO, 7)} treats</strong>: <strong>{format(CASHBACK)}</strong> from Cashback and <strong>{format(DARK_POWER_TREATS, 7)}</strong> from attacks funded by Dark Power, including Freebie’s energy bonus.</p>
-      <p>Those new treats generate returns too. Each new round is <strong>{format(RETURN_RATIO * 100)}%</strong> of the previous round.</p>
-      <dl className="halloween-return-rounds">{rounds.map((round, index) => <div key={names[index]} className={activeRound === index ? "active" : undefined}>
-        <dt>{names[index]}</dt><dd>{index > 0 && "+"}{format(round.treats)}</dd>
-      </div>)}</dl>
-      <p className="halloween-return-total">≈<strong>{format(TOTAL_TREATS, 3)} treats exchanged</strong> per original 25E supplied</p>
-      <p className="halloween-return-assumptions">Fixed example: Nightmarish basket, scary clothing and scary weapon; Dark Power, Freebie and Cashback enabled. No Mortal Coil or Revitalize. Ignores batch rounding, energy caps and the event cutoff. Freebie’s bonus item rewards are separate from treats exchanged.</p>
+      <p className="halloween-return-example">Selected strategy · {selected.simulationRuns.toLocaleString()} simulated events</p>
+      <p>This strategy supplies <strong>{format(data.suppliedEnergy, 1)}E</strong> before Dark Power or Revitalize returns. We trace the treats generated by that energy and its returns, then divide by the supplied energy and multiply by 25.</p>
+      <p>The first block comes from attacks using that original energy. {returnText ? `${returnText}. These returns can repeat, adding further blocks.` : "No Cashback or returned energy contributes further rounds in this strategy."}</p>
+      <div className="halloween-return-worked-example">
+        <h4>Worked example · Nightmarish basket + scary weapon</h4>
+        <p className="halloween-formula-context">Scary clothing, Cashback, Dark Power and Freebie enabled.</p>
+        <p>Each treat exchanged generates another <strong>0.4788928 treats</strong>: <strong>0.1</strong> from Cashback and <strong>0.3788928</strong> from attacks funded by Dark Power, including Freebie’s energy bonus.</p>
+        <ReturnFormula />
+        <p>Those new treats generate returns too. Each new round is <strong>47.88928%</strong> of the previous round.</p>
+        <p className="halloween-formula-context">This illustrates the ideal return ratio; the square uses the selected strategy’s simulated rounds.</p>
+      </div>
+      <ul className="halloween-return-rounds" aria-label="Treats exchanged per 25E by recycling round">
+        {data.parts.filter(part => part.treats > 0 || part.id === 0).map(part => <li key={part.id}>
+          <button type="button" className={activeRound === part.id ? "active" : ""} {...activate(part.id)}>
+            <span>{part.label}</span><strong>{rate(part.per25)}</strong>
+          </button>
+        </li>)}
+      </ul>
+      <p className="halloween-return-total"><strong>{rate(data.exchangedPer25)} treats exchanged per 25E supplied</strong></p>
+      <p className="halloween-return-rewards">{data.freebieRewards > 0 ? "Including Freebie" : "Total rewards (no Freebie bonus)"}: <strong>{rate(data.rewardsPer25)} rewards per 25E supplied</strong></p>
+      <p className="halloween-return-assumptions">These are traced simulation averages, including whole attacks, exchange rounding, energy caps and the event cutoff. Energy is attributed in the order received; mixed attacks and exchanges share their results proportionally. Freebie’s bonus rewards are shown separately from treats exchanged.</p>
     </div>
     <figure className="halloween-return-figure">
-      <figcaption>Whole square: <strong>≈{format(TOTAL_TREATS, 3)} treats exchanged</strong></figcaption>
-      <div className="halloween-return-square" role="group" aria-label="Shrinking rounds of treats from the original 25 energy">
-        {rounds.map((round, index) => <button key={names[index]} type="button"
-          className={`halloween-return-region halloween-return-region-${index}${activeRound === index ? " active" : ""}`}
-          style={{ left: `${round.x * 100}%`, top: `${round.y * 100}%`, width: `${round.width * 100}%`, height: `${round.height * 100}%` }}
-          aria-label={`${names[index]}: ${format(round.treats)} treats per original 25E`}
-          onMouseEnter={() => setActiveRound(index)} onMouseLeave={() => setActiveRound(null)}
-          onFocus={() => setActiveRound(index)} onBlur={() => setActiveRound(null)} onClick={() => setActiveRound(index)}>
-          <span className="halloween-return-amount">{index > 0 && "+"}{format(round.treats, 3)}</span>
-          {index < 2 && <span className="halloween-return-label">{names[index]}</span>}
-          {index >= 4 && <span className="halloween-return-short" aria-hidden="true">{index === 5 ? "…" : "4"}</span>}
-        </button>)}
+      <div className="halloween-return-square" ref={square} role="group" aria-label="Simulated treat-return contributions">
+        {data.regions.map(part => {
+          const width = part.width * size, height = part.height * size;
+          const showAmount = width >= 64 && height >= 32;
+          const showLabel = width >= 150 && height >= 68;
+          return <button type="button" key={part.id} className={`halloween-return-region halloween-return-region-${part.id}${activeRound === part.id ? " active" : ""}`}
+            style={{ left: `${part.x * 100}%`, top: `${part.y * 100}%`, width: `${part.width * 100}%`, height: `${part.height * 100}%` }}
+            {...activate(part.id)} aria-label={`${part.label}: ${rate(part.per25)} treats exchanged per 25E`} aria-describedby="halloween-return-detail">
+            {part.id === laterRound ? <span className="halloween-return-ellipsis" aria-hidden="true">…</span> : <>
+              {showLabel && <span className="halloween-return-label">{part.label}</span>}
+              {showAmount ? <span className="halloween-return-amount">{rate(part.per25)}</span>
+                : width >= 18 && height >= 20 ? <span aria-hidden="true">{part.id}</span> : null}
+            </>}
+          </button>;
+        })}
+        {!data.regions.length && <span className="halloween-return-empty">No treats from supplied energy were exchanged.</span>}
       </div>
-      <p className="halloween-return-detail" aria-live="polite">{detail}</p>
+      <figcaption>The whole square: <strong>{rate(data.exchangedPer25)} treats exchanged per 25E</strong>
+        <small>Mortal Coil and all returns originating from it are excluded.</small>
+        <p id="halloween-return-detail" className="halloween-return-detail" aria-live="polite">{detail}</p>
+        {data.exchangedPer25 === null && <p className="halloween-note">A per-25E yield cannot be calculated without supplied energy.</p>}
+      </figcaption>
     </figure>
   </section>;
 }

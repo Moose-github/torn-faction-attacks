@@ -1,6 +1,75 @@
 import { describe, expect, it } from "vitest";
-import { getHalloweenProfitDistribution, getHalloweenTreatSources } from "./halloweenDistributions";
+import { getHalloweenProfitDistribution, getHalloweenTreatSources, getHalloweenTreatReturnBreakdown } from "./halloweenDistributions";
 import { DEFAULT_HALLOWEEN, estimateHalloween, simulateHalloween } from "./halloweenProfit";
+import { HALLOWEEN_RETURN_ROUNDS } from "./halloweenTreatOrigins";
+
+describe("Halloween simulated return breakdown", () => {
+  const supplied = (energy: number) => [{ name: "Starting energy", energy, count: 1, cost: 0 }];
+  const example = () => ({ sources: [...supplied(100),
+    { name: "Dark Power returns", energy: 40, count: 1, cost: 0 },
+    { name: "Revitalize returns", energy: 25, count: 1, cost: 0 }],
+    treatOrigins: { energyRounds: [8, 4, 2, 1, 0.5, 0.125, 0.125], mortalCoil: 4.25, energyFreebieRewards: 1.5 },
+    exchangedTreats: 20, rewardTreats: 22 });
+
+  it("divides by supplied energy, excluding returned energy, and keeps Freebie separate", () => {
+    const data = getHalloweenTreatReturnBreakdown(example());
+    expect(data.suppliedEnergy).toBe(100);
+    expect(data.exchangedPer25).toBe(3.9375);
+    expect(data.rewardsPer25).toBe(4.3125);
+    expect(data.parts.reduce((sum, part) => sum + part.per25!, 0)).toBe(data.exchangedPer25);
+    expect(data.parts).toHaveLength(7);
+    expect(data.parts[5].label).toBe("Fifth returns");
+    expect(data.parts[6].label).toBe("Later returns");
+    // Increasing unrelated hourly treats and their rewards must not increase either energy yield.
+    const moreHourly = { ...example(),
+      treatOrigins: { ...example().treatOrigins, mortalCoil: 10000 }, exchangedTreats: 10015.75, rewardTreats: 11017.25,
+    };
+    expect(getHalloweenTreatReturnBreakdown(moreHourly)).toEqual(data);
+  });
+
+  it("gives each origin its proportional area, with no gaps or overlapping blocks", () => {
+    const data = getHalloweenTreatReturnBreakdown(example());
+    expect(data.regions.reduce((sum, r) => sum + r.width * r.height, 0)).toBeCloseTo(1, 12);
+    for (const r of data.regions) {
+      expect(r.width * r.height).toBeCloseTo(r.treats / 15.75, 12);
+      expect(r.x).toBeGreaterThanOrEqual(0);
+      expect(r.y).toBeGreaterThanOrEqual(0);
+      expect(r.x + r.width).toBeLessThanOrEqual(1 + 1e-12);
+      expect(r.y + r.height).toBeLessThanOrEqual(1 + 1e-12);
+      for (const other of data.regions.filter(other => other.id > r.id)) {
+        const overlapWidth = Math.max(0, Math.min(r.x + r.width, other.x + other.width) - Math.max(r.x, other.x));
+        const overlapHeight = Math.max(0, Math.min(r.y + r.height, other.y + other.height) - Math.max(r.y, other.y));
+        expect(overlapWidth * overlapHeight).toBeCloseTo(0, 12);
+      }
+    }
+  });
+
+  it.each([0, 5, 6])("fills the square when only origin %s produces exchanged treats", id => {
+    const input = example();
+    input.treatOrigins.energyRounds = Array(HALLOWEEN_RETURN_ROUNDS).fill(0);
+    input.treatOrigins.energyRounds[id] = 20;
+    const data = getHalloweenTreatReturnBreakdown(input);
+    expect(data.regions).toHaveLength(1);
+    expect(data.regions[0]).toMatchObject({ id, x: 0, y: 0, width: 1, height: 1 });
+  });
+
+  it("shows no energy yield or blocks when all treats came from Mortal Coil and its returns", () => {
+    const data = getHalloweenTreatReturnBreakdown({ sources: supplied(100),
+      treatOrigins: { energyRounds: Array(HALLOWEEN_RETURN_ROUNDS).fill(0), mortalCoil: 200, energyFreebieRewards: 0 } });
+    expect(data.exchangedPer25).toBe(0);
+    expect(data.rewardsPer25).toBe(0);
+    expect(data.regions).toEqual([]);
+  });
+
+  it("handles no supplied energy, no treats, and missing traces explicitly", () => {
+    const data = getHalloweenTreatReturnBreakdown({ sources: supplied(0),
+      treatOrigins: { energyRounds: Array(HALLOWEEN_RETURN_ROUNDS).fill(0), mortalCoil: 0, energyFreebieRewards: 0 } });
+    expect(data.exchangedPer25).toBeNull();
+    expect(data.rewardsPer25).toBeNull();
+    expect(data.regions).toEqual([]);
+    expect(() => getHalloweenTreatReturnBreakdown({ ...example(), treatOrigins: undefined })).toThrow("must be traced");
+  });
+});
 
 describe("Halloween treat sources", () => {
   it.each(Array.from({ length: 8 }, (_, bits) => ({

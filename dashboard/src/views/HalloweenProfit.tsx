@@ -43,6 +43,7 @@ export function HalloweenProfit() {
   const [books, setBooks] = React.useState<HalloweenBook[]>(HALLOWEEN_BOOKS.map(book => book.id));
   const [popout, setPopout] = React.useState<string | null>(null);
   const [selectedId, setSelectedId] = React.useState<string | null>(null);
+  const [outcomesOpen, setOutcomesOpen] = React.useState(false);
   const [sort, setSort] = React.useState("highest");
   const [loadingPrices, setLoadingPrices] = React.useState(false);
   const [priceError, setPriceError] = React.useState<string | null>(null);
@@ -291,7 +292,7 @@ export function HalloweenProfit() {
             <td className={row.profit >= 0 ? "halloween-positive" : "halloween-negative"}>{formatMoney(row.profit)}<small className="halloween-profit-range" title="10th–90th percentiles of simulated net profit; reflects treat-drop and Revitalize luck only.">Likely range {profitRange(row)}</small><BaselineDifference value={row.profit} baseline={baseline.profit} money /></td>
           </tr>)}</tbody></table></div>
       </section>
-      <HalloweenDistributions selected={selected} strategyName={strategyName(selected)} />
+      <HalloweenDistributions settings={settings} selected={selected} strategyName={strategyName(selected)} open={outcomesOpen} onOpenChange={setOutcomesOpen} />
       <section className="panel halloween-detail"><PanelHeader title={strategyName(selected)} aside="Selected strategy" />
         <div className="halloween-metrics">
           <MetricCard label="Average net profit" value={formatMoney(selected.profit)} detail={`Likely range (80%): ${profitRange(selected)}`} icon={<Wallet size={16} />} />

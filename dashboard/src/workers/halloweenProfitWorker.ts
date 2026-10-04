@@ -1,7 +1,7 @@
 import { compareHalloween, estimateHalloween, type HalloweenSettings, type HalloweenBook, type HalloweenResult } from "../utils/halloweenProfit";
 
 export type HalloweenWorkerRequest = {
-  settings: HalloweenSettings; runs: number; strategy?: { book: HalloweenBook; booster: string };
+  settings: HalloweenSettings; runs: number; strategy?: { book: HalloweenBook; booster: string }; traceOrigins?: boolean;
 };
 export type HalloweenWorkerResponse =
   | { type: "progress"; completed: number; total: number }
@@ -9,10 +9,10 @@ export type HalloweenWorkerResponse =
 
 // Averaging treat-drop and Revitalize simulations is CPU work; keep inputs responsive.
 self.onmessage = (event: MessageEvent<HalloweenWorkerRequest>) => {
-  const { settings, runs, strategy } = event.data;
+  const { settings, runs, strategy, traceOrigins = false } = event.data;
   const post = (message: HalloweenWorkerResponse) => self.postMessage(message);
   try {
-    const results = strategy ? [estimateHalloween(settings, strategy.book, strategy.booster, runs)]
+    const results = strategy ? [estimateHalloween(settings, strategy.book, strategy.booster, runs, traceOrigins)]
       : compareHalloween(settings, runs, (completed, total) => post({ type: "progress", completed, total }));
     post({ type: "result", results, error: null });
   } catch (error) {
