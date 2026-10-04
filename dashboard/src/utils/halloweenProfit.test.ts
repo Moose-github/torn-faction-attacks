@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { compareHalloween, estimateHalloween, rollHalloweenTreats, getHalloweenProfitRange, HALLOWEEN_SIMULATION_RUNS, HALLOWEEN_BOOKS, HALLOWEEN_BOOSTERS, DEFAULT_HALLOWEEN, simulateHalloween, validateHalloween, type HalloweenSettings, type HalloweenBasket } from "./halloweenProfit";
+import { compareHalloween, estimateHalloween, rollHalloweenTreats, getHalloweenProfitRange, HALLOWEEN_SIMULATION_RUNS, HALLOWEEN_TREAT_OUTCOMES, HALLOWEEN_BOOKS, HALLOWEEN_BOOSTERS, DEFAULT_HALLOWEEN, simulateHalloween, validateHalloween, type HalloweenSettings, type HalloweenBasket } from "./halloweenProfit";
 
 const settings = (overrides: Partial<HalloweenSettings> = {}): HalloweenSettings => ({ ...DEFAULT_HALLOWEEN, ...overrides });
 const source = (result: ReturnType<typeof simulateHalloween>, name: string) => result.sources.find(row => row.name === name);
@@ -73,6 +73,36 @@ describe("Halloween profit model", () => {
     expect(weightedMean).toBeCloseTo(1.72224, 10);
     expect(rollHalloweenTreats(0, () => 0)).toBe(0);
     expect(rollHalloweenTreats(1, () => 0)).toBe(120);
+  });
+  it.each(["scary", "revitalize"] as const)("records each attack exactly once in the %s drop distribution", weapon => {
+    for (const mortalCoil of [false, true]) {
+      const row = simulateHalloween(settings({ weapon, mortalCoil }), "fuel", "can30");
+      expect(row.treatDrops.map(drop => drop.treats)).toEqual([0, 1, 2, 3, 4, 5, 6, 8, 10, 12, 15, 20, 24, 30, 40, 60, 120]);
+      expect(row.treatDrops.every(drop => Number.isInteger(drop.attacks) && drop.attacks >= 0)).toBe(true);
+      expect(row.treatDrops.reduce((sum, drop) => sum + drop.attacks, 0)).toBe(row.attacks);
+      expect(row.treatDrops.reduce((sum, drop) => sum + drop.treats * drop.attacks, 0)).toBe(row.earnedTreats - (mortalCoil ? 168 : 0));
+      const misses = row.treatDrops.find(drop => drop.treats === 0)!.attacks;
+      if (weapon === "scary") expect(misses).toBe(0);
+      else expect(misses).toBeGreaterThan(0);
+      expect(row.profitSamples).toEqual([row.profit]);
+    }
+    const combinations = new Set([0]);
+    for (let bits = 0; bits < 16; bits++) {
+      combinations.add([2, 3, 4, 5].reduce((product, factor, index) => product * (bits & (1 << index) ? factor : 1), 1));
+    }
+    expect([...combinations].sort((a, b) => a - b)).toEqual(HALLOWEEN_TREAT_OUTCOMES);
+  });
+  it.each([1, 128, 1024])("preserves the actual drop and profit samples across %s runs", runs => {
+    const input = settings({ weapon: "revitalize" });
+    const row = estimateHalloween(input, "none", "can25", runs);
+    const samples = Array.from({ length: runs }, (_, run) => simulateHalloween(input, "none", "can25", (0x6d2b79f5 + Math.imul(run, 0x9e3779b9)) >>> 0));
+    expect(row.profitSamples).toEqual(samples.map(sample => sample.profit));
+    expect(getHalloweenProfitRange(row.profitSamples)).toEqual(row.profitRange);
+    expect(row.profitSamples.reduce((sum, profit) => sum + profit, 0) / runs).toBeCloseTo(row.profit, 3);
+    expect(row.treatDrops).toEqual(HALLOWEEN_TREAT_OUTCOMES.map((treats, index) => ({ treats,
+      attacks: samples.reduce((sum, sample) => sum + sample.treatDrops[index].attacks, 0) / runs })));
+    expect(row.treatDrops.reduce((sum, drop) => sum + drop.attacks, 0)).toBeCloseTo(row.attacks, 8);
+    expect(row.treatDrops.reduce((sum, drop) => sum + drop.treats * drop.attacks, 0)).toBeCloseTo(row.earnedTreats - 168, 8);
   });
   it.each(["scary", "revitalize"] as const)("averages whole random treats near the theoretical rate with %s", weapon => {
     const input = settings({ weapon, darkPower: false, mortalCoil: false, specialRefills: 100 });

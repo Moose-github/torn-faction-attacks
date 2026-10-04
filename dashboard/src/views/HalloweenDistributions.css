@@ -1,0 +1,44 @@
+.halloween-distributions summary { cursor: pointer; font-size: 14px; font-weight: 600; }
+.halloween-distributions summary:focus-visible { outline: 2px solid #fb923c; outline-offset: 4px; border-radius: 2px; }
+.halloween-distributions-content > .halloween-note { margin: 16px 0; }
+.halloween-distributions-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; align-items: start; }
+.halloween-distribution-card { min-width: 0; padding: 18px; border: 1px solid var(--border-solid); border-radius: 8px; }
+.halloween-distribution-card h3 { margin: 0 0 8px; font-size: 14px; }
+.halloween-distribution-card > .halloween-note { margin: 8px 0 14px; }
+.halloween-distribution-card > .halloween-note:last-child { margin-bottom: 0; }
+.halloween-drop-summary { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 16px 0; font-size: 12px; color: var(--text-muted); }
+.halloween-drop-summary strong { color: var(--text-main); margin-left: 4px; font-variant-numeric: tabular-nums; }
+.halloween-drop-summary .halloween-note { flex-basis: 100%; font-size: 12px; }
+.halloween-distributions table { width: 100%; min-width: 0; border-collapse: collapse; font-size: 12px; text-align: left; font-variant-numeric: tabular-nums; }
+.halloween-drop-table { table-layout: fixed; }
+.halloween-distributions th, .halloween-distributions td { position: static; white-space: normal; text-transform: none; letter-spacing: normal; background: transparent; border-bottom: 1px solid var(--border-solid); padding: 8px 0; }
+.halloween-drop-table thead th, .halloween-profit-bin-table thead th { color: var(--text-muted); font-size: 11px; font-weight: 500; line-height: 1.4; }
+.halloween-drop-table th:first-child { width: 44px; }
+.halloween-drop-table tbody th { font-weight: 600; }
+.halloween-drop-table th:last-child, .halloween-drop-table td:last-child { width: 90px; text-align: right; padding-left: 12px; }
+.halloween-drop-table tbody tr:last-child > *, .halloween-profit-bin-table tbody tr:last-child > * { border-bottom: 0; }
+.halloween-drop-frequency { display: flex; align-items: center; gap: 10px; }
+.halloween-drop-frequency > span:last-child { width: 68px; flex-shrink: 0; text-align: right; }
+.halloween-drop-track { display: block; height: 12px; border-radius: 3px; background: var(--panel-muted-bg); flex: 1; overflow: hidden; }
+.halloween-drop-track > span { display: block; height: 100%; background: #38bdf8; border-radius: 3px; }
+.halloween-profit-summary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin: 18px 0 6px; }
+.halloween-profit-summary > div:last-child { grid-column: 1 / -1; }
+.halloween-profit-summary dt { color: var(--text-muted); font-size: 12px; }
+.halloween-profit-summary dd { margin: 5px 0 0; color: var(--text-main); font-size: 18px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.halloween-profit-histogram { width: 100%; min-width: 0; height: 320px; margin: 16px 0; font-size: 11px; }
+.halloween-distribution-tooltip { display: grid; gap: 6px; padding: 10px; background: var(--chart-tooltip-bg); color: var(--text-main); border: 1px solid var(--chart-tooltip-border); border-radius: 8px; font-size: 12px; }
+.halloween-profit-data { margin-top: 16px; }
+.halloween-profit-data summary { font-size: 12px; color: var(--text-muted); }
+.halloween-profit-bin-table { margin-top: 10px; }
+.halloween-profit-bin-table th { font-weight: 400; }
+.halloween-profit-bin-table td { text-align: right; padding-left: 10px; }
+@media (max-width: 1000px) { .halloween-distributions-grid { grid-template-columns: 1fr; } }
+@media (max-width: 650px) {
+  .halloween-distribution-card { padding: 12px; }
+  .halloween-drop-table th:first-child { width: 34px; }
+  .halloween-drop-table th:last-child, .halloween-drop-table td:last-child { width: 64px; padding-left: 6px; }
+  .halloween-drop-frequency { gap: 5px; }
+  .halloween-drop-frequency > span:last-child { width: 66px; }
+  .halloween-profit-histogram { height: 280px; }
+  .halloween-profit-bin-table { font-size: 11px; }
+}

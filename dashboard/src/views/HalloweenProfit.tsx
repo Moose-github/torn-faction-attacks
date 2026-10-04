@@ -11,6 +11,7 @@ import { DEFAULT_HALLOWEEN, HALLOWEEN_BOOKS, HALLOWEEN_BOOSTERS,
 import { formatMoney, formatCompact } from "./BookStrategy.helpers";
 import "./HalloweenProfit.css";
 import { HalloweenStrategyBreakdown } from "./HalloweenStrategyBreakdown";
+import { HalloweenDistributions } from "./HalloweenDistributions";
 import type { HalloweenWorkerRequest, HalloweenWorkerResponse } from "../workers/halloweenProfitWorker";
 
 type NumericKey = Exclude<{ [K in keyof HalloweenSettings]: HalloweenSettings[K] extends number ? K : never }[keyof HalloweenSettings], "drugInterval">;
@@ -319,6 +320,7 @@ export function HalloweenProfit() {
       </section>
     </>}
     {selected && baseline && selectedNoBook && <HalloweenStrategyBreakdown selected={selected} baseline={baseline} noBook={selectedNoBook} settings={settings} />}
+    {selected && <HalloweenDistributions selected={selected} strategyName={strategyName(selected)} />}
     <section className="panel halloween-method"><details><summary>How the estimate works</summary>
       {selected && alternativeWeapon && <p><strong>Treats per attack</strong><br />
         {basket.name} basket: {basket.treatChance}% base treat chance, fixed throughout the event.<br />

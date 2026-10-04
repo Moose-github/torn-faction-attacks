@@ -3,6 +3,7 @@ import { ENERGY_DRINK_TIERS } from "./energyDrinkStrategy";
 export const HALLOWEEN_HOURS = 168;
 export const HALLOWEEN_SIMULATION_RUNS = 128;
 export const HALLOWEEN_REFINED_RUNS = 1024;
+export const HALLOWEEN_TREAT_OUTCOMES = [0, 1, 2, 3, 4, 5, 6, 8, 10, 12, 15, 20, 24, 30, 40, 60, 120] as const;
 const SIMULATION_SEED = 0x6d2b79f5;
 const EVENT_MINUTES = HALLOWEEN_HOURS * 60;
 const CLEANUP_START = EVENT_MINUTES - 60;
@@ -73,6 +74,10 @@ export type HalloweenResult = {
   simulationRuns: number;
   /** 10th–90th percentiles of event net profit, not uncertainty in the mean. */
   profitRange: { low: number; high: number };
+  /** Attack-only drop counts, averaged per event for estimates; includes zero-count outcomes. */
+  treatDrops: { treats: number; attacks: number }[];
+  /** One net-profit outcome per simulation, also used for the likely range. */
+  profitSamples: number[];
   /** Individual exchange trace for single runs; averaged estimates have no single trace. */
   exchanges: HalloweenExchange[];
   /** Refill timing trace for single runs only. */
@@ -168,6 +173,7 @@ export function simulateHalloween(s: HalloweenSettings, book: HalloweenBook, boo
   let started = false;
   const exchanges: HalloweenExchange[] = [];
   const refills: HalloweenRefill[] = [];
+  const dropCounts = Array<number>(121).fill(0);
   const timeline: HalloweenResult["timeline"] = [{ hour: 0, profit: -cost }];
   const awake = (minute: number) => ((s.startHour * 60 + minute - s.sleepStart * 60 + 1440) % 1440) >= s.sleepHours * 60;
   let lastActiveMinute = 10079;
@@ -248,6 +254,7 @@ export function simulateHalloween(s: HalloweenSettings, book: HalloweenBook, boo
       energy -= 25;
       attacks++;
       const droppedTreats = rollHalloweenTreats(treatChance, rollTreat);
+      dropCounts[droppedTreats]++;
       earnedTreats += droppedTreats;
       basket += droppedTreats;
       const returned = revitalize > 0 && rollRevitalize() < revitalize ? 25 : 0;
@@ -335,6 +342,8 @@ export function simulateHalloween(s: HalloweenSettings, book: HalloweenBook, boo
   return { id: `${book}:${booster}`, book, booster, attacks, treatsPerAttack, earnedTreats, exchangedTreats, cashbackTreats,
     unexchangedTreats: basket, rewardTreats, exchanges, refills, simulationRuns: 1,
     profitRange: { low: revenue - cost, high: revenue - cost },
+    treatDrops: HALLOWEEN_TREAT_OUTCOMES.map(treats => ({ treats, attacks: dropCounts[treats] })),
+    profitSamples: [revenue - cost],
     revenue, cost, profit: revenue - cost, roi: cost ? (revenue - cost) / cost : null,
     effectiveTreatPrice,
     // Express break-even in the same with-Freebie units as the price input.
@@ -360,13 +369,16 @@ export function estimateHalloween(s: HalloweenSettings, book: HalloweenBook, boo
   if (!Number.isInteger(runs) || runs < 1 || runs > HALLOWEEN_REFINED_RUNS) throw new Error("Simulation count must be a whole number from 1 to 1024.");
   const first = simulateHalloween(s, book, booster);
   const profits = [first.profit];
-  const total = { ...first, exchanges: [], refills: [], sources: [], timeline: first.timeline.map(point => ({ ...point })) } as HalloweenResult;
+  const total = { ...first, exchanges: [], refills: [], sources: [],
+    treatDrops: first.treatDrops.map(drop => ({ ...drop })),
+    timeline: first.timeline.map(point => ({ ...point })) } as HalloweenResult;
   const totals = new Map(first.sources.map(row => [row.name, { ...row }]));
   const averagedFields = ["attacks", "earnedTreats", "exchangedTreats", "cashbackTreats", "unexchangedTreats",
     "rewardTreats", "revenue", "cost", "profit", "boosterCount", "wastedRegeneration", "wastedDarkEnergy", "wastedClaimEnergy", "unusedEnergy"] as const;
   for (let run = 1; run < runs; run++) {
     const row = simulateHalloween(s, book, booster, (SIMULATION_SEED + Math.imul(run, 0x9e3779b9)) >>> 0);
     profits.push(row.profit);
+    row.treatDrops.forEach((drop, index) => { total.treatDrops[index].attacks += drop.attacks; });
     for (const field of averagedFields) total[field] += row[field];
     row.sources.forEach(item => {
       const sum = totals.get(item.name) ?? { name: item.name, energy: 0, count: 0, cost: 0 };
@@ -376,6 +388,7 @@ export function estimateHalloween(s: HalloweenSettings, book: HalloweenBook, boo
     row.timeline.forEach((point, index) => { total.timeline[index].profit += point.profit; });
   }
   for (const field of averagedFields) total[field] /= runs;
+  total.treatDrops.forEach(drop => { drop.attacks /= runs; });
   total.sources = [...totals.values()].map(row => ({ ...row,
     energy: row.energy / runs, count: row.count / runs, cost: row.cost / runs }));
   total.timeline.forEach(point => { point.profit /= runs; });
@@ -386,6 +399,7 @@ export function estimateHalloween(s: HalloweenSettings, book: HalloweenBook, boo
   total.breakEvenTreatPrice = total.rewardTreats ? total.cost * 1.1 / total.rewardTreats : 0;
   total.simulationRuns = runs;
   total.profitRange = getHalloweenProfitRange(profits);
+  total.profitSamples = profits;
   return total;
 }
 
