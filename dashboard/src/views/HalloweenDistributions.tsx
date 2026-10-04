@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { Bar, BarChart, CartesianGrid, ReferenceArea, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { getSimulatedTreatsPerAttack, type HalloweenResult } from "../utils/halloweenProfit";
-import { getHalloweenProfitDistribution, type HalloweenProfitBin } from "../utils/halloweenDistributions";
+import { getHalloweenProfitDistribution, getHalloweenTreatSources, type HalloweenProfitBin } from "../utils/halloweenDistributions";
 import { formatMoney } from "./BookStrategy.helpers";
 import "./HalloweenDistributions.css";
 
@@ -24,6 +24,7 @@ export function HalloweenDistributions({ selected, strategyName }: { selected: H
   const [open, setOpen] = useState(false);
   const distribution = useMemo(() => getHalloweenProfitDistribution(selected.profitSamples), [selected.profitSamples]);
   const observedRate = getSimulatedTreatsPerAttack(selected);
+  const treatSources = getHalloweenTreatSources(selected);
   const singleProfit = distribution.minimum === distribution.maximum;
   const padding = singleProfit ? Math.max(1, Math.abs(distribution.minimum) * 0.01) : 0;
 
@@ -31,8 +32,27 @@ export function HalloweenDistributions({ selected, strategyName }: { selected: H
     <details open={open} onToggle={event => setOpen(event.currentTarget.open)}>
       <summary>Simulation outcomes</summary>
       {open && <div className="halloween-distributions-content">
-        <p className="halloween-note">{strategyName} · {selected.simulationRuns.toLocaleString()} simulated events. Both distributions update with the selected strategy and Refine estimate.</p>
+        <p className="halloween-note">{strategyName} · {selected.simulationRuns.toLocaleString()} simulated events. All results update with the selected strategy and Refine estimate.</p>
         <div className="halloween-distributions-grid">
+          <div className="halloween-distribution-card halloween-treat-sources">
+            <h3>Treat sources</h3>
+            <p className="halloween-note">Average totals per event across the simulations. Individual runs use whole treats; their averages can include decimals.</p>
+            <table className="halloween-treat-sources-table" aria-label="Average treat sources per simulated event">
+              <thead><tr><th scope="col">Source</th><th scope="col">Average per event</th></tr></thead>
+              <tbody>
+                <tr><th scope="row">Attacks<small>All attack drops, including multiplier bonuses</small></th><td>{count(treatSources.attacks)}</td></tr>
+                <tr><th scope="row">Mortal Coil<small>Hourly treats</small></th><td>{count(treatSources.mortalCoil)}</td></tr>
+                <tr><th scope="row">Cashback<small>Treats returned by exchanges, including repeat exchanges</small></th><td>{count(treatSources.cashback)}</td></tr>
+                <tr><th scope="row">Freebie<small>Bonus rewards added at exchange</small></th><td>{count(treatSources.freebie)}</td></tr>
+              </tbody>
+              <tfoot>
+                <tr><th scope="row">Treats exchanged<small>Attacks + Mortal Coil + Cashback, less any unexchanged treats</small></th><td>{count(selected.exchangedTreats)}</td></tr>
+                <tr><th scope="row">Total including Freebie<small>Treats exchanged + Freebie bonus rewards</small></th><td>{count(selected.rewardTreats)}</td></tr>
+              </tfoot>
+            </table>
+            <p className="halloween-note">Freebie adds bonus rewards rather than treats to the basket, so it is excluded from the treats exchanged total. Each exchange applies the simulator’s whole-number rounding. Displayed figures are rounded separately.</p>
+            {selected.unexchangedTreats > 0 && <p className="halloween-note">{count(selected.unexchangedTreats)} treats remain unexchanged and are excluded from both totals.</p>}
+          </div>
           <div className="halloween-distribution-card">
             <h3>Treats dropped per attack</h3>
             <p className="halloween-note">Attack drops only. Mortal Coil, Cashback and Freebie are excluded. Every possible outcome is shown, including outcomes not observed in these runs.</p>

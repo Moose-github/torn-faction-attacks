@@ -1,3 +1,17 @@
+import type { HalloweenResult } from "./halloweenProfit";
+
+/** Separate attack drops from hourly treats and exchange bonuses, without double counting. */
+export function getHalloweenTreatSources(result: Pick<HalloweenResult,
+  "treatDrops" | "earnedTreats" | "cashbackTreats" | "rewardTreats" | "exchangedTreats">) {
+  const attacks = result.treatDrops.reduce((sum, drop) => sum + drop.treats * drop.attacks, 0);
+  return {
+    attacks,
+    mortalCoil: Math.max(0, result.earnedTreats - attacks),
+    cashback: result.cashbackTreats,
+    freebie: Math.max(0, result.rewardTreats - result.exchangedTreats),
+  };
+}
+
 export type HalloweenProfitBin = {
   lower: number; upper: number; midpoint: number; count: number; percentage: number;
 };
