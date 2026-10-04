@@ -29,9 +29,12 @@
 .halloween-formula-label { margin-top: 3px; font-family: system-ui, sans-serif; font-size: 10px; line-height: 1.3; white-space: nowrap; }
 .halloween-return-loading { margin-top: 18px; }
 .halloween-return-rounds { display: grid; gap: 0; margin: 16px 0; padding: 0; list-style: none; font-size: 13px; }
-.halloween-return-rounds button { display: flex; justify-content: space-between; gap: 16px; width: 100%; padding: 6px 8px; border: 0; border-bottom: 1px solid var(--border-solid); border-radius: 0; background: transparent; color: var(--text-muted); font: inherit; text-align: left; cursor: pointer; }
+.halloween-return-rounds button { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr) max-content; align-items: center; gap: 8px; width: 100%; padding: 6px 8px; border: 0; border-bottom: 1px solid var(--border-solid); border-radius: 0; background: transparent; color: var(--text-muted); font: inherit; text-align: left; cursor: pointer; }
 .halloween-return-rounds button.active { background: var(--panel-muted-bg); }
 .halloween-return-rounds strong { font-variant-numeric: tabular-nums; font-weight: 500; }
+.halloween-return-rounds button > strong { text-align: right; white-space: nowrap; }
+.halloween-return-calculation { display: flex; flex-wrap: wrap; justify-content: center; gap: 0 4px; font-size: 12px; line-height: 1.5; font-variant-numeric: tabular-nums; text-align: center; }
+.halloween-return-calculation > span { white-space: nowrap; }
 .halloween-return-explanation .halloween-return-total { color: var(--text-main); }
 .halloween-return-explanation .halloween-return-rewards, .halloween-return-explanation .halloween-return-rewards strong { color: #b45353; }
 :root[data-theme=dark] .halloween-return-explanation .halloween-return-rewards, :root[data-theme=dark] .halloween-return-explanation .halloween-return-rewards strong { color: #fca5a5; }
