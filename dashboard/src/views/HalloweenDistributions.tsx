@@ -3,6 +3,7 @@ import { Bar, BarChart, CartesianGrid, ReferenceArea, ReferenceLine, ResponsiveC
 import { getSimulatedTreatsPerAttack, type HalloweenResult } from "../utils/halloweenProfit";
 import { getHalloweenProfitDistribution, getHalloweenTreatSources, type HalloweenProfitBin } from "../utils/halloweenDistributions";
 import { formatMoney } from "./BookStrategy.helpers";
+import { HalloweenTreatReturns } from "./HalloweenTreatReturns";
 import "./HalloweenDistributions.css";
 
 const precise = (value: number) => value.toLocaleString(undefined, { maximumSignificantDigits: 3 });
@@ -32,7 +33,8 @@ export function HalloweenDistributions({ selected, strategyName }: { selected: H
     <details open={open} onToggle={event => setOpen(event.currentTarget.open)}>
       <summary>Simulation outcomes</summary>
       {open && <div className="halloween-distributions-content">
-        <p className="halloween-note">{strategyName} · {selected.simulationRuns.toLocaleString()} simulated events. All results update with the selected strategy and Refine estimate.</p>
+        <HalloweenTreatReturns />
+        <p className="halloween-note">{strategyName} · {selected.simulationRuns.toLocaleString()} simulated events. The results below update with the selected strategy and Refine estimate.</p>
         <div className="halloween-distributions-grid">
           <div className="halloween-distribution-card">
             <h3>Treats dropped per attack</h3>
