@@ -33,6 +33,7 @@ export function HalloweenStrategyBreakdown({ selected, baseline, noBook, setting
   const suppliedDifference = suppliedEnergy - directEnergy(baseline);
   const basketEnergy = energy(selected, "Dark Power returns");
   const totalEnergy = suppliedEnergy + basketEnergy + returnedEnergy;
+  const exchangeBonuses = [settings.freebie && "Freebie", settings.cashback && "Cashback"].filter(Boolean).join(" & ");
   const rate = selected.treatsPerAttack.toLocaleString(undefined, { maximumFractionDigits: 6 });
 
   return <section className="panel halloween-strategy-breakdown">
@@ -66,7 +67,7 @@ export function HalloweenStrategyBreakdown({ selected, baseline, noBook, setting
     </div>}
 
     <p className="halloween-energy-summary"><strong>Energy before returns:</strong> This strategy provides <strong>{count(suppliedEnergy)}E</strong> from energy sources such as regeneration, drugs, refills and boosters. <strong>{count(Math.abs(suppliedDifference))}E</strong> {suppliedDifference < 0 ? "less" : "more"} than the baseline.</p>
-    <p className="halloween-energy-summary"><strong>Energy returned:</strong> Dark Power provides another <strong>{count(basketEnergy)}E</strong>, including energy from Freebie &amp; Cashback.
+    <p className="halloween-energy-summary"><strong>Energy returned:</strong> {settings.darkPower ? <>Dark Power provides another <strong>{count(basketEnergy)}E</strong>{exchangeBonuses && <>, including energy from {exchangeBonuses}</>}.</> : "Dark Power is disabled."}
       {settings.weapon === "revitalize" && <> <strong>Revitalize</strong> adds a further <strong>{count(returnedEnergy)}E</strong>.</>}
     </p>
     <p className="halloween-energy-summary"><strong>Total energy and attacks:</strong> Together, this gives <strong>{count(totalEnergy)}E</strong>, supporting approximately <strong>{count(selected.attacks)} attacks</strong>. <strong>{count(Math.abs(attackDifference))}</strong> {attackDifference < 0 ? "fewer" : "more"} than the baseline.</p>
@@ -74,7 +75,7 @@ export function HalloweenStrategyBreakdown({ selected, baseline, noBook, setting
       Your <strong>{count(settings.revitalize)}% Revitalize weapon</strong> earns approximately <strong>{rate} treats per attack</strong>.
     </p> : <p>Your <strong>scary weapon</strong> earns approximately <strong>{rate} treats per attack</strong>.</p>}
     <p>The change in attacks produces <strong>{signed(attackDifference * selected.treatsPerAttack)} treats from attacks</strong> compared with baseline. After basket bonuses and exchanges, the difference is <strong>{signed(exchangedDifference)} treats exchanged</strong>.</p>
-    <p>At <strong>{money(settings.treatPrice)} per treat</strong>, this strategy generates <strong>{formatMoney(Math.abs(revenueDifference))} {revenueDifference < 0 ? "less" : "more"} revenue than the baseline</strong>. After subtracting <strong>{formatMoney(costDifference)} in additional costs</strong>, it delivers <strong className={profitDifference >= 0 ? "halloween-positive" : "halloween-negative"}>{formatMoney(Math.abs(profitDifference))} {profitDifference < 0 ? "less" : "more"} net profit than the baseline</strong>.</p>
+    <p>At <strong>{money(selected.effectiveTreatPrice)} per treat</strong>{!settings.freebie && " (adjusted for Freebie being disabled)"}, this strategy generates <strong>{formatMoney(Math.abs(revenueDifference))} {revenueDifference < 0 ? "less" : "more"} revenue than the baseline</strong>. After subtracting <strong>{formatMoney(costDifference)} in additional costs</strong>, it delivers <strong className={profitDifference >= 0 ? "halloween-positive" : "halloween-negative"}>{formatMoney(Math.abs(profitDifference))} {profitDifference < 0 ? "less" : "more"} net profit than the baseline</strong>.</p>
     <p>Total event net profit: <strong>{formatMoney(selected.profit)}</strong>, from <strong>{formatMoney(selected.revenue)}</strong> in rewards minus <strong>{formatMoney(selected.cost)}</strong> in costs.</p>
   </section>;
 }

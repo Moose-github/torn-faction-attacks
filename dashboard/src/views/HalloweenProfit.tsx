@@ -109,7 +109,7 @@ export function HalloweenProfit() {
   const field = (key: NumericKey, label: string, suffix?: string, title?: string, disabled = false) =>
     <NumberField key={key} label={label} value={numbers[key]} suffix={suffix} title={title} disabled={disabled}
       onChange={value => { if (key === "fhcPrice") clearPriceSource(); setNumbers(current => ({ ...current, [key]: value })); }} />;
-  const toggle = (key: "donor" | "scaryClothing" | "mortalCoil", label: string) =>
+  const toggle = (key: "donor" | "scaryClothing" | "mortalCoil" | "darkPower" | "freebie" | "cashback", label: string) =>
     <label className="halloween-toggle"><input type="checkbox" checked={options[key]} onChange={event => change(key, event.target.checked)} />{label}</label>;
   const reset = () => { resetPrices(); setPriceNotice(null); setOptions(DEFAULT_HALLOWEEN); setNumbers(initialNumbers());
     setXanaxPerDay(String(24 / DEFAULT_HALLOWEEN.drugInterval));
@@ -123,28 +123,33 @@ export function HalloweenProfit() {
       <div><div className="panel-kicker"><Ghost size={18} /> Halloween calculator</div><h1>Halloween profit</h1>
         <p>Find the books and boosters that make your seven days of attacking most profitable.</p></div>
       <button type="button" className="book-strategy-popout-button" onClick={reset}><RotateCcw size={15} />Reset</button>
-      <div className="halloween-assumptions"><span className="halloween-upgrades-assumption">{options.mortalCoil ? "All basket upgrades purchased" : "All other basket upgrades purchased"}</span><span>100% attack success</span><span>All energy used for attacks</span><span>Full 7-day book overlap</span></div>
+      <div className="halloween-assumptions"><span className="halloween-upgrades-assumption">{options.mortalCoil && options.darkPower && options.freebie && options.cashback ? "All basket upgrades purchased" : "All other basket upgrades purchased"}</span><span>100% attack success</span><span>All energy used for attacks</span><span>Full 7-day book overlap</span></div>
     </section>
 
     <section className="panel book-strategy-input-panel halloween-settings" ref={panel}>
       <PanelHeader title="Event & prices" icon={<Settings2 size={18} />} />
       <div className="halloween-fields">
-        {field("treatPrice", "Price per treat", "$", "Average net sale value per treat exchanged, including the extra item from Freebie. Editable planning estimate; not a live market quote.")}
+        {field("treatPrice", "Price per treat", "$", "Reward value with Freebie enabled. Disabling Freebie uses this value divided by 1.1. Editable planning estimate; not a live market quote.")}
         <label className="book-strategy-field"><span>Basket level</span><select value={options.basketLevel} onChange={event => change("basketLevel", event.target.value as HalloweenSettings["basketLevel"])}>
           {HALLOWEEN_BASKETS.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
         <label className="book-strategy-field"><span>Finishing weapon</span><select value={options.weapon} onChange={event => change("weapon", event.target.value as HalloweenSettings["weapon"])}>
           <option value="scary">Scary weapon</option><option value="revitalize">Revitalize weapon</option></select></label>
         {options.weapon === "revitalize" ? field("revitalize", "Revitalize chance", "%") : <div className="halloween-inline-note">Scary finish adds 10 percentage points to your treat chance.</div>}
-        <div className="halloween-upgrade-toggles">
-          {toggle("scaryClothing", "Wear scary clothing")}
-          {toggle("mortalCoil", "Mortal Coil")}
-        </div>
       </div>
-      <div className="halloween-controls">{["Energy & drugs", "Boosters", "Prices", "Company"].map(label =>
+      <div className="halloween-controls">{["Energy & drugs", "Boosters", "Prices", "Company", "Upgrades"].map(label =>
         <PopoutButton key={label} label={label} icon={<Settings2 size={14} />} active={popout === label} onClick={() => setPopout(popout === label ? null : label)} />)}</div>
       {popout && <div className="book-strategy-popout halloween-popout" role="region" aria-label={popout}>
         <div className="halloween-popout-title"><strong>{popout}</strong><button type="button" aria-label="Close settings" onClick={() => setPopout(null)}><X size={18} /></button></div>
         <div className="book-strategy-popout-grid">
+          {popout === "Upgrades" && <>
+            {toggle("scaryClothing", "Wear scary clothing")}
+            {toggle("mortalCoil", "Mortal Coil")}
+            {toggle("darkPower", "Dark Power")}
+            {toggle("freebie", "Freebie")}
+            {toggle("cashback", "Cashback")}
+            <p className="halloween-wide">Mortal Coil adds one treat per hour. Dark Power returns 5E per treat exchanged. Freebie adds 10% to exchange rewards and Dark Power energy. Cashback returns 10% of exchanged treats to exchange again.</p>
+            <p className="halloween-wide">Price per treat assumes Freebie is enabled. Turning it off divides the reward value by 1.1; your entered price is preserved. All other basket upgrades remain assumed purchased; Cat in Hell and Inflation are excluded.</p>
+          </>}
           {popout === "Energy & drugs" && <>
             {toggle("donor", "Donator regeneration")}
             <p className="halloween-wide">Daily energy refills are used every day. Max natural energy use is assumed.</p>
@@ -185,6 +190,7 @@ export function HalloweenProfit() {
         </div>
       </div>}
       <p className="halloween-note">Price per treat is a flat valuation of exchanged rewards. The $750,000 default is a planning estimate; changing it updates every strategy.</p>
+      {selected && !settings.freebie && <p className="halloween-note">Freebie is disabled: rewards use ${selected.effectiveTreatPrice.toLocaleString(undefined, { maximumFractionDigits: 2 })} per treat (your entered price ÷ 1.1). The break-even price is quoted in the same units as the price input, with Freebie included.</p>}
       <p className="halloween-note"><strong>Default item prices are based on the annual low for each item, not live market prices.</strong></p>
     </section>
 
@@ -232,7 +238,7 @@ export function HalloweenProfit() {
             {selected.sources.filter(source => source.name !== "Attack supplies").map(source => <tr key={source.name}><td>{source.name}</td><td>{source.energy ? `${count(source.energy)}E` : "—"}</td><td>{source.count ? count(source.count) : "—"}</td><td>{formatMoney(source.cost)}</td></tr>)}
           </tbody></table></div></div>
           <div className="halloween-insights"><h3>What changes the outcome</h3>
-            <p><strong>{count(selected.exchangedTreats)} treats exchanged</strong><br />{count(selected.earnedTreats)} earned from attacks{settings.mortalCoil ? " / Mortal Coil" : ""} · {count(selected.cashbackTreats)} returned by Cashback.</p>
+            <p><strong>{count(selected.exchangedTreats)} treats exchanged</strong><br />{count(selected.earnedTreats)} earned from attacks{settings.mortalCoil ? " / Mortal Coil" : ""} · {settings.cashback ? `${count(selected.cashbackTreats)} returned by Cashback` : "Cashback disabled"}.</p>
             {breakEvenBooster !== null && <p><strong>{formatMoney(breakEvenBooster)} per {selected.booster === "fhc" ? "FHC" : "can"}</strong><br />Maximum price for paid boosters to outperform using this book without them, at your current settings.</p>}
             {alternativeWeapon && <p><strong>{formatMoney(alternativeWeapon.profit - selected.profit)} profit change</strong><br />Switching to {settings.weapon === "scary" ? `${settings.revitalize}% Revitalize` : "a scary weapon"}, keeping this book and booster.<br />{alternativeWeapon.attacks >= selected.attacks ? "+" : ""}{count(alternativeWeapon.attacks - selected.attacks)} attacks ({count(alternativeWeapon.attacks)} total). Equipment purchase costs are excluded.</p>}
             {energyLosses.map(row => <p key={row.label}><strong>{count(row.energy)}E {row.label}</strong></p>)}
@@ -248,9 +254,9 @@ export function HalloweenProfit() {
         Revitalize weapon: {(settings.weapon === "revitalize" ? selected : alternativeWeapon).treatsPerAttack.toLocaleString(undefined, { maximumFractionDigits: 6 })}<br />
         Scary clothing is {settings.scaryClothing ? "included" : "excluded"} for both weapon choices. Cat in Hell excluded. Cashback and other basket rewards are calculated separately.
       </p>}
-      <p>This is an expected-value comparison, not a prediction of individual drops. The selected basket level stays fixed throughout the event; automatic basket progression is not modelled. All basket upgrades other than the optional Mortal Coil are assumed owned, but Cat in Hell is excluded from the calculation. The basket starts empty, and every attack succeeds. Each book covers the full event; its remaining 24 days have no assigned value. No book purchase cost is assumed.</p>
+      <p>This is an expected-value comparison, not a prediction of individual drops. The selected basket level stays fixed throughout the event; automatic basket progression is not modelled. The Upgrades settings control Dark Power, Freebie, Cashback and Mortal Coil. All other basket upgrades are assumed owned, but Cat in Hell and Inflation are excluded from the calculation. The basket starts empty, and every attack succeeds. Each book covers the full event; its remaining 24 days have no assigned value. No book purchase cost is assumed.</p>
       <p>Only one finishing weapon is used. Revitalize returns 25E on a successful proc and gives up the scary-weapon treat bonus. Recycled energy is attacked again.</p>
-      <p>Dark Power, Freebie energy and Cashback are included. Mortal Coil is {settings.mortalCoil ? "enabled, adding one treat per hour (168 over the event)" : "disabled"}. Treats are exchanged repeatedly and returned energy is attacked while active. Reward value equals treats exchanged × your price per treat; Freebie item value is already included in that price. Fractional attacks and treats describe averages, so small real-world rounding differences are expected.</p>
+      <p>Dark Power is {settings.darkPower ? "enabled" : "disabled"}, Freebie is {settings.freebie ? "enabled" : "disabled"}, and Cashback is {settings.cashback ? "enabled" : "disabled"}. Mortal Coil is {settings.mortalCoil ? "enabled, adding one treat per hour (168 over the event)" : "disabled"}. Treats are exchanged repeatedly and returned energy is attacked while active. The entered price per treat includes Freebie's item bonus; disabling Freebie divides that value by 1.1. Revenue and the graph use this adjusted value, while break-even is quoted in the same units as the price input. Fractional attacks and treats describe averages, so small real-world rounding differences are expected.</p>
       <p>The event starts at 12:00 TCT and runs for 168 hours with continuous activity and frequent treat exchanges. Supplies per attack and other event costs are fixed at $0. The schedule uses one-minute steps and immediate attacks, with no attack-rate limit, hospital time or overdoses. Natural regeneration is capped by maximum energy; other energy is spent before the next claim. A treat exchange is capped at 1,000E, and frequent exchanges minimise wasted energy.</p>
       <p>Xanax is used in every strategy. Daily energy refills reset at midnight TCT and are assumed available and used on all eight calendar dates, including the first day. Their cost is excluded from profit calculations. Special refills are used first. Up to 100 company points are redeemed daily. Jobs award new points at 18:00 TCT.</p>
       <p>Eggs, cans and FHCs share booster cooldown. An item can be used while cooldown is below the maximum and may take it above that maximum. No further item is used until cooldown falls below the limit. Owned eggs are used first. Booster costs cover only this event; edit prices to reflect your own costs. Starting energy has no assigned cost.</p>

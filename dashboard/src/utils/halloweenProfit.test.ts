@@ -5,6 +5,52 @@ const settings = (overrides: Partial<HalloweenSettings> = {}): HalloweenSettings
 const source = (result: ReturnType<typeof simulateHalloween>, name: string) => result.sources.find(row => row.name === name);
 
 describe("Halloween profit model", () => {
+  it.each(Array.from({ length: 8 }, (_, bits) => ({
+    darkPower: Boolean(bits & 1), freebie: Boolean(bits & 2), cashback: Boolean(bits & 4),
+  })))("conserves rewards and energy with Dark Power=$darkPower Freebie=$freebie Cashback=$cashback", upgrades => {
+    for (const weapon of ["scary", "revitalize"] as const) {
+      for (const [book, booster] of [["none", "none"], ["fuel", "can30"]] as const) {
+        const input = settings({ ...upgrades, weapon });
+        const row = simulateHalloween(input, book, booster);
+        const returnedRate = upgrades.cashback ? 0.1 : 0;
+        const energyPerTreat = upgrades.darkPower ? (upgrades.freebie ? 5.5 : 5) : 0;
+        const externalEnergy = row.sources.filter(item => !["Dark Power returns", "Revitalize returns"].includes(item.name))
+          .reduce((total, item) => total + item.energy, 0);
+        const energyPerAttack = 25 * (1 - (weapon === "revitalize" ? input.revitalize / 100 : 0));
+        // Independent closed-form solution to the treat/energy feedback loop.
+        const expectedAttacks = (externalEnergy + energyPerTreat * 168 / (1 - returnedRate))
+          / (energyPerAttack - energyPerTreat * row.treatsPerAttack / (1 - returnedRate));
+        expect(row.attacks).toBeCloseTo(expectedAttacks, 6);
+        expect(row.exchangedTreats).toBeCloseTo(row.earnedTreats / (1 - returnedRate), 6);
+        expect(row.cashbackTreats).toBeCloseTo(row.exchangedTreats * returnedRate, 6);
+        expect(source(row, "Dark Power returns")?.energy ?? 0).toBeCloseTo(row.exchangedTreats * energyPerTreat, 5);
+        expect(row.revenue).toBeCloseTo(row.exchangedTreats * input.treatPrice * (upgrades.freebie ? 1 : 1 / 1.1), 3);
+        expect(row.profit).toBeCloseTo(row.revenue - row.cost, 3);
+        expect(row.timeline.at(-1)?.profit).toBe(row.profit);
+        expect(row.sources.reduce((total, item) => total + item.energy, 0)).toBeCloseTo(row.attacks * 25 + row.unusedEnergy, 5);
+        const breakEven = simulateHalloween({ ...input, treatPrice: row.breakEvenTreatPrice }, book, booster);
+        expect(Math.abs(breakEven.profit)).toBeLessThan(0.001);
+      }
+    }
+  });
+  it("removes Freebie item value from every graph point without altering the entered price", () => {
+    const input = settings({ darkPower: false, freebie: true, drugPrice: 0 });
+    const enabled = simulateHalloween(input, "none", "none");
+    const disabled = simulateHalloween({ ...input, freebie: false }, "none", "none");
+    expect(input.treatPrice).toBe(750000);
+    expect(disabled.effectiveTreatPrice).toBeCloseTo(750000 / 1.1, 6);
+    expect(disabled.attacks).toBe(enabled.attacks);
+    expect(disabled.exchangedTreats).toBe(enabled.exchangedTreats);
+    disabled.timeline.forEach((point, index) => expect(point.profit).toBeCloseTo(enabled.timeline[index].profit / 1.1, 3));
+  });
+  it.each([false, true])("honours disabled Dark Power and Cashback=$cashback during delayed and final exchanges", cashback => {
+    const row = simulateHalloween(settings({ darkPower: false, freebie: false, cashback, exchangeHours: 24, sleepHours: 16 }), "none", "none");
+    expect(source(row, "Dark Power returns")).toBeUndefined();
+    expect(row.wastedDarkEnergy).toBe(0);
+    expect(row.exchangedTreats).toBeCloseTo(row.earnedTreats / (cashback ? 0.9 : 1), 6);
+    expect(row.cashbackTreats).toBeCloseTo(cashback ? row.exchangedTreats * 0.1 : 0, 6);
+    expect(row.revenue).toBeCloseTo(row.exchangedTreats * 750000 / 1.1, 3);
+  });
   it.each(["scary", "revitalize"] as const)("toggles Mortal Coil's hourly treats and recycled energy with %s", weapon => {
     const enabled = compareHalloween(settings({ weapon, mortalCoil: true }));
     const disabled = compareHalloween(settings({ weapon, mortalCoil: false }));
