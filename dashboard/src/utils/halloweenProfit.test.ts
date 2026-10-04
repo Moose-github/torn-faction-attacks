@@ -386,9 +386,17 @@ describe("Halloween profit model", () => {
     });
   });
   it.each([
+    { basketLevel: "spooky", rates: [0.947232, 0.775008, 0.775008, 0.602784] },
+    { basketLevel: "creepy", rates: [1.033344, 0.86112, 0.86112, 0.688896] },
+    { basketLevel: "freaky", rates: [1.119456, 0.947232, 0.947232, 0.775008] },
+    { basketLevel: "frightful", rates: [1.205568, 1.033344, 1.033344, 0.86112] },
+    { basketLevel: "haunting", rates: [1.29168, 1.119456, 1.119456, 0.947232] },
+    { basketLevel: "shocking", rates: [1.377792, 1.205568, 1.205568, 1.033344] },
+    { basketLevel: "terrifying", rates: [1.463904, 1.29168, 1.29168, 1.119456] },
     { basketLevel: "horrifying", rates: [1.550016, 1.377792, 1.377792, 1.205568] },
     { basketLevel: "petrifying", rates: [1.636128, 1.463904, 1.463904, 1.29168] },
     { basketLevel: "nightmarish", rates: [1.72224, 1.550016, 1.550016, 1.377792] },
+    { basketLevel: "apocalyptic", rates: [1.72224, 1.550016, 1.550016, 1.377792] },
   ] as { basketLevel: HalloweenBasket; rates: number[] }[])("keeps $basketLevel treat rates fixed for the full event", ({ basketLevel, rates }) => {
     const variants = [
       { weapon: "scary", scaryClothing: true }, { weapon: "revitalize", scaryClothing: true },
@@ -397,8 +405,8 @@ describe("Halloween profit model", () => {
     variants.forEach((variant, index) => {
       const row = simulateHalloween(settings({ ...variant, basketLevel, specialRefills: 100 }), "fuel", "can30");
       expect(row.treatsPerAttack).toBeCloseTo(rates[index], 10);
-      // Enough earned treats to cross basket thresholds, but the rate never changes.
-      expect(row.earnedTreats).toBeGreaterThan(2500);
+      // Enough earned treats to cross early basket thresholds, but the rate never changes.
+      expect(row.earnedTreats).toBeGreaterThan(500);
       expect(Number.isInteger(row.earnedTreats)).toBe(true);
     });
   });

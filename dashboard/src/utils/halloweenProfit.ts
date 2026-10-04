@@ -8,9 +8,17 @@ const SIMULATION_SEED = 0x6d2b79f5;
 const EVENT_MINUTES = HALLOWEEN_HOURS * 60;
 const CLEANUP_START = EVENT_MINUTES - 60;
 export const HALLOWEEN_BASKETS = [
+  { id: "spooky", name: "Spooky", treatChance: 35 },
+  { id: "creepy", name: "Creepy", treatChance: 40 },
+  { id: "freaky", name: "Freaky", treatChance: 45 },
+  { id: "frightful", name: "Frightful", treatChance: 50 },
+  { id: "haunting", name: "Haunting", treatChance: 55 },
+  { id: "shocking", name: "Shocking", treatChance: 60 },
+  { id: "terrifying", name: "Terrifying", treatChance: 65 },
   { id: "horrifying", name: "Horrifying", treatChance: 70 },
   { id: "petrifying", name: "Petrifying", treatChance: 75 },
   { id: "nightmarish", name: "Nightmarish", treatChance: 80 },
+  { id: "apocalyptic", name: "Apocalyptic", treatChance: 80 },
 ] as const;
 export type HalloweenBasket = typeof HALLOWEEN_BASKETS[number]["id"];
 export const HALLOWEEN_BOOKS = [
