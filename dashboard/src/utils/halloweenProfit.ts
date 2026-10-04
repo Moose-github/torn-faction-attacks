@@ -32,7 +32,7 @@ export const HALLOWEEN_BOOSTERS = [
 ];
 export type HalloweenSettings = {
   basketLevel: HalloweenBasket;
-  treatPrice: number; weapon: "scary" | "revitalize"; revitalize: number; scaryClothing: boolean;
+  treatPrice: number; weapon: "scary" | "revitalize"; revitalize: number; scaryClothing: boolean; mortalCoil: boolean;
   donor: boolean; company: HalloweenCompany; factionBonus: number;
   maxCooldown: number; startingCooldown: number; canPrices: number[]; fhcPrice: number;
   startingEnergy: number; specialRefills: number;
@@ -43,7 +43,7 @@ export type HalloweenSettings = {
 };
 export const DEFAULT_HALLOWEEN: HalloweenSettings = {
   basketLevel: "nightmarish",
-  treatPrice: 750000, weapon: "scary", revitalize: 12, scaryClothing: true,
+  treatPrice: 750000, weapon: "scary", revitalize: 12, scaryClothing: true, mortalCoil: true,
   donor: true, company: "none", factionBonus: 50, maxCooldown: 48, startingCooldown: 0,
   canPrices: [250000, 500000, 800000, 1250000, 1750000, 3000000], fhcPrice: 14000000,
   startingEnergy: 1000, specialRefills: 0, drugPrice: 875000,
@@ -54,7 +54,7 @@ export const DEFAULT_HALLOWEEN: HalloweenSettings = {
 export type HalloweenSource = { name: string; energy: number; count: number; cost: number };
 export type HalloweenResult = {
   id: string; book: HalloweenBook; booster: string; attacks: number; treatsPerAttack: number; earnedTreats: number;
-  exchangedTreats: number; cashbackTreats: number; inflationTreats: number;
+  exchangedTreats: number; cashbackTreats: number;
   revenue: number; cost: number; profit: number; roi: number | null; breakEvenTreatPrice: number;
   boosterCount: number; sources: HalloweenSource[]; wastedRegeneration: number; wastedDarkEnergy: number;
   unusedEnergy: number; timeline: { hour: number; profit: number }[];
@@ -110,7 +110,7 @@ export function simulateHalloween(s: HalloweenSettings, book: HalloweenBook, boo
     row.energy += energy; row.count += count; row.cost += cost; sources.set(name, row);
   };
   let energy = s.startingEnergy, basket = 0, attacks = 0, earnedTreats = 0, exchangedTreats = 0;
-  let cashbackTreats = 0, inflationTreats = 0, cost = s.otherCost;
+  let cashbackTreats = 0, cost = s.otherCost;
   let wastedRegeneration = 0, wastedDarkEnergy = 0, boosterCount = 0;
   let cooldown = s.startingCooldown, nextDrug = s.drugDelay * 60, nextExchange = 0;
   let eggs = s.greenEggs, points = s.jobPoints, usedPoints = 0, refillDay = -1, currentDay = -1;
@@ -162,9 +162,8 @@ export function simulateHalloween(s: HalloweenSettings, book: HalloweenBook, boo
       energy += accepted; wastedRegeneration += regen - accepted;
       source("Natural regeneration", accepted);
     }
-    if (minute % 60 === 0) {
-      const inflation = basket * 0.001;
-      inflationTreats += inflation; basket += inflation + 1;
+    if (s.mortalCoil && minute % 60 === 0) {
+      basket += 1;
       earnedTreats += 1;
     }
     if (active) {
@@ -225,7 +224,7 @@ export function simulateHalloween(s: HalloweenSettings, book: HalloweenBook, boo
   const revenue = exchangedTreats * s.treatPrice;
   timeline[timeline.length - 1].profit = revenue - cost;
   return { id: `${book}:${booster}`, book, booster, attacks, treatsPerAttack, earnedTreats, exchangedTreats, cashbackTreats,
-    inflationTreats, revenue, cost, profit: revenue - cost, roi: cost ? (revenue - cost) / cost : null,
+    revenue, cost, profit: revenue - cost, roi: cost ? (revenue - cost) / cost : null,
     breakEvenTreatPrice: exchangedTreats ? cost / exchangedTreats : 0,
     boosterCount, sources: [...sources.values()].filter(r => r.energy || r.cost || r.count),
     wastedRegeneration, wastedDarkEnergy, unusedEnergy: energy, timeline };

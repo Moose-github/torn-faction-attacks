@@ -5,6 +5,24 @@ const settings = (overrides: Partial<HalloweenSettings> = {}): HalloweenSettings
 const source = (result: ReturnType<typeof simulateHalloween>, name: string) => result.sources.find(row => row.name === name);
 
 describe("Halloween profit model", () => {
+  it.each(["scary", "revitalize"] as const)("toggles Mortal Coil's hourly treats and recycled energy with %s", weapon => {
+    const enabled = compareHalloween(settings({ weapon, mortalCoil: true }));
+    const disabled = compareHalloween(settings({ weapon, mortalCoil: false }));
+    expect(DEFAULT_HALLOWEEN.mortalCoil).toBe(true);
+    enabled.forEach((row, index) => {
+      const without = disabled[index];
+      expect(row.earnedTreats - row.attacks * row.treatsPerAttack).toBeCloseTo(168, 6);
+      expect(without.earnedTreats).toBeCloseTo(without.attacks * without.treatsPerAttack, 6);
+      expect(row.treatsPerAttack).toBe(without.treatsPerAttack);
+      expect(row.cost).toBe(without.cost);
+      expect(row.boosterCount).toBe(without.boosterCount);
+      expect(row.exchangedTreats).toBeGreaterThan(without.exchangedTreats);
+      expect(source(row, "Dark Power returns")!.energy).toBeGreaterThan(source(without, "Dark Power returns")!.energy);
+      expect(row.attacks).toBeGreaterThan(without.attacks);
+      expect(row.profit).toBeGreaterThan(without.profit);
+      expect(without.earnedTreats + without.cashbackTreats).toBeCloseTo(without.exchangedTreats, 5);
+    });
+  });
   it.each([
     { basketLevel: "horrifying", rates: [1.550016, 1.377792, 1.377792, 1.205568] },
     { basketLevel: "petrifying", rates: [1.636128, 1.463904, 1.463904, 1.29168] },
@@ -51,7 +69,7 @@ describe("Halloween profit model", () => {
       expect(result.cost).toBeCloseTo(result.sources.reduce((sum, row) => sum + row.cost, 0), 3);
       expect(result.profit).toBeCloseTo(result.revenue - result.cost, 3);
       expect(result.sources.reduce((sum, row) => sum + row.energy, 0)).toBeCloseTo(result.attacks * 25 + result.unusedEnergy, 5);
-      expect(result.earnedTreats + result.cashbackTreats + result.inflationTreats).toBeCloseTo(result.exchangedTreats, 5);
+      expect(result.earnedTreats + result.cashbackTreats).toBeCloseTo(result.exchangedTreats, 5);
       expect(result.timeline.at(-1)?.profit).toBe(result.profit);
     }
   });
@@ -126,7 +144,7 @@ describe("Halloween profit model", () => {
     expect(idle.wastedRegeneration).toBeGreaterThan(0);
     expect(idle.unusedEnergy).toBeGreaterThan(0);
     expect(idle.attacks).toBeLessThan(active.attacks);
-    expect(idle.earnedTreats + idle.inflationTreats + idle.cashbackTreats).toBeCloseTo(idle.exchangedTreats, 5);
+    expect(idle.earnedTreats + idle.cashbackTreats).toBeCloseTo(idle.exchangedTreats, 5);
     expect(idle.sources.reduce((sum, row) => sum + row.energy, 0)).toBeCloseTo(idle.attacks * 25 + idle.unusedEnergy, 5);
   });
   it("loses Dark Power energy with infrequent exchanges", () => {
@@ -135,7 +153,7 @@ describe("Halloween profit model", () => {
     expect(frequent.wastedDarkEnergy).toBe(0);
     expect(delayed.wastedDarkEnergy).toBeGreaterThan(0);
     expect(delayed.attacks).toBeLessThan(frequent.attacks);
-    expect(delayed.inflationTreats).toBeGreaterThan(frequent.inflationTreats);
+    expect(delayed.earnedTreats + delayed.cashbackTreats).toBeCloseTo(delayed.exchangedTreats, 5);
   });
   it("values prices as costs and keeps purchases independent of reward valuations", () => {
     const base = simulateHalloween(settings(), "fuel", "can25");
