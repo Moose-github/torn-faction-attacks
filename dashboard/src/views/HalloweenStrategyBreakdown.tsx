@@ -74,8 +74,8 @@ export function HalloweenStrategyBreakdown({ selected, baseline, noBook, setting
     {settings.weapon === "revitalize" ? <p>
       Your <strong>{count(settings.revitalize)}% Revitalize weapon</strong> earns approximately <strong>{rate} treats per attack</strong>.
     </p> : <p>Your <strong>scary weapon</strong> earns approximately <strong>{rate} treats per attack</strong>.</p>}
-    <p>The change in attacks produces <strong>{signed(attackDifference * selected.treatsPerAttack)} treats from attacks</strong> compared with baseline. After basket bonuses and exchanges, the difference is <strong>{signed(exchangedDifference)} treats exchanged</strong>.</p>
+    <p>The simulations produce <strong>{signed(selected.earnedTreats - baseline.earnedTreats)} treats from attacks</strong> compared with baseline. After basket bonuses and exchanges, the difference is <strong>{signed(exchangedDifference)} treats exchanged</strong>.</p>
     <p>At <strong>{money(selected.effectiveTreatPrice)} per treat</strong>{!settings.freebie && " (adjusted for Freebie being disabled)"}, this strategy generates <strong>{formatMoney(Math.abs(revenueDifference))} {revenueDifference < 0 ? "less" : "more"} revenue than the baseline</strong>. After subtracting <strong>{formatMoney(costDifference)} in additional costs</strong>, it delivers <strong className={profitDifference >= 0 ? "halloween-positive" : "halloween-negative"}>{formatMoney(Math.abs(profitDifference))} {profitDifference < 0 ? "less" : "more"} net profit than the baseline</strong>.</p>
-    <p>Total event net profit: <strong>{formatMoney(selected.profit)}</strong>, from <strong>{formatMoney(selected.revenue)}</strong> in rewards minus <strong>{formatMoney(selected.cost)}</strong> in costs.</p>
+    <p>Average event net profit: <strong>{formatMoney(selected.profit)}</strong>, from <strong>{formatMoney(selected.revenue)}</strong> in rewards minus <strong>{formatMoney(selected.cost)}</strong> in costs. Likely range (middle 80%): <strong>{formatMoney(selected.profitRange.low)} to {formatMoney(selected.profitRange.high)}</strong>.</p>
   </section>;
 }

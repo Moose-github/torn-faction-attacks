@@ -1,8 +1,8 @@
 import { ENERGY_DRINK_TIERS } from "./energyDrinkStrategy";
 
 export const HALLOWEEN_HOURS = 168;
-export const HALLOWEEN_REVITALIZE_RUNS = 128;
-const REVITALIZE_SEED = 0x6d2b79f5;
+export const HALLOWEEN_SIMULATION_RUNS = 128;
+const SIMULATION_SEED = 0x6d2b79f5;
 export const HALLOWEEN_BASKETS = [
   { id: "horrifying", name: "Horrifying", treatChance: 70 },
   { id: "petrifying", name: "Petrifying", treatChance: 75 },
@@ -58,7 +58,7 @@ export const DEFAULT_HALLOWEEN: HalloweenSettings = {
 export type HalloweenSource = { name: string; energy: number; count: number; cost: number };
 export type HalloweenExchange = {
   treats: number; freebieTreats: number; cashbackTreats: number;
-  energyBefore: number; energyReturned: number; afterEvent: boolean;
+  energyBefore: number; energyReturned: number; energyWasted: number; afterEvent: boolean;
 };
 export type HalloweenRefill = {
   minute: number; source: string; energyBefore: number; energyAdded: number;
@@ -67,6 +67,8 @@ export type HalloweenResult = {
   id: string; book: HalloweenBook; booster: string; attacks: number; treatsPerAttack: number; earnedTreats: number;
   exchangedTreats: number; cashbackTreats: number; unexchangedTreats: number; rewardTreats: number;
   simulationRuns: number;
+  /** 10th–90th percentiles of event net profit, not uncertainty in the mean. */
+  profitRange: { low: number; high: number };
   /** Individual exchange trace for single runs; averaged estimates have no single trace. */
   exchanges: HalloweenExchange[];
   /** Refill timing trace for single runs only. */
@@ -100,31 +102,48 @@ export function validateHalloween(s: HalloweenSettings): string | null {
   return null;
 }
 
-/** One-minute schedule with whole attacks/exchanges, fixed average drops and seeded Revitalize procs.
+// Mulberry32; separate streams keep treat rolls independent of Revitalize procs.
+function createRandom(seed: number) {
+  let state = seed >>> 0;
+  return () => {
+    state = (state + 0x6d2b79f5) >>> 0;
+    let value = Math.imul(state ^ (state >>> 15), state | 1);
+    value ^= value + Math.imul(value ^ (value >>> 7), value | 61);
+    return ((value ^ (value >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/** Always consume five rolls, including on a miss, to align attacks across strategies.
+ * Multiplier upgrades stack independently; Cat in Hell is deliberately excluded.
+ */
+export function rollHalloweenTreats(chance: number, random: () => number): number {
+  const drop = random() < chance;
+  const multiplier = (random() < 0.2 ? 2 : 1) * (random() < 0.1 ? 3 : 1)
+    * (random() < 0.05 ? 4 : 1) * (random() < 0.01 ? 5 : 1);
+  return drop ? multiplier : 0;
+}
+
+/** One-minute schedule with whole attacks/exchanges and seeded treat/Revitalize rolls.
  * Source mechanics: wiki.torn.com/wiki/{Energy,Trick_or_Treat,Weapon_Bonus,Points_Market}.
  * The entered treat value includes Freebie. Disabling it removes the 10% item bonus
  * from that valuation as well as its bonus Dark Power energy.
  */
-export function simulateHalloween(s: HalloweenSettings, book: HalloweenBook, booster: string, seed = REVITALIZE_SEED): HalloweenResult {
+export function simulateHalloween(s: HalloweenSettings, book: HalloweenBook, booster: string, seed = SIMULATION_SEED): HalloweenResult {
   const error = validateHalloween(s);
   if (error) throw new Error(error);
   const selectedBooster = HALLOWEEN_BOOSTERS.find(b => b.id === booster);
   if (!selectedBooster || !HALLOWEEN_BOOKS.some(b => b.id === book)) throw new Error("Unknown Halloween strategy.");
   const cap = book === "ugly" ? 250 : s.donor ? 150 : 100;
   const revitalize = s.weapon === "revitalize" ? s.revitalize / 100 : 0;
-  // Mulberry32: each strategy uses the same attack-indexed rolls for a given run.
+  // Each strategy uses the same attack-indexed rolls for a given run.
   // Prices and unrelated inputs never seed the generator, keeping comparisons repeatable.
-  let randomState = seed >>> 0;
-  const rollRevitalize = () => {
-    randomState = (randomState + 0x6d2b79f5) >>> 0;
-    let value = Math.imul(randomState ^ (randomState >>> 15), randomState | 1);
-    value ^= value + Math.imul(value ^ (value >>> 7), value | 61);
-    return ((value ^ (value >>> 14)) >>> 0) / 4294967296;
-  };
+  const rollRevitalize = createRandom(seed);
+  const rollTreat = createRandom(seed ^ 0xa511e9b3);
   const rewardValueMultiplier = s.freebie ? 1 : 1 / 1.1;
   // Cat in Hell's rare jackpot is excluded from the expected treat yield.
   const selectedBasket = HALLOWEEN_BASKETS.find(item => item.id === s.basketLevel)!;
-  const treatsPerAttack = (selectedBasket.treatChance + (s.scaryClothing ? 10 : 0) + (s.weapon === "scary" ? 10 : 0)) / 100 * 1.2 * 1.2 * 1.15 * 1.04;
+  const treatChance = (selectedBasket.treatChance + (s.scaryClothing ? 10 : 0) + (s.weapon === "scary" ? 10 : 0)) / 100;
+  const treatsPerAttack = treatChance * 1.2 * 1.2 * 1.15 * 1.04;
   const canMultiplier = (1 + s.factionBonus / 100) * (s.company === "grocery7" ? 1.1 : 1) * (book === "fuel" ? 2 : 1);
   const canCooldown = 2 * (s.company === "restaurant10" ? 0.75 : s.company.startsWith("grocery") ? 0.9 : 1) * (book === "self" ? 0.5 : 1);
   const boosterCooldown = booster === "fhc" ? 6 : canCooldown;
@@ -136,7 +155,7 @@ export function simulateHalloween(s: HalloweenSettings, book: HalloweenBook, boo
     const row = sources.get(name) ?? { name, energy: 0, count: 0, cost: 0 };
     row.energy += energy; row.count += count; row.cost += cost; sources.set(name, row);
   };
-  let energy = s.startingEnergy, basket = 0, treatCredit = 0, attacks = 0, earnedTreats = 0, exchangedTreats = 0;
+  let energy = s.startingEnergy, basket = 0, attacks = 0, earnedTreats = 0, exchangedTreats = 0;
   let cashbackTreats = 0, rewardTreats = 0, cost = s.otherCost;
   let wastedRegeneration = 0, wastedDarkEnergy = 0, boosterCount = 0;
   let cooldown = s.startingCooldown, nextDrug = s.drugDelay * 60;
@@ -176,14 +195,18 @@ export function simulateHalloween(s: HalloweenSettings, book: HalloweenBook, boo
     // Cashback is calculated before Freebie (Torn patch #218, 16 November 2021).
     const cashback = s.cashback ? Math.floor(quantity / 10) : 0;
     const darkEnergy = s.darkPower ? 5 * (quantity + freebieTreats) : 0;
-    if (energy + darkEnergy > 1000) return;
+    // A rare stacked drop can exceed the cap even from empty. Spend every affordable
+    // attack first, then exchange the whole basket and record unavoidable lost energy.
+    if (energy + darkEnergy > 1000 && !(darkEnergy > 1000 && energy < 25)) return;
+    const acceptedEnergy = Math.min(darkEnergy, Math.max(0, 1000 - energy));
+    const energyWasted = darkEnergy - acceptedEnergy;
     exchanges.push({ treats: quantity, freebieTreats, cashbackTreats: cashback,
-      energyBefore: energy, energyReturned: darkEnergy, afterEvent });
+      energyBefore: energy, energyReturned: acceptedEnergy, energyWasted, afterEvent });
     basket = cashback;
     cashbackTreats += cashback; exchangedTreats += quantity;
     rewardTreats += quantity + freebieTreats;
-    energy += darkEnergy;
-    source("Dark Power returns", darkEnergy);
+    energy += acceptedEnergy; wastedDarkEnergy += energyWasted;
+    source("Dark Power returns", acceptedEnergy);
   };
   const attack = () => {
     while (true) {
@@ -194,11 +217,9 @@ export function simulateHalloween(s: HalloweenSettings, book: HalloweenBook, boo
       // Pay the full attack cost before rolling for a 25E Revitalize return.
       energy -= 25;
       attacks++;
-      earnedTreats += treatsPerAttack;
-      // Carry fractional expected drops forward separately; only whole treats enter the basket.
-      treatCredit += treatsPerAttack;
-      const wholeTreats = Math.floor(treatCredit + 1e-9);
-      basket += wholeTreats; treatCredit = Math.max(0, treatCredit - wholeTreats);
+      const droppedTreats = rollHalloweenTreats(treatChance, rollTreat);
+      earnedTreats += droppedTreats;
+      basket += droppedTreats;
       const returned = revitalize > 0 && rollRevitalize() < revitalize ? 25 : 0;
       energy += returned;
       source("Revitalize returns", returned, returned ? 1 : 0);
@@ -280,7 +301,8 @@ export function simulateHalloween(s: HalloweenSettings, book: HalloweenBook, boo
   const effectiveTreatPrice = exchangedTreats ? revenue / exchangedTreats : s.treatPrice * rewardValueMultiplier;
   timeline[timeline.length - 1].profit = revenue - cost;
   return { id: `${book}:${booster}`, book, booster, attacks, treatsPerAttack, earnedTreats, exchangedTreats, cashbackTreats,
-    unexchangedTreats: basket + treatCredit, rewardTreats, exchanges, refills, simulationRuns: 1,
+    unexchangedTreats: basket, rewardTreats, exchanges, refills, simulationRuns: 1,
+    profitRange: { low: revenue - cost, high: revenue - cost },
     revenue, cost, profit: revenue - cost, roi: cost ? (revenue - cost) / cost : null,
     effectiveTreatPrice,
     // Express break-even in the same with-Freebie units as the price input.
@@ -289,16 +311,29 @@ export function simulateHalloween(s: HalloweenSettings, book: HalloweenBook, boo
     wastedRegeneration, wastedDarkEnergy, unusedEnergy: energy, timeline };
 }
 
-/** Average actual proc simulations; reward valuation and treats per attack stay deterministic. */
+/** Interpolated empirical percentiles: the central 80% of simulated event outcomes. */
+export function getHalloweenProfitRange(profits: readonly number[]): HalloweenResult["profitRange"] {
+  if (!profits.length) throw new Error("At least one profit outcome is required.");
+  const sorted = [...profits].sort((a, b) => a - b);
+  const percentile = (fraction: number) => {
+    const index = (sorted.length - 1) * fraction;
+    const lower = Math.floor(index), upper = Math.ceil(index);
+    return sorted[lower] + (sorted[upper] - sorted[lower]) * (index - lower);
+  };
+  return { low: percentile(0.1), high: percentile(0.9) };
+}
+
+/** Average whole-treat/Revitalize simulations; reward valuation stays at the flat input price. */
 export function estimateHalloween(s: HalloweenSettings, book: HalloweenBook, booster: string): HalloweenResult {
   const first = simulateHalloween(s, book, booster);
-  if (s.weapon !== "revitalize") return first;
+  const profits = [first.profit];
   const total = { ...first, exchanges: [], refills: [], sources: [], timeline: first.timeline.map(point => ({ ...point })) } as HalloweenResult;
   const totals = new Map(first.sources.map(row => [row.name, { ...row }]));
   const averagedFields = ["attacks", "earnedTreats", "exchangedTreats", "cashbackTreats", "unexchangedTreats",
     "rewardTreats", "revenue", "cost", "profit", "boosterCount", "wastedRegeneration", "wastedDarkEnergy", "unusedEnergy"] as const;
-  for (let run = 1; run < HALLOWEEN_REVITALIZE_RUNS; run++) {
-    const row = simulateHalloween(s, book, booster, (REVITALIZE_SEED + Math.imul(run, 0x9e3779b9)) >>> 0);
+  for (let run = 1; run < HALLOWEEN_SIMULATION_RUNS; run++) {
+    const row = simulateHalloween(s, book, booster, (SIMULATION_SEED + Math.imul(run, 0x9e3779b9)) >>> 0);
+    profits.push(row.profit);
     for (const field of averagedFields) total[field] += row[field];
     row.sources.forEach(item => {
       const sum = totals.get(item.name) ?? { name: item.name, energy: 0, count: 0, cost: 0 };
@@ -307,16 +342,17 @@ export function estimateHalloween(s: HalloweenSettings, book: HalloweenBook, boo
     });
     row.timeline.forEach((point, index) => { total.timeline[index].profit += point.profit; });
   }
-  for (const field of averagedFields) total[field] /= HALLOWEEN_REVITALIZE_RUNS;
+  for (const field of averagedFields) total[field] /= HALLOWEEN_SIMULATION_RUNS;
   total.sources = [...totals.values()].map(row => ({ ...row,
-    energy: row.energy / HALLOWEEN_REVITALIZE_RUNS, count: row.count / HALLOWEEN_REVITALIZE_RUNS, cost: row.cost / HALLOWEEN_REVITALIZE_RUNS }));
-  total.timeline.forEach(point => { point.profit /= HALLOWEEN_REVITALIZE_RUNS; });
+    energy: row.energy / HALLOWEEN_SIMULATION_RUNS, count: row.count / HALLOWEEN_SIMULATION_RUNS, cost: row.cost / HALLOWEEN_SIMULATION_RUNS }));
+  total.timeline.forEach(point => { point.profit /= HALLOWEEN_SIMULATION_RUNS; });
   total.profit = total.revenue - total.cost;
   total.timeline[total.timeline.length - 1].profit = total.profit;
   total.roi = total.cost ? total.profit / total.cost : null;
   total.effectiveTreatPrice = total.exchangedTreats ? total.revenue / total.exchangedTreats : first.effectiveTreatPrice;
   total.breakEvenTreatPrice = total.rewardTreats ? total.cost * 1.1 / total.rewardTreats : 0;
-  total.simulationRuns = HALLOWEEN_REVITALIZE_RUNS;
+  total.simulationRuns = HALLOWEEN_SIMULATION_RUNS;
+  total.profitRange = getHalloweenProfitRange(profits);
   return total;
 }
 

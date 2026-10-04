@@ -1,6 +1,6 @@
 import { compareHalloween, type HalloweenSettings } from "../utils/halloweenProfit";
 
-// Averaging Revitalize runs is CPU work; keep input controls responsive while it runs.
+// Averaging treat-drop and Revitalize simulations is CPU work; keep inputs responsive.
 self.onmessage = (event: MessageEvent<HalloweenSettings>) => {
   try {
     self.postMessage({ results: compareHalloween(event.data), error: null });
