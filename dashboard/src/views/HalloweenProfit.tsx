@@ -6,11 +6,12 @@ import { NumberField, PopoutButton } from "../components/TrainingCalculatorInput
 import { getHalloweenPrices, type HalloweenPriceSnapshot } from "../api/halloweenPrices";
 import { ENERGY_DRINK_TIERS } from "../utils/energyDrinkStrategy";
 import { DEFAULT_HALLOWEEN, HALLOWEEN_BOOKS, HALLOWEEN_BOOSTERS,
-  HALLOWEEN_COMPANIES, HALLOWEEN_BASKETS, HALLOWEEN_SIMULATION_RUNS, estimateHalloween, validateHalloween,
+  HALLOWEEN_COMPANIES, HALLOWEEN_BASKETS, HALLOWEEN_SIMULATION_RUNS, HALLOWEEN_REFINED_RUNS, validateHalloween,
   type HalloweenBook, type HalloweenSettings, type HalloweenResult } from "../utils/halloweenProfit";
 import { formatMoney, formatCompact } from "./BookStrategy.helpers";
 import "./HalloweenProfit.css";
 import { HalloweenStrategyBreakdown } from "./HalloweenStrategyBreakdown";
+import type { HalloweenWorkerRequest, HalloweenWorkerResponse } from "../workers/halloweenProfitWorker";
 
 type NumericKey = Exclude<{ [K in keyof HalloweenSettings]: HalloweenSettings[K] extends number ? K : never }[keyof HalloweenSettings], "drugInterval">;
 const numberKeys = Object.keys(DEFAULT_HALLOWEEN).filter(key => key !== "drugInterval" && typeof DEFAULT_HALLOWEEN[key as keyof HalloweenSettings] === "number") as NumericKey[];
@@ -91,23 +92,43 @@ export function HalloweenProfit() {
   const [calculation, setCalculation] = React.useState<{
     settings: HalloweenSettings; results: HalloweenResult[]; error: string | null;
   } | null>(null);
+  const [refinement, setRefinement] = React.useState<{ settings: HalloweenSettings } | null>(null);
+  const requestedRuns = refinement?.settings === settings ? HALLOWEEN_REFINED_RUNS : HALLOWEEN_SIMULATION_RUNS;
+  const [job, setJob] = React.useState<{
+    settings: HalloweenSettings; runs: number; completed: number; total: number; error: string | null;
+  } | null>(null);
   React.useEffect(() => {
     if (validationError) return;
     let cancelled = false;
+    const total = HALLOWEEN_BOOKS.length * HALLOWEEN_BOOSTERS.length;
+    setJob({ settings, runs: requestedRuns, completed: 0, total, error: null });
     const finish = (results: HalloweenResult[], error: string | null) => {
-      if (!cancelled) setCalculation({ settings, results, error });
+      if (cancelled) return;
+      // A failed refinement must not discard the current 128-run comparison.
+      if (!error || requestedRuns === HALLOWEEN_SIMULATION_RUNS) setCalculation({ settings, results, error });
+      setJob({ settings, runs: requestedRuns, completed: total, total, error });
     };
     const worker = new Worker(new URL("../workers/halloweenProfitWorker.ts", import.meta.url), { type: "module" });
-    worker.onmessage = (event: MessageEvent<{ results: HalloweenResult[]; error: string | null }>) => {
-      finish(event.data.results, event.data.error);
+    worker.onmessage = (event: MessageEvent<HalloweenWorkerResponse>) => {
+      if (cancelled) return;
+      if (event.data.type === "progress") {
+        setJob({ settings, runs: requestedRuns, completed: event.data.completed, total: event.data.total, error: null });
+      } else {
+        finish(event.data.results, event.data.error);
+        worker.terminate();
+      }
     };
-    worker.onerror = () => finish([], "Unable to calculate Halloween strategies. Try changing an input or reloading the page.");
-    worker.postMessage(settings);
+    worker.onerror = () => { finish([], "Unable to calculate Halloween strategies. Try again or change an input."); worker.terminate(); };
+    worker.postMessage({ settings, runs: requestedRuns } satisfies HalloweenWorkerRequest);
     return () => { cancelled = true; worker.terminate(); };
-  }, [settings, validationError]);
+  }, [settings, validationError, requestedRuns, refinement]);
   const currentCalculation = calculation?.settings === settings ? calculation : null;
   const error = validationError ?? currentCalculation?.error;
   const results = error ? [] : currentCalculation?.results ?? [];
+  const displayedRuns = results[0]?.simulationRuns ?? HALLOWEEN_SIMULATION_RUNS;
+  const currentJob = job?.settings === settings && job.runs === requestedRuns ? job : null;
+  const refinementError = requestedRuns === HALLOWEEN_REFINED_RUNS ? currentJob?.error : null;
+  const refining = requestedRuns === HALLOWEEN_REFINED_RUNS && displayedRuns !== HALLOWEEN_REFINED_RUNS && !refinementError;
   const ranked = results.filter(row => books.includes(row.book)).sort((a, b) => b.profit - a.profit);
   const rows = sort === "lowest" ? [...ranked].reverse() : ranked;
   const best = ranked[0];
@@ -121,9 +142,28 @@ export function HalloweenProfit() {
   ].filter(row => Math.round(row.energy * 10) > 0) : [];
   const selectedNoBooster = results.find(row => row.book === selected?.book && row.booster === "none");
   const selectedNoBook = results.find(row => row.book === "none" && row.booster === selected?.booster);
-  const alternativeWeapon = React.useMemo(() => selected && !error
-    ? estimateHalloween({ ...settings, weapon: settings.weapon === "scary" ? "revitalize" : "scary" }, selected.book, selected.booster) : null,
-  [settings, selected, error]);
+  const [alternative, setAlternative] = React.useState<{
+    settings: HalloweenSettings; id: string; runs: number; result: HalloweenResult;
+  } | null>(null);
+  const selectedBook = selected?.book, selectedBooster = selected?.booster;
+  React.useEffect(() => {
+    if (!selectedBook || !selectedBooster || error) return;
+    let cancelled = false;
+    const worker = new Worker(new URL("../workers/halloweenProfitWorker.ts", import.meta.url), { type: "module" });
+    worker.onmessage = (event: MessageEvent<HalloweenWorkerResponse>) => {
+      if (event.data.type !== "result") return;
+      if (!cancelled && !event.data.error && event.data.results[0]) {
+        setAlternative({ settings, id: `${selectedBook}:${selectedBooster}`, runs: displayedRuns, result: event.data.results[0] });
+      }
+      worker.terminate();
+    };
+    worker.onerror = () => worker.terminate();
+    worker.postMessage({ settings: { ...settings, weapon: settings.weapon === "scary" ? "revitalize" : "scary" },
+      runs: displayedRuns, strategy: { book: selectedBook, booster: selectedBooster } } satisfies HalloweenWorkerRequest);
+    return () => { cancelled = true; worker.terminate(); };
+  }, [settings, selectedBook, selectedBooster, displayedRuns, error]);
+  const alternativeWeapon = alternative?.settings === settings && alternative.id === selected?.id && alternative.runs === displayedRuns
+    ? alternative.result : null;
   const chart = selected?.timeline.map((point, index) => ({ ...point, baseline: baseline?.timeline[index].profit }));
   const change = <K extends keyof HalloweenSettings>(key: K, value: HalloweenSettings[K]) => setOptions(current => ({ ...current, [key]: value }));
   const field = (key: NumericKey, label: string, suffix?: string, title?: string, disabled = false) =>
@@ -227,8 +267,16 @@ export function HalloweenProfit() {
         <MetricCard label="Best without a book" value={formatMoney(bestWithoutBook.profit)} detail={boosterName(bestWithoutBook.booster)} icon={<Wallet size={16} />} />
         <MetricCard label="Baseline net profit" value={formatMoney(baseline.profit)} detail="Same weapon, company, drugs, refills and free energy" icon={<Swords size={16} />} />
       </div>
-      <section className="panel"><PanelHeader title="Strategy comparison" control={<label className="halloween-sort">Sort <select value={sort} onChange={event => setSort(event.target.value)}><option value="highest">Highest profit first</option><option value="lowest">Lowest profit first</option></select></label>} />
-        <p className="halloween-note">{ranked.length} strategies · Select a row to inspect its profit and energy breakdown. Smaller figures show the difference from no book and no paid boosters, with the same weapon and energy settings. Figures average {HALLOWEEN_SIMULATION_RUNS} repeatable simulations with whole attacks, random whole-treat drops and Revitalize rolls where applicable.</p>
+      <section className="panel"><PanelHeader title="Strategy comparison" control={<div className="halloween-comparison-controls">
+        <button type="button" className="book-strategy-popout-button" disabled={refining || displayedRuns === HALLOWEEN_REFINED_RUNS}
+          onClick={() => setRefinement({ settings })} title="Recalculate all strategies with 1,024 simulations for a more precise estimate. Changing an input returns to 128 runs.">
+          {refining ? "Refining…" : displayedRuns === HALLOWEEN_REFINED_RUNS ? "Refined · 1,024 runs" : "Refine estimate"}
+        </button>
+        <label className="halloween-sort">Sort <select value={sort} onChange={event => setSort(event.target.value)}><option value="highest">Highest profit first</option><option value="lowest">Lowest profit first</option></select></label>
+      </div>} />
+        {refining && <p className="halloween-note" role="status">Refining all strategies to 1,024 simulations · {currentJob?.completed ?? 0} / {currentJob?.total ?? 40} complete. Showing the current 128-run estimates until finished.</p>}
+        {refinementError && <p className="halloween-error" role="alert">Refinement failed. Your 128-run estimates are still shown. {refinementError}</p>}
+        <p className="halloween-note">{ranked.length} strategies · Select a row to inspect its profit and energy breakdown. Smaller figures show the difference from no book and no paid boosters, with the same weapon and energy settings. Figures average {displayedRuns.toLocaleString()} repeatable simulations with whole attacks, random whole-treat drops and Revitalize rolls where applicable.</p>
         <p className="halloween-note">Net profit shows the average and a likely range covering the middle 80% of simulated outcomes. Strategies are ranked by average profit.</p>
         <div className="halloween-table-scroll"><table className="halloween-table"><thead><tr><th>Book / booster</th><th>Boosters</th><th>Attacks</th><th>Treats exchanged</th><th>Reward value</th><th>Total spent</th><th>Average net profit</th></tr></thead>
           <tbody>{rows.map(row => <tr key={row.id} className={row.id === selected.id ? "selected" : ""} onClick={() => setSelectedId(row.id)}>
@@ -278,10 +326,10 @@ export function HalloweenProfit() {
         Scary clothing is {settings.scaryClothing ? "included" : "excluded"} for both weapon choices. Cat in Hell excluded. Cashback and other basket rewards are calculated separately.
       </p>}
       <p>This is an expected-value comparison, not a prediction of individual drops. The selected basket level stays fixed throughout the event; automatic basket progression is not modelled. The Upgrades settings control Dark Power, Freebie, Cashback and Mortal Coil. All other basket upgrades are assumed owned, but Cat in Hell and Inflation are excluded from the calculation. The basket starts empty, and every attack succeeds. Each book covers the full event; its remaining 24 days have no assigned value. No book purchase cost is assumed.</p>
-      <p>The likely profit range uses the 10th and 90th percentiles of the same {HALLOWEEN_SIMULATION_RUNS} runs used for the average: roughly 10% of simulated outcomes fall below it and 10% above it. It reflects random treat drops and Revitalize procs where applicable, with prices and all other assumptions held fixed. It is an estimated range of event outcomes, not a guarantee or a confidence interval for the average.</p>
+      <p>The likely profit range uses the 10th and 90th percentiles of the same {displayedRuns.toLocaleString()} runs used for the average: roughly 10% of simulated outcomes fall below it and 10% above it. It reflects random treat drops and Revitalize procs where applicable, with prices and all other assumptions held fixed. It is an estimated range of event outcomes, not a guarantee or a confidence interval for the average.</p>
       <p>Only one finishing weapon is used. Revitalize returns 25E on a successful proc and gives up the scary-weapon treat bonus. Recycled energy is attacked again.</p>
       <p>Dark Power is {settings.darkPower ? "enabled" : "disabled"}, Freebie is {settings.freebie ? "enabled" : "disabled"}, and Cashback is {settings.cashback ? "enabled" : "disabled"}. Mortal Coil is {settings.mortalCoil ? "enabled, adding one treat per hour (168 over the event)" : "disabled"}. Exchanges target 100 treats and exchange the whole basket. With Freebie and Dark Power enabled, a 100-treat exchange returns 550E and requires no more than 450E already held. If an attack skips 100, the model tries for 110 or 120. Once the basket reaches 120 or more, it exchanges at the first safe opportunity, even if the total is not a multiple of 10. If a rare stacked drop makes the exchange too large even from empty, the model spends all energy that can fund attacks, exchanges the basket and records energy lost above the 1,000E cap. Freebie and Cashback are rounded down per batch; Cashback is calculated before Freebie. During the final hour, exchanges below 100 are allowed. The model prefers multiples of 10 while attacks are available, but exchanges a smaller non-multiple when attacks stall. Baskets below 10 are saved until the final minute. Returned energy funds more attacks before the cutoff; any remaining basket and Cashback are then cashed out without post-event attacks.</p>
-      <p>The entered price per treat includes Freebie's item bonus; disabling Freebie divides that value by 1.1. Revenue and the graph account for the actual whole Freebie rewards in each batch; the effective value per treat reflects any rounding. Break-even is quoted in the same units as the price input. Each attack rolls the basket's treat chance, then independently rolls Doubler (20%), Tripler (10%), Quadrupler (5%) and Quintupler (1%). These multipliers can stack. Treats enter the basket as whole numbers; the treats-per-attack figure above is the theoretical average. Every attack requires 25E upfront. Revitalize rolls the selected chance after each attack, returning either 25E or nothing. Returned energy can fund more whole attacks, and unused energy carries forward. Results average {HALLOWEEN_SIMULATION_RUNS} repeatable simulations, so displayed averages may include fractional attacks, treats or procs. Matching rolls across strategies keep comparisons consistent, and reward values use your flat price per treat.</p>
+      <p>The entered price per treat includes Freebie's item bonus; disabling Freebie divides that value by 1.1. Revenue and the graph account for the actual whole Freebie rewards in each batch; the effective value per treat reflects any rounding. Break-even is quoted in the same units as the price input. Each attack rolls the basket's treat chance, then independently rolls Doubler (20%), Tripler (10%), Quadrupler (5%) and Quintupler (1%). These multipliers can stack. Treats enter the basket as whole numbers; the treats-per-attack figure above is the theoretical average. Every attack requires 25E upfront. Revitalize rolls the selected chance after each attack, returning either 25E or nothing. Returned energy can fund more whole attacks, and unused energy carries forward. Results average {displayedRuns.toLocaleString()} repeatable simulations, so displayed averages may include fractional attacks, treats or procs. Matching rolls across strategies keep comparisons consistent, and reward values use your flat price per treat.</p>
       <p>The event starts at 12:00 TCT and runs for 168 hours with continuous activity. Supplies per attack and other event costs are fixed at $0. The schedule uses one-minute steps and whole attacks, with no attack-rate limit, hospital time or overdoses. Natural regeneration is capped by maximum energy. Daily and special refills aim for 0E, waiting for other energy to fund another attack where practical; daily refills are always used before the day ends. For FHCs, energy is spent on attacks in preparation for cooldown becoming available, then each FHC is used immediately. A remainder below 25E never delays an FHC and is deducted from the energy it adds. Exchanges never raise energy above 1,000E. Returned energy funds more attacks during the event, but cannot fund Halloween attacks after the event ends.</p>
       <p>Xanax is used in every strategy. Daily energy refills reset at midnight TCT and are assumed available and used on all eight calendar dates, including the first day. Their cost is excluded from profit calculations. Special refills take priority at 0E and are all used before the event ends. Up to 100 company points are redeemed daily. Jobs award new points at 18:00 TCT.</p>
       <p>Eggs, cans and FHCs share booster cooldown. An item can be used while cooldown is below the maximum and may take it above that maximum. No further item is used until cooldown falls below the limit. Owned eggs are used first. Booster costs cover only this event; edit prices to reflect your own costs. Starting energy has no assigned cost.</p>

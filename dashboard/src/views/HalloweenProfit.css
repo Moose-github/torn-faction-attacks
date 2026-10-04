@@ -30,6 +30,8 @@
 .halloween-profit .metric-card { min-width: 0; }
 .halloween-profit .metric-card-value { font-size: clamp(20px,2vw,27px); }
 .halloween-sort { display: flex; gap: 10px; align-items: center; font-size: 12px; }
+.halloween-comparison-controls { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 10px; }
+.halloween-comparison-controls button:disabled { opacity: .6; cursor: default; }
 .halloween-table-scroll { overflow: auto; border: 1px solid var(--border-solid); border-radius: 8px; max-height: 560px; min-width: 0; }
 .halloween-table { width: 100%; border-collapse: collapse; text-align: left; font-variant-numeric: tabular-nums; font-size: 13px; }
 .halloween-table th { text-transform: uppercase; letter-spacing: .025em; font-size: 10px; color: var(--text-muted); background: var(--panel-muted-bg); position: sticky; top: 0; z-index: 1; }

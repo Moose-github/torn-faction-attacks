@@ -6,6 +6,29 @@ const source = (result: ReturnType<typeof simulateHalloween>, name: string) => r
 const compareSingleRuns = (s: HalloweenSettings) => HALLOWEEN_BOOKS.flatMap(book => HALLOWEEN_BOOSTERS.map(booster => simulateHalloween(s, book.id, booster.id)));
 
 describe("Halloween profit model", () => {
+  it("keeps 128 runs by default and supports the audited 1,024-run refinement", () => {
+    const input = settings();
+    expect(estimateHalloween(input, "fuel", "can30")).toEqual(estimateHalloween(input, "fuel", "can30", 128));
+    const refined = estimateHalloween(input, "fuel", "can30", 1024);
+    expect(refined.simulationRuns).toBe(1024);
+    // Independent development benchmark on c8b4e2b with these same nested seeds.
+    expect(refined.profit).toBeCloseTo(2094822709.517046, 3);
+    expect(refined.profitRange.low).toBeCloseTo(1963534090.9090905, 3);
+    expect(refined.profitRange.high).toBeCloseTo(2235579545.454545, 3);
+    expect(refined.timeline.at(-1)!.profit).toBe(refined.profit);
+  });
+  it("passes the requested run count to every strategy and reports progress", () => {
+    const progress: number[][] = [];
+    const rows = compareHalloween(settings(), 1, (completed, total) => progress.push([completed, total]));
+    expect(progress).toEqual(Array.from({ length: 40 }, (_, index) => [index + 1, 40]));
+    expect(rows.every(row => row.simulationRuns === 1)).toBe(true);
+    const first = simulateHalloween(settings(), "none", "none");
+    expect(rows[0].profit).toBe(first.profit);
+    expect(rows[0].profitRange).toEqual({ low: first.profit, high: first.profit });
+    for (const runs of [0, -1, 1.5, 1025, NaN, Infinity]) {
+      expect(() => estimateHalloween(settings(), "none", "none", runs)).toThrow("Simulation count");
+    }
+  });
   it("calculates the middle 80% with numeric sorting and interpolated percentiles", () => {
     const profits = [300, -100, 700, 0, 600, 100, 800, 200, 500, 400];
     const original = [...profits];

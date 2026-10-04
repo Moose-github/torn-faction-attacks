@@ -2,6 +2,7 @@ import { ENERGY_DRINK_TIERS } from "./energyDrinkStrategy";
 
 export const HALLOWEEN_HOURS = 168;
 export const HALLOWEEN_SIMULATION_RUNS = 128;
+export const HALLOWEEN_REFINED_RUNS = 1024;
 const SIMULATION_SEED = 0x6d2b79f5;
 const EVENT_MINUTES = HALLOWEEN_HOURS * 60;
 const CLEANUP_START = EVENT_MINUTES - 60;
@@ -347,14 +348,15 @@ export function getHalloweenProfitRange(profits: readonly number[]): HalloweenRe
 }
 
 /** Average whole-treat/Revitalize simulations; reward valuation stays at the flat input price. */
-export function estimateHalloween(s: HalloweenSettings, book: HalloweenBook, booster: string): HalloweenResult {
+export function estimateHalloween(s: HalloweenSettings, book: HalloweenBook, booster: string, runs = HALLOWEEN_SIMULATION_RUNS): HalloweenResult {
+  if (!Number.isInteger(runs) || runs < 1 || runs > HALLOWEEN_REFINED_RUNS) throw new Error("Simulation count must be a whole number from 1 to 1024.");
   const first = simulateHalloween(s, book, booster);
   const profits = [first.profit];
   const total = { ...first, exchanges: [], refills: [], sources: [], timeline: first.timeline.map(point => ({ ...point })) } as HalloweenResult;
   const totals = new Map(first.sources.map(row => [row.name, { ...row }]));
   const averagedFields = ["attacks", "earnedTreats", "exchangedTreats", "cashbackTreats", "unexchangedTreats",
     "rewardTreats", "revenue", "cost", "profit", "boosterCount", "wastedRegeneration", "wastedDarkEnergy", "unusedEnergy"] as const;
-  for (let run = 1; run < HALLOWEEN_SIMULATION_RUNS; run++) {
+  for (let run = 1; run < runs; run++) {
     const row = simulateHalloween(s, book, booster, (SIMULATION_SEED + Math.imul(run, 0x9e3779b9)) >>> 0);
     profits.push(row.profit);
     for (const field of averagedFields) total[field] += row[field];
@@ -365,20 +367,27 @@ export function estimateHalloween(s: HalloweenSettings, book: HalloweenBook, boo
     });
     row.timeline.forEach((point, index) => { total.timeline[index].profit += point.profit; });
   }
-  for (const field of averagedFields) total[field] /= HALLOWEEN_SIMULATION_RUNS;
+  for (const field of averagedFields) total[field] /= runs;
   total.sources = [...totals.values()].map(row => ({ ...row,
-    energy: row.energy / HALLOWEEN_SIMULATION_RUNS, count: row.count / HALLOWEEN_SIMULATION_RUNS, cost: row.cost / HALLOWEEN_SIMULATION_RUNS }));
-  total.timeline.forEach(point => { point.profit /= HALLOWEEN_SIMULATION_RUNS; });
+    energy: row.energy / runs, count: row.count / runs, cost: row.cost / runs }));
+  total.timeline.forEach(point => { point.profit /= runs; });
   total.profit = total.revenue - total.cost;
   total.timeline[total.timeline.length - 1].profit = total.profit;
   total.roi = total.cost ? total.profit / total.cost : null;
   total.effectiveTreatPrice = total.exchangedTreats ? total.revenue / total.exchangedTreats : first.effectiveTreatPrice;
   total.breakEvenTreatPrice = total.rewardTreats ? total.cost * 1.1 / total.rewardTreats : 0;
-  total.simulationRuns = HALLOWEEN_SIMULATION_RUNS;
+  total.simulationRuns = runs;
   total.profitRange = getHalloweenProfitRange(profits);
   return total;
 }
 
-export function compareHalloween(s: HalloweenSettings): HalloweenResult[] {
-  return HALLOWEEN_BOOKS.flatMap(book => HALLOWEEN_BOOSTERS.map(booster => estimateHalloween(s, book.id, booster.id)));
+export function compareHalloween(s: HalloweenSettings, runs = HALLOWEEN_SIMULATION_RUNS,
+  onProgress?: (completed: number, total: number) => void): HalloweenResult[] {
+  let completed = 0;
+  const total = HALLOWEEN_BOOKS.length * HALLOWEEN_BOOSTERS.length;
+  return HALLOWEEN_BOOKS.flatMap(book => HALLOWEEN_BOOSTERS.map(booster => {
+    const result = estimateHalloween(s, book.id, booster.id, runs);
+    onProgress?.(++completed, total);
+    return result;
+  }));
 }
