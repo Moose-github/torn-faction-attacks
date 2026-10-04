@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { compareHalloween, estimateHalloween, rollHalloweenTreats, getHalloweenProfitRange, HALLOWEEN_SIMULATION_RUNS, HALLOWEEN_TREAT_OUTCOMES, HALLOWEEN_BOOKS, HALLOWEEN_BOOSTERS, DEFAULT_HALLOWEEN, simulateHalloween, validateHalloween, type HalloweenSettings, type HalloweenBasket } from "./halloweenProfit";
+import { compareHalloween, estimateHalloween, rollHalloweenTreats, getHalloweenProfitRange, getSimulatedTreatsPerAttack, HALLOWEEN_SIMULATION_RUNS, HALLOWEEN_TREAT_OUTCOMES, HALLOWEEN_BOOKS, HALLOWEEN_BOOSTERS, DEFAULT_HALLOWEEN, simulateHalloween, validateHalloween, type HalloweenSettings, type HalloweenBasket } from "./halloweenProfit";
 
 const settings = (overrides: Partial<HalloweenSettings> = {}): HalloweenSettings => ({ ...DEFAULT_HALLOWEEN, ...overrides });
 const source = (result: ReturnType<typeof simulateHalloween>, name: string) => result.sources.find(row => row.name === name);
@@ -103,12 +103,16 @@ describe("Halloween profit model", () => {
       attacks: samples.reduce((sum, sample) => sum + sample.treatDrops[index].attacks, 0) / runs })));
     expect(row.treatDrops.reduce((sum, drop) => sum + drop.attacks, 0)).toBeCloseTo(row.attacks, 8);
     expect(row.treatDrops.reduce((sum, drop) => sum + drop.treats * drop.attacks, 0)).toBeCloseTo(row.earnedTreats - 168, 8);
+    const attackTreats = samples.reduce((sum, sample) => sum + sample.earnedTreats - 168, 0);
+    const attacks = samples.reduce((sum, sample) => sum + sample.attacks, 0);
+    expect(getSimulatedTreatsPerAttack(row)).toBeCloseTo(attackTreats / attacks, 12);
   });
   it.each(["scary", "revitalize"] as const)("averages whole random treats near the theoretical rate with %s", weapon => {
     const input = settings({ weapon, darkPower: false, mortalCoil: false, specialRefills: 100 });
     const mean = estimateHalloween(input, "fuel", "can30");
     expect(mean.simulationRuns).toBe(HALLOWEEN_SIMULATION_RUNS);
     expect(Math.abs(mean.earnedTreats / mean.attacks - mean.treatsPerAttack)).toBeLessThan(0.02);
+    expect(getSimulatedTreatsPerAttack(mean)).toBeCloseTo(mean.earnedTreats / mean.attacks, 12);
     const totals = [1, 2, 3, 4].map(seed => simulateHalloween(input, "fuel", "can30", seed).earnedTreats);
     expect(totals.every(Number.isInteger)).toBe(true);
     expect(new Set(totals).size).toBeGreaterThan(1);

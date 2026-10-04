@@ -45,6 +45,7 @@
 .halloween-profit .halloween-table tr:has(button):hover td { background: var(--panel-hover-bg); cursor: pointer; }
 .halloween-table button { border: 0; color: var(--text-main); background: transparent; padding: 0; text-align: left; cursor: pointer; font: inherit; line-height: 1.5; }
 .halloween-table small { display: block; color: var(--text-muted); margin-top: 4px; }
+.halloween-table .halloween-profit-range { display: inline; margin: 0 0 0 8px; }
 .halloween-positive { color: #16834c; font-weight: 600; }
 .halloween-negative, .halloween-error { color: #d42e4a; }
 :root[data-theme=dark] .halloween-positive { color: #83e1b0; }

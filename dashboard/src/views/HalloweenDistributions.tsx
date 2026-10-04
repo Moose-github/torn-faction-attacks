@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Bar, BarChart, CartesianGrid, ReferenceArea, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import type { HalloweenResult } from "../utils/halloweenProfit";
+import { getSimulatedTreatsPerAttack, type HalloweenResult } from "../utils/halloweenProfit";
 import { getHalloweenProfitDistribution, type HalloweenProfitBin } from "../utils/halloweenDistributions";
 import { formatMoney } from "./BookStrategy.helpers";
 import "./HalloweenDistributions.css";
@@ -8,7 +8,7 @@ import "./HalloweenDistributions.css";
 const precise = (value: number) => value.toLocaleString(undefined, { maximumSignificantDigits: 3 });
 const percent = (value: number) => `${precise(value)}%`;
 const count = (value: number) => value >= 1 ? value.toLocaleString(undefined, { maximumFractionDigits: 1 }) : precise(value);
-const rate = (value: number) => value.toLocaleString(undefined, { maximumFractionDigits: 5 });
+const rate = (value: number) => value.toLocaleString(undefined, { maximumFractionDigits: 6 });
 const money = (value: number) => value.toLocaleString(undefined, { style: "currency", currency: "USD", maximumFractionDigits: 0 });
 
 function ProfitTooltip({ active, payload }: { active?: boolean; payload?: { payload?: HalloweenProfitBin }[] }) {
@@ -23,8 +23,7 @@ function ProfitTooltip({ active, payload }: { active?: boolean; payload?: { payl
 export function HalloweenDistributions({ selected, strategyName }: { selected: HalloweenResult; strategyName: string }) {
   const [open, setOpen] = useState(false);
   const distribution = useMemo(() => getHalloweenProfitDistribution(selected.profitSamples), [selected.profitSamples]);
-  const attackTreats = selected.treatDrops.reduce((sum, drop) => sum + drop.treats * drop.attacks, 0);
-  const observedRate = selected.attacks ? attackTreats / selected.attacks : 0;
+  const observedRate = getSimulatedTreatsPerAttack(selected);
   const singleProfit = distribution.minimum === distribution.maximum;
   const padding = singleProfit ? Math.max(1, Math.abs(distribution.minimum) * 0.01) : 0;
 

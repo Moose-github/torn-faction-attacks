@@ -87,6 +87,13 @@ export type HalloweenResult = {
   wastedClaimEnergy: number; unusedEnergy: number; timeline: { hour: number; profit: number }[];
 };
 
+/** Attack-only treat drops per attack, pooled across all simulated events. */
+export function getSimulatedTreatsPerAttack(result: Pick<HalloweenResult, "attacks" | "treatDrops">): number {
+  return result.attacks > 0
+    ? result.treatDrops.reduce((sum, drop) => sum + drop.treats * drop.attacks, 0) / result.attacks
+    : 0;
+}
+
 export function validateHalloween(s: HalloweenSettings): string | null {
   if (!HALLOWEEN_BASKETS.some(basket => basket.id === s.basketLevel)) return "Select a valid basket level.";
   const ranges: [keyof HalloweenSettings, number, number][] = [
