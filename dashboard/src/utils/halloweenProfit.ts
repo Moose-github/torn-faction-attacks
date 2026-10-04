@@ -3,6 +3,8 @@ import { ENERGY_DRINK_TIERS } from "./energyDrinkStrategy";
 export const HALLOWEEN_HOURS = 168;
 export const HALLOWEEN_SIMULATION_RUNS = 128;
 const SIMULATION_SEED = 0x6d2b79f5;
+const EVENT_MINUTES = HALLOWEEN_HOURS * 60;
+const CLEANUP_START = EVENT_MINUTES - 60;
 export const HALLOWEEN_BASKETS = [
   { id: "horrifying", name: "Horrifying", treatChance: 70 },
   { id: "petrifying", name: "Petrifying", treatChance: 75 },
@@ -57,6 +59,7 @@ export const DEFAULT_HALLOWEEN: HalloweenSettings = {
 };
 export type HalloweenSource = { name: string; energy: number; count: number; cost: number };
 export type HalloweenExchange = {
+  minute: number; attacksBefore: number;
   treats: number; freebieTreats: number; cashbackTreats: number;
   energyBefore: number; energyReturned: number; energyWasted: number; afterEvent: boolean;
 };
@@ -189,31 +192,51 @@ export function simulateHalloween(s: HalloweenSettings, book: HalloweenBook, boo
   const exchange = (afterEvent = false) => {
     // Torn exchanges the entire basket. Never select a partial batch or exchange fractions.
     const quantity = basket;
-    // Prefer 100/110/120, but stop chasing exact multiples after the grace window.
-    if (quantity < 100 || (quantity < 120 && quantity % 10 !== 0)) return;
+    if (quantity === 0) return false;
+    const finalMinute = currentMinute === EVENT_MINUTES - 1;
+    const cleanup = currentMinute >= CLEANUP_START;
+    if (!afterEvent) {
+      if (!cleanup) {
+        // Prefer 100/110/120 during the main event.
+        if (quantity < 100 || (quantity < 120 && quantity % 10 !== 0)) return false;
+      } else {
+        // In the final hour, take smaller multiples of ten. Spend available attacks
+        // to reach a multiple when possible; exchange a non-multiple if attacks stall.
+        // Save baskets below ten until the final minute, then cash out every last treat.
+        if (quantity < 10 && !finalMinute) return false;
+        if (quantity % 10 !== 0 && quantity < 120 && energy >= 25) return false;
+      }
+    }
     const freebieTreats = s.freebie ? Math.floor(quantity / 10) : 0;
     // Cashback is calculated before Freebie (Torn patch #218, 16 November 2021).
     const cashback = s.cashback ? Math.floor(quantity / 10) : 0;
     const darkEnergy = s.darkPower ? 5 * (quantity + freebieTreats) : 0;
     // A rare stacked drop can exceed the cap even from empty. Spend every affordable
     // attack first, then exchange the whole basket and record unavoidable lost energy.
-    if (energy + darkEnergy > 1000 && !(darkEnergy > 1000 && energy < 25)) return;
+    if (!afterEvent && energy + darkEnergy > 1000 && !(darkEnergy > 1000 && energy < 25)) return false;
     const acceptedEnergy = Math.min(darkEnergy, Math.max(0, 1000 - energy));
     const energyWasted = darkEnergy - acceptedEnergy;
-    exchanges.push({ treats: quantity, freebieTreats, cashbackTreats: cashback,
+    exchanges.push({ minute: afterEvent ? EVENT_MINUTES : currentMinute, attacksBefore: attacks,
+      treats: quantity, freebieTreats, cashbackTreats: cashback,
       energyBefore: energy, energyReturned: acceptedEnergy, energyWasted, afterEvent });
     basket = cashback;
     cashbackTreats += cashback; exchangedTreats += quantity;
     rewardTreats += quantity + freebieTreats;
     energy += acceptedEnergy; wastedDarkEnergy += energyWasted;
     source("Dark Power returns", acceptedEnergy);
+    return true;
   };
   const attack = () => {
     while (true) {
       // Take a refill opportunity at zero before exchanging treats or claiming more energy.
       if (energy === 0 && useRefill()) continue;
-      exchange();
-      if (energy < 25) break;
+      const exchanged = exchange();
+      if (energy < 25) {
+        // A small exchange can leave Cashback that funds another exchange, even when
+        // Dark Power is disabled. Every successful exchange consumes a non-empty basket.
+        if (exchanged) continue;
+        break;
+      }
       // Pay the full attack cost before rolling for a 25E Revitalize return.
       energy -= 25;
       attacks++;
@@ -292,9 +315,9 @@ export function simulateHalloween(s: HalloweenSettings, book: HalloweenBook, boo
     }
     if ((minute + 1) % 60 === 0) timeline.push({ hour: (minute + 1) / 60, profit: rewardTreats * s.treatPrice / 1.1 - cost });
   }
-  // The same batch/cap rules apply after the event, but returned energy cannot fund attacks.
-  // Keep any non-qualifying basket (and Cashback remainder) out of exchanged reward value.
-  exchange(true);
+  // Cash out any remaining whole basket and its shrinking Cashback remainder.
+  // No attacks occur here: energy returned after the cutoff has no Halloween attack value.
+  while (exchange(true)) { /* Cashback is always smaller than the basket exchanged. */ }
   // Price input includes the full 10% Freebie bonus. Value actual whole bonus rewards,
   // including batches that overshoot 120, rather than crediting a fractional bonus.
   const revenue = rewardTreats * s.treatPrice / 1.1;
