@@ -1,17 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { HalloweenResult } from "../utils/halloweenProfit";
+import { getSimulatedTreatsPerAttack, type HalloweenResult } from "../utils/halloweenProfit";
 import { getHalloweenTreatReturnBreakdown } from "../utils/halloweenDistributions";
 
 const format = (value: number, digits = 4) => value.toLocaleString(undefined,
   value > 0 && value < 0.0001 ? { maximumSignificantDigits: 2 } : { maximumFractionDigits: digits });
 const rate = (value: number | null) => value === null ? "—" : format(value);
 
-function ReturnFormula() {
+function ReturnFormula({ treatsPerAttack, returnRatio }: { treatsPerAttack: number; returnRatio: number }) {
   const brace = <span className="halloween-formula-brace" aria-hidden="true"><svg viewBox="0 0 100 10" preserveAspectRatio="none">
     <path d="M1 1 C1 5 5 5 10 5 H43 C48 5 49 7 50 9 C51 7 52 5 57 5 H90 C95 5 99 5 99 1" />
   </svg></span>;
   return <div className="halloween-return-formula" role="img"
-    aria-label="0.1 from Cashback, plus 5 times 1.1 divided by 25, times 1.72224 from Dark Power-funded attacks, equals 0.4788928 additional treats per treat exchanged.">
+    aria-label={`0.1 from Cashback, plus 5 times 1.1 divided by 25, times ${format(treatsPerAttack, 6)} simulated treats per attack, equals approximately ${format(returnRatio, 7)} additional treats per treat exchanged.`}>
     <div className="halloween-formula-inputs" aria-hidden="true">
       <span className="halloween-formula-term">
         <span className="halloween-formula-value">0.1</span>
@@ -21,17 +21,20 @@ function ReturnFormula() {
       <span className="halloween-formula-term">
         <span className="halloween-formula-value">
           <span className="halloween-formula-fraction"><span>5 × 1.1</span><span>25</span></span>
-          <span>× 1.72224</span>
+          <span>× {format(treatsPerAttack, 6)}</span>
         </span>
         {brace}<span className="halloween-formula-label">Dark Power-funded attacks</span>
       </span>
     </div>
-    <span className="halloween-formula-result" aria-hidden="true">= <strong>0.4788928</strong></span>
+    <span className="halloween-formula-result" aria-hidden="true">≈ <strong>{format(returnRatio, 7)}</strong></span>
   </div>;
 }
 
 export function HalloweenTreatReturns({ selected }: { selected: HalloweenResult }) {
   const data = useMemo(() => getHalloweenTreatReturnBreakdown(selected), [selected]);
+  const treatsPerAttack = getSimulatedTreatsPerAttack(selected);
+  const darkPowerTreats = 5 * 1.1 / 25 * treatsPerAttack;
+  const returnRatio = 0.1 + darkPowerTreats;
   const [activeRound, setActiveRound] = useState<number | null>(null);
   const square = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState(0);
@@ -64,13 +67,13 @@ export function HalloweenTreatReturns({ selected }: { selected: HalloweenResult 
       <p className="halloween-return-example">Selected strategy · {selected.simulationRuns.toLocaleString()} simulated events</p>
       <p>The first block comes from attacks using that original energy. {returnText ? `${returnText}. These returns can repeat, adding further blocks.` : "No Cashback or returned energy contributes further rounds in this strategy."}</p>
       <div className="halloween-return-worked-example">
-        <h4>Worked example · Nightmarish basket + scary weapon</h4>
-        <p>Each treat exchanged generates another <strong>0.4788928 treats</strong>:<br />
+        <h4>Worked example · simulated treat-drop average</h4>
+        <p>Each treat exchanged generates approximately <strong>{format(returnRatio, 7)} additional treats</strong>:<br />
           <strong>0.1</strong> from Cashback<br />
-          <strong>0.3788928</strong> from Dark Power (including Freebie)
+          <strong>{format(darkPowerTreats, 7)}</strong> from Dark Power (including Freebie)
         </p>
-        <ReturnFormula />
-        <p>Those new treats generate returns too. Each new round is <strong>47.88928%</strong> of the previous round.</p>
+        <ReturnFormula treatsPerAttack={treatsPerAttack} returnRatio={returnRatio} />
+        <p>Those new treats generate returns too. In this example, each new round is approximately <strong>{format(returnRatio * 100, 5)}%</strong> of the previous round.</p>
       </div>
       <ul className="halloween-return-rounds" aria-label="Treats exchanged per 25E by recycling round">
         {data.parts.filter(part => part.treats > 0 || part.id === 0).map(part => {
