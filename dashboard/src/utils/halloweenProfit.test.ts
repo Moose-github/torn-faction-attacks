@@ -7,7 +7,7 @@ const compareSingleRuns = (s: HalloweenSettings) => HALLOWEEN_BOOKS.flatMap(book
 
 describe("Halloween profit model", () => {
   it("keeps 128 runs by default and supports the audited 1,024-run refinement", () => {
-    const input = settings();
+    const input = settings({ mortalCoil: true });
     expect(estimateHalloween(input, "fuel", "can30")).toEqual(estimateHalloween(input, "fuel", "can30", 128));
     const refined = estimateHalloween(input, "fuel", "can30", 1024);
     expect(refined.simulationRuns).toBe(1024);
@@ -93,7 +93,7 @@ describe("Halloween profit model", () => {
     expect([...combinations].sort((a, b) => a - b)).toEqual(HALLOWEEN_TREAT_OUTCOMES);
   });
   it.each([1, 128, 1024])("preserves the actual drop and profit samples across %s runs", runs => {
-    const input = settings({ weapon: "revitalize" });
+    const input = settings({ weapon: "revitalize", mortalCoil: true });
     const row = estimateHalloween(input, "none", "can25", runs);
     const samples = Array.from({ length: runs }, (_, run) => simulateHalloween(input, "none", "can25", (0x6d2b79f5 + Math.imul(run, 0x9e3779b9)) >>> 0));
     expect(row.profitSamples).toEqual(samples.map(sample => sample.profit));
@@ -259,13 +259,13 @@ describe("Halloween profit model", () => {
   it("caps one-off energy claims and excludes the overflow from attacks", () => {
     // Production run 39 leaves 5E after attacking the starting stack. The next
     // 1,000E claim must supply 995E, rather than creating an impossible 1,005E bar.
-    const row = simulateHalloween(settings({ extraEnergy: 1000 }), "none", "none", 2275345700);
+    const row = simulateHalloween(settings({ extraEnergy: 1000, mortalCoil: true }), "none", "none", 2275345700);
     expect(source(row, "Other one-off energy")?.energy).toBe(995);
     expect(row.wastedClaimEnergy).toBe(5);
     expect(row.attacks).toBe(1002); // The uncapped claim incorrectly funded attack 1,003.
     expect(row.sources.reduce((sum, item) => sum + item.energy, 0)).toBe(row.attacks * 25 + row.unusedEnergy);
     expect(row.exchanges.every(batch => batch.energyBefore + batch.energyReturned <= 1000)).toBe(true);
-    const fits = simulateHalloween(settings({ extraEnergy: 995 }), "none", "none", 2275345700);
+    const fits = simulateHalloween(settings({ extraEnergy: 995, mortalCoil: true }), "none", "none", 2275345700);
     expect(fits.wastedClaimEnergy).toBe(0);
     expect(fits.attacks).toBe(row.attacks);
     expect(fits.profit).toBe(row.profit);
@@ -371,7 +371,7 @@ describe("Halloween profit model", () => {
     // Disable energy feedback to isolate the deterministic hourly treats from random drops.
     const enabled = compareSingleRuns(settings({ weapon, mortalCoil: true, darkPower: false }));
     const disabled = compareSingleRuns(settings({ weapon, mortalCoil: false, darkPower: false }));
-    expect(DEFAULT_HALLOWEEN.mortalCoil).toBe(true);
+    expect(DEFAULT_HALLOWEEN.mortalCoil).toBe(false);
     enabled.forEach((row, index) => {
       const without = disabled[index];
       expect(row.earnedTreats - without.earnedTreats).toBe(168);
@@ -614,7 +614,7 @@ describe("Halloween profit model", () => {
   ])("exchanges an overflowing basket before adding more refills ($book/$booster)", input => {
     // Production run 89 previously spent the remaining refills before exchanging,
     // wasting 3,940E / 8,675E. Only the original oversized drop should be clipped.
-    const row = simulateHalloween(settings({ specialRefills: 100 }), input.book, input.booster, 1853147974);
+    const row = simulateHalloween(settings({ specialRefills: 100, mortalCoil: true }), input.book, input.booster, 1853147974);
     const overflows = row.exchanges.filter(batch => batch.energyWasted > 0);
     expect(overflows).toHaveLength(1);
     expect(overflows[0]).toMatchObject({ treats: input.treats, energyBefore: 0,

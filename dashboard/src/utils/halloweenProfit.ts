@@ -59,7 +59,7 @@ export type HalloweenSettings = {
 };
 export const DEFAULT_HALLOWEEN: HalloweenSettings = {
   basketLevel: "nightmarish",
-  treatPrice: 750000, weapon: "scary", revitalize: 12, scaryClothing: true, mortalCoil: true,
+  treatPrice: 750000, weapon: "scary", revitalize: 12, scaryClothing: true, mortalCoil: false,
   darkPower: true, freebie: true, cashback: true,
   donor: true, company: "none", factionBonus: 50, maxCooldown: 48, startingCooldown: 0,
   canPrices: [250000, 500000, 800000, 1250000, 1750000, 3000000], fhcPrice: 14000000,

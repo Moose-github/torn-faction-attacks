@@ -37,6 +37,7 @@ function BaselineDifference({ value, baseline, money = false }: { value: number;
 
 export function HalloweenProfit() {
   const [options, setOptions] = React.useState(DEFAULT_HALLOWEEN);
+  const [upgradesEdited, setUpgradesEdited] = React.useState(false);
   const [numbers, setNumbers] = React.useState(initialNumbers);
   const [xanaxPerDay, setXanaxPerDay] = React.useState(String(24 / DEFAULT_HALLOWEEN.drugInterval));
   const [prices, setPrices] = React.useState<string[]>(ENERGY_DRINK_TIERS.map(tier => tier.price));
@@ -45,20 +46,19 @@ export function HalloweenProfit() {
   const [selectedId, setSelectedId] = React.useState<string | null>(null);
   const [outcomesOpen, setOutcomesOpen] = React.useState(false);
   const [sort, setSort] = React.useState("highest");
-  const [loadingPrices, setLoadingPrices] = React.useState(false);
+  const [loadingPrices, setLoadingPrices] = React.useState(true);
   const [priceError, setPriceError] = React.useState<string | null>(null);
   const [priceSnapshot, setPriceSnapshot] = React.useState<HalloweenPriceSnapshot | null>(null);
   const [priceNotice, setPriceNotice] = React.useState<string | null>(null);
   const priceRequest = React.useRef<AbortController | null>(null);
-  React.useEffect(() => () => priceRequest.current?.abort(), []);
   const resetPrices = () => {
     priceRequest.current?.abort(); priceRequest.current = null;
     setLoadingPrices(false); setPriceError(null); setPriceSnapshot(null);
     setPrices(ENERGY_DRINK_TIERS.map(tier => tier.price));
     setNumbers(current => ({ ...current, fhcPrice: String(DEFAULT_HALLOWEEN.fhcPrice) }));
-    setPriceNotice("FHC and can prices reset to the default annual lows.");
+    setPriceNotice("FHC and can prices reset to annual lows.");
   };
-  const useWeav3rPrices = async () => {
+  const useWeav3rPrices = React.useCallback(async (automatic = false) => {
     priceRequest.current?.abort();
     const controller = new AbortController(); priceRequest.current = controller;
     setLoadingPrices(true); setPriceError(null); setPriceNotice(null);
@@ -69,11 +69,15 @@ export function HalloweenProfit() {
       setNumbers(current => ({ ...current, fhcPrice: String(snapshot.fhc.price) }));
       setPriceSnapshot(snapshot);
     } catch (error) {
-      if (!controller.signal.aborted) setPriceError(`${error instanceof Error ? error.message : "Unable to load Weav3r prices."} Your prices have not been changed.`);
+      if (!controller.signal.aborted) setPriceError(`${error instanceof Error ? error.message : "Unable to load Weav3r prices."} ${automatic ? "Annual low prices are being used instead." : "Your prices have not been changed."}`);
     } finally {
       if (priceRequest.current === controller) { priceRequest.current = null; setLoadingPrices(false); }
     }
-  };
+  }, []);
+  React.useEffect(() => {
+    void useWeav3rPrices(true);
+    return () => priceRequest.current?.abort();
+  }, [useWeav3rPrices]);
   const clearPriceSource = () => { setPriceSnapshot(null); setPriceNotice(null); setPriceError(null); };
   const panel = React.useRef<HTMLElement>(null);
   React.useEffect(() => {
@@ -173,8 +177,13 @@ export function HalloweenProfit() {
     <NumberField key={key} label={label} value={numbers[key]} suffix={suffix} title={title} disabled={disabled}
       onChange={value => { if (key === "fhcPrice") clearPriceSource(); setNumbers(current => ({ ...current, [key]: value })); }} />;
   const toggle = (key: "donor" | "scaryClothing" | "mortalCoil" | "darkPower" | "freebie" | "cashback", label: string) =>
-    <label className="halloween-toggle"><input type="checkbox" checked={options[key]} onChange={event => change(key, event.target.checked)} />{label}</label>;
+    <label className="halloween-toggle"><input type="checkbox" checked={options[key]} onChange={event => {
+      if (key !== "donor") setUpgradesEdited(true);
+      change(key, event.target.checked);
+    }} />{label}</label>;
   const reset = () => { resetPrices(); setPriceNotice(null); setOptions(DEFAULT_HALLOWEEN); setNumbers(initialNumbers());
+    setUpgradesEdited(false);
+    void useWeav3rPrices(true);
     setXanaxPerDay(String(24 / DEFAULT_HALLOWEEN.drugInterval));
     setBooks(HALLOWEEN_BOOKS.map(b => b.id)); setSelectedId(null); setPopout(null); setSort("highest"); };
   const bonusProfit = selected && selectedNoBooster ? selected.profit - selectedNoBooster.profit : 0;
@@ -186,7 +195,7 @@ export function HalloweenProfit() {
       <div><div className="panel-kicker"><Ghost size={18} /> Halloween calculator</div><h1>Halloween profit</h1>
         <p>Find the books and boosters that make your seven days of attacking most profitable.</p></div>
       <button type="button" className="book-strategy-popout-button" onClick={reset}><RotateCcw size={15} />Reset</button>
-      <div className="halloween-assumptions"><span className="halloween-upgrades-assumption">{options.mortalCoil && options.darkPower && options.freebie && options.cashback ? "All basket upgrades purchased" : "All other basket upgrades purchased"}</span><span>100% attack success</span><span>All energy used for attacks</span><span>Full 7-day book overlap</span></div>
+      <div className="halloween-assumptions">{!upgradesEdited && <span className="halloween-upgrades-assumption">All basket upgrades except Mortal Coil</span>}<span>100% attack success</span><span>All energy used for attacks</span><span>Full 7-day book overlap</span></div>
     </section>
 
     <section className="panel book-strategy-input-panel halloween-settings" ref={panel}>
@@ -231,17 +240,20 @@ export function HalloweenProfit() {
           </>}
           {popout === "Prices" && <>
             <div className="halloween-wide halloween-price-actions">
-              <button type="button" className="book-strategy-popout-button" disabled={loadingPrices} onClick={useWeav3rPrices}>{loadingPrices ? "Loading Weav3r prices…" : "Use Weav3r prices"}</button>
-              <button type="button" className="book-strategy-popout-button" onClick={resetPrices}><RotateCcw size={14} />Reset to annual lows</button>
+              <button type="button" className="book-strategy-popout-button" disabled={loadingPrices} onClick={() => void useWeav3rPrices()}>{loadingPrices ? "Loading Weav3r prices…" : "Use Weav3r prices"}</button>
+              <button type="button" className="book-strategy-popout-button" onClick={resetPrices}><RotateCcw size={14} />Use annual low pricing</button>
             </div>
             <p className="halloween-wide">Applies to FHCs and all six can tiers. Uses Weav3r's reported market prices and the cheaper can where a tier has two variants. Prices can be edited after loading.</p>
-            {priceError && <p className="halloween-wide halloween-error" role="alert">{priceError}</p>}
             {priceSnapshot && <p className="halloween-wide" role="status">Weav3r prices applied. Oldest snapshot: {new Date(priceSnapshot.generatedAt * 1000).toLocaleString()}. Market values may lag current listings.</p>}
             {priceNotice && <p className="halloween-wide" role="status">{priceNotice}</p>}
             {field("fhcPrice", "Price per FHC", "$", undefined, loadingPrices)}
             {ENERGY_DRINK_TIERS.map((tier, index) => <NumberField key={tier.energy} label={`${tier.energy}E can price`} title={tier.name} suffix="$" value={prices[index]}
               disabled={loadingPrices} onChange={value => { clearPriceSource(); setPrices(current => current.map((price, i) => i === index ? value : price)); }} />)}
-            <p className="halloween-wide">Default can prices are based on the annual low point, not live market prices. Enter your own purchase prices. Owned boosters still have a cost.</p>
+            <p className="halloween-wide">Default can prices are Weav3r's reported market prices.<br />
+              <strong>Annual low prices are the lowest observed prices from this year.</strong><br />
+              Enter your own purchase prices for custom values.<br />
+              Owned boosters still have a cost.
+            </p>
           </>}
           {popout === "Company" && <>
             <label className="book-strategy-field halloween-wide"><span>Company specials</span><select value={options.company} onChange={event => change("company", event.target.value as HalloweenSettings["company"])}>
@@ -254,7 +266,9 @@ export function HalloweenProfit() {
       </div>}
       <p className="halloween-note">Price per treat is a flat valuation of exchanged rewards. The $750,000 default is a planning estimate; changing it updates every strategy.</p>
       {selected && !settings.freebie && <p className="halloween-note">Freebie is disabled: rewards use ${selected.effectiveTreatPrice.toLocaleString(undefined, { maximumFractionDigits: 2 })} per treat (your entered price ÷ 1.1). The break-even price is quoted in the same units as the price input, with Freebie included.</p>}
-      <p className="halloween-note"><strong>Default item prices are based on the annual low for each item, not live market prices.</strong></p>
+      <p className="halloween-note"><strong>Default item prices are Weav3r's reported market prices fetched from the Weav3r API.</strong></p>
+      {loadingPrices && <p className="halloween-note" role="status">Loading Weav3r prices… Annual low prices are used until loading completes.</p>}
+      {priceError && <p className="halloween-note halloween-error" role="alert">{priceError}</p>}
     </section>
 
     <section className="panel"><PanelHeader title="Books to compare" aside="One book at a time" />
