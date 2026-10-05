@@ -1,40 +1,55 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { getSimulatedTreatsPerAttack, type HalloweenResult } from "../utils/halloweenProfit";
+import { getSimulatedTreatsPerAttack, type HalloweenResult, type HalloweenSettings } from "../utils/halloweenProfit";
 import { getHalloweenTreatReturnBreakdown } from "../utils/halloweenDistributions";
 
 const format = (value: number, digits = 4) => value.toLocaleString(undefined,
   value > 0 && value < 0.0001 ? { maximumSignificantDigits: 2 } : { maximumFractionDigits: digits });
 const rate = (value: number | null) => value === null ? "—" : format(value);
 
-function ReturnFormula({ treatsPerAttack, returnRatio }: { treatsPerAttack: number; returnRatio: number }) {
+function ReturnFormula({ treatsPerAttack, returnRatio, cashback, darkPower, freebie, revitalize }: {
+  treatsPerAttack: number; returnRatio: number; cashback: number; darkPower: number; freebie: number; revitalize: number;
+}) {
   const brace = <span className="halloween-formula-brace" aria-hidden="true"><svg viewBox="0 0 100 10" preserveAspectRatio="none">
     <path d="M1 1 C1 5 5 5 10 5 H43 C48 5 49 7 50 9 C51 7 52 5 57 5 H90 C95 5 99 5 99 1" />
   </svg></span>;
   return <div className="halloween-return-formula" role="img"
-    aria-label={`0.1 from Cashback, plus 5 times 1.1 divided by 25, times ${format(treatsPerAttack, 6)} simulated treats per attack, equals approximately ${format(returnRatio, 7)} additional treats per treat exchanged.`}>
+    aria-label={`${revitalize > 0 ? `${format(revitalize)} from Revitalize, plus ` : ""}${format(cashback)} from Cashback, plus ${darkPower} times ${format(freebie)} divided by 25, times ${format(treatsPerAttack, 6)} simulated treats per attack, equals approximately ${format(returnRatio, 7)} as the expected first-round multiplier.`}>
     <div className="halloween-formula-inputs" aria-hidden="true">
+      {revitalize > 0 && <span className="halloween-formula-group">
+        <span className="halloween-formula-term">
+          <span className="halloween-formula-value">{format(revitalize)}</span>
+          {brace}<span className="halloween-formula-label">Revitalize</span>
+        </span>
+        <span className="halloween-formula-symbol">+</span>
+      </span>}
       <span className="halloween-formula-term">
-        <span className="halloween-formula-value">0.1</span>
+        <span className="halloween-formula-value">{format(cashback)}</span>
         {brace}<span className="halloween-formula-label">Cashback</span>
       </span>
+      <span className="halloween-formula-group">
       <span className="halloween-formula-symbol">+</span>
       <span className="halloween-formula-term">
         <span className="halloween-formula-value">
-          <span className="halloween-formula-fraction"><span>5 × 1.1</span><span>25</span></span>
+          <span className="halloween-formula-fraction"><span>{darkPower} × {format(freebie)}</span><span>25</span></span>
           <span>× {format(treatsPerAttack, 6)}</span>
         </span>
         {brace}<span className="halloween-formula-label">Dark Power-funded attacks</span>
+      </span>
       </span>
     </div>
     <span className="halloween-formula-result" aria-hidden="true">≈ <strong>{format(returnRatio, 7)}</strong></span>
   </div>;
 }
 
-export function HalloweenTreatReturns({ selected }: { selected: HalloweenResult }) {
+export function HalloweenTreatReturns({ selected, settings }: { selected: HalloweenResult; settings: HalloweenSettings }) {
   const data = useMemo(() => getHalloweenTreatReturnBreakdown(selected), [selected]);
   const treatsPerAttack = getSimulatedTreatsPerAttack(selected);
-  const darkPowerTreats = 5 * 1.1 / 25 * treatsPerAttack;
-  const returnRatio = 0.1 + darkPowerTreats;
+  const cashback = settings.cashback ? 0.1 : 0;
+  const darkPower = settings.darkPower ? 5 : 0;
+  const freebie = settings.freebie ? 1.1 : 1;
+  const revitalize = settings.weapon === "revitalize" ? settings.revitalize / 100 : 0;
+  const darkPowerTreats = darkPower * freebie / 25 * treatsPerAttack;
+  const returnRatio = cashback + darkPowerTreats + revitalize;
   const [activeRound, setActiveRound] = useState<number | null>(null);
   const square = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState(0);
@@ -68,12 +83,14 @@ export function HalloweenTreatReturns({ selected }: { selected: HalloweenResult 
       <p>The first block comes from attacks using that original energy. {returnText ? `${returnText}. These returns can repeat, adding further blocks.` : "No Cashback or returned energy contributes further rounds in this strategy."}</p>
       <div className="halloween-return-worked-example">
         <h4>Worked example · simulated treat-drop average</h4>
-        <p>Each treat exchanged generates approximately <strong>{format(returnRatio, 7)} additional treats</strong>:<br />
-          <strong>0.1</strong> from Cashback<br />
-          <strong>{format(darkPowerTreats, 7)}</strong> from Dark Power (including Freebie)
+        <p>The first return round is expected to add approximately <strong>{format(returnRatio * 100, 2)}% of the original treats</strong>:<br />
+          <strong>{format(cashback)}</strong> from Cashback<br />
+          <strong>{format(darkPowerTreats, 7)}</strong> from Dark Power{settings.freebie && settings.darkPower ? " (including Freebie)" : ""}
+          {revitalize > 0 && <><br /><strong>{format(revitalize)}</strong> from Revitalize</>}
         </p>
-        <ReturnFormula treatsPerAttack={treatsPerAttack} returnRatio={returnRatio} />
-        <p>Those new treats generate returns too. In this example, each new round is approximately <strong>{format(returnRatio * 100, 5)}%</strong> of the previous round.</p>
+        <ReturnFormula treatsPerAttack={treatsPerAttack} returnRatio={returnRatio}
+          cashback={cashback} darkPower={darkPower} freebie={freebie} revitalize={revitalize} />
+        <p>These returns generate further rounds. The table below shows each round’s actual simulated multiplier.</p>
       </div>
       <ul className="halloween-return-rounds" aria-label="Treats exchanged per 25E by recycling round">
         {data.parts.filter(part => part.treats > 0 || part.id === 0).map(part => {

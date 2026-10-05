@@ -36,7 +36,7 @@ export function HalloweenDistributions({ settings, selected, strategyName, open,
     <details open={open} onToggle={event => onOpenChange(event.currentTarget.open)}>
       <summary>Simulation outcomes</summary>
       {open && <div className="halloween-distributions-content">
-        {trace.result ? <HalloweenTreatReturns selected={trace.result} /> : <section className="halloween-distribution-card halloween-return-loading">
+        {trace.result ? <HalloweenTreatReturns selected={trace.result} settings={settings} /> : <section className="halloween-distribution-card halloween-return-loading">
           <h3>How 25E keeps producing treats</h3>
           {trace.error ? <><p className="halloween-error" role="alert">{trace.error}</p><button type="button" className="book-strategy-popout-button" onClick={trace.retry}>Try again</button></>
             : <p className="halloween-note" role="status">Tracing the selected strategy’s returns across {selected.simulationRuns.toLocaleString()} simulated events…</p>}
