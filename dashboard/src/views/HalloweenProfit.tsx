@@ -12,6 +12,7 @@ import { formatMoney, formatCompact } from "./BookStrategy.helpers";
 import "./HalloweenProfit.css";
 import { HalloweenStrategyBreakdown } from "./HalloweenStrategyBreakdown";
 import { HalloweenDistributions } from "./HalloweenDistributions";
+import { HalloweenProgression } from "./HalloweenProgression";
 import type { HalloweenWorkerRequest, HalloweenWorkerResponse } from "../workers/halloweenProfitWorker";
 
 type NumericKey = Exclude<{ [K in keyof HalloweenSettings]: HalloweenSettings[K] extends number ? K : never }[keyof HalloweenSettings], "drugInterval">;
@@ -336,6 +337,8 @@ export function HalloweenProfit() {
       </section>
     </>}
     {selected && baseline && selectedNoBook && <HalloweenStrategyBreakdown selected={selected} baseline={baseline} noBook={selectedNoBook} settings={settings} />}
+    <HalloweenProgression settings={settings} pricesLoading={loadingPrices}
+      priceSource={priceSnapshot ? `Weav3r prices · snapshot ${new Date(priceSnapshot.generatedAt * 1000).toLocaleString()}` : priceNotice || priceError?.includes("Annual low prices are being used") ? "Annual low prices" : "Current price inputs"} />
     <section className="panel halloween-method"><details><summary>How the estimate works</summary>
       {selected && alternativeWeapon && <p><strong>Simulated treats per attack</strong><br />
         {basket.name} basket: {basket.treatChance}% base treat chance, fixed throughout the event.<br />

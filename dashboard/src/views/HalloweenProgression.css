@@ -1,0 +1,13 @@
+.halloween-progression summary { cursor: pointer; font-weight: 600; font-size: 14px; }
+.halloween-progression-content { padding-top: 10px; min-width: 0; }
+.halloween-progression-actions { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px; margin: 16px 0; }
+.halloween-progression-actions label { display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: var(--text-muted); }
+.halloween-progression-actions input { max-width: 220px; background: var(--panel-bg-solid); color: var(--text-main); padding: 9px; border: 1px solid var(--border-solid); border-radius: 6px; }
+.halloween-progression-actions button:disabled { opacity: .5; cursor: default; }
+.halloween-progression progress { width: 100%; accent-color: #fb923c; }
+.halloween-progression-table { min-width: 1060px; }
+.halloween-progression-table td, .halloween-progression-table th { white-space: normal; min-width: 170px; line-height: 1.5; vertical-align: top; }
+.halloween-progression-table th[scope=row] { position: static; text-transform: none; font-size: 13px; color: var(--text-main); width: 230px; }
+.halloween-progression-table td > span, .halloween-progression-table td > strong { display: block; margin-bottom: 5px; }
+.halloween-progression-table span small { display: inline; }
+@media(max-width:650px) { .halloween-progression-actions { align-items: stretch; } .halloween-progression-actions label { width: 100%; } }
