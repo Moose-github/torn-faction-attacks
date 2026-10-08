@@ -6,7 +6,7 @@ import { CollapsiblePanel, EmptyState } from "./Common";
 import { useCurrentTimeMs } from "../utils/time";
 import { formatRelativeTime } from "../utils/format";
 import {
-  previewFinalScore, rankedFinishAt, rankedTargetAt, RANKED_WAR_MAX_HOURS,
+  previewFinalScore, previewTargetsForLead, rankedFinishAt, rankedTargetAt, RANKED_WAR_MAX_HOURS,
   WAR_SCORE_INTERVAL_SECONDS, type WarProgressResponse, type WarScorePoint,
 } from "../../../shared/warProgress";
 import "./warProgress.css";
@@ -121,8 +121,8 @@ export function WarProgressPanel({ war, requireHistory = false, showCompletedRes
         {canDraw ?
           <WarProgressChart points={points} start={start!} original={original} now={now} endedAt={endedAt}
             currentLead={currentLead} plannedLead={plannedLead} currentFinish={currentFinish} plannedFinish={plannedFinish}
-            homeScore={homeScore ?? null} plannedHome={plannedHome} plannedEnemy={plannedEnemy}
-            onHomeTargetChange={(value) => setHomeDraft(String(Math.max(homeScore ?? 0, value)))}
+            homeScore={homeScore ?? null} enemyScore={enemyScore ?? null} plannedHome={plannedHome} plannedEnemy={plannedEnemy}
+            onTargetsChange={(home, enemy) => { setHomeDraft(String(home)); setEnemyDraft(String(enemy)); }}
             homeName={homeName} enemyName={enemyName} /> : null}
         {!latest && !endedAt ? <EmptyState text="Waiting for the next Torn score update. History begins when score collection starts." /> : null}
         {latest && original === null && !endedAt ? <p className="war-progress-notice">The original winning target is unavailable, so finish times cannot be calculated yet.</p> : null}
@@ -159,16 +159,16 @@ type ProgressTooltip = {
   marker?: { x: number; y: number; planned?: boolean; color: string };
 };
 
-function WarProgressChart({ points, start, original, now, endedAt, currentLead, plannedLead, currentFinish, plannedFinish, homeName, enemyName, homeScore, plannedHome, plannedEnemy, onHomeTargetChange }: {
+function WarProgressChart({ points, start, original, now, endedAt, currentLead, plannedLead, currentFinish, plannedFinish, homeName, enemyName, homeScore, enemyScore, plannedHome, plannedEnemy, onTargetsChange }: {
   points: WarScorePoint[]; start: number; original: number | null; now: number; endedAt: number | null;
   currentLead: number | null; plannedLead: number | null; currentFinish: number | null; plannedFinish: number | null;
   homeName: string; enemyName: string;
-  homeScore: number | null; plannedHome: number | null; plannedEnemy: number | null;
-  onHomeTargetChange: (value: number) => void;
+  homeScore: number | null; enemyScore: number | null; plannedHome: number | null; plannedEnemy: number | null;
+  onTargetsChange: (home: number, enemy: number) => void;
 }) {
   const container = React.useRef<HTMLDivElement>(null);
   const svgElement = React.useRef<SVGSVGElement>(null);
-  const drag = React.useRef<{ pointerId: number; startY: number; homeTarget: number; respectPerPixel: number; maximum: number; moved: boolean } | null>(null);
+  const drag = React.useRef<{ pointerId: number; startY: number; lead: number; homeTarget: number; enemyTarget: number; respectPerPixel: number; minimum: number; maximum: number; moved: boolean } | null>(null);
   // Keep the line under the pointer while its changing score recalculates the finish.
   const [dragScale, setDragScale] = React.useState<{ limit: number; endHours: number } | null>(null);
   const tooltipElement = React.useRef<HTMLDivElement>(null);
@@ -208,8 +208,9 @@ function WarProgressChart({ points, start, original, now, endedAt, currentLead, 
   const values = points.flatMap((point) => [point.home_score - point.enemy_score, point.target]);
   const limit = dragScale?.limit ?? Math.max(1, original ?? 0, ...values.map(Math.abs), Math.abs(currentLead ?? 0), endedAt ? 0 : Math.abs(plannedLead ?? 0));
   const max = limit * 1.12;
-  const canDrag = !endedAt && original !== null && homeScore !== null && plannedHome !== null && plannedEnemy !== null;
-  const maximumHome = Math.min(Number.MAX_SAFE_INTEGER, Math.max(homeScore ?? 0, plannedHome ?? 0, Math.floor((plannedEnemy ?? 0) + max)));
+  const canDrag = !endedAt && original !== null && homeScore !== null && enemyScore !== null && plannedHome !== null && plannedEnemy !== null;
+  const minimumLead = Math.max(-Math.floor(max), (homeScore ?? 0) - Number.MAX_SAFE_INTEGER);
+  const maximumLead = Math.min(Math.floor(max), Number.MAX_SAFE_INTEGER - (enemyScore ?? 0));
   React.useEffect(() => {
     if (!canDrag && drag.current) stopDrag();
   }, [canDrag]);
@@ -301,8 +302,8 @@ function WarProgressChart({ points, start, original, now, endedAt, currentLead, 
     if (!canDrag || !(event.target instanceof Element) || !event.target.closest("[data-plan-drag]")) return;
     event.preventDefault();
     const bounds = event.currentTarget.getBoundingClientRect();
-    drag.current = { pointerId: event.pointerId, startY: event.clientY, homeTarget: plannedHome!,
-      respectPerPixel: 2 * max / (bottom - top) * height / bounds.height, maximum: maximumHome, moved: false };
+    drag.current = { pointerId: event.pointerId, startY: event.clientY, lead: plannedLead!, homeTarget: plannedHome!, enemyTarget: plannedEnemy!,
+      respectPerPixel: 2 * max / (bottom - top) * height / bounds.height, minimum: minimumLead, maximum: maximumLead, moved: false };
     setDragScale({ limit, endHours });
     event.currentTarget.setPointerCapture(event.pointerId);
   }
@@ -314,7 +315,9 @@ function WarProgressChart({ points, start, original, now, endedAt, currentLead, 
     if (!active.moved && Math.abs(delta) < 3) return;
     active.moved = true;
     setTooltip(null);
-    onHomeTargetChange(Math.max(homeScore!, Math.min(active.maximum, Math.round(active.homeTarget + delta * active.respectPerPixel))));
+    const lead = Math.max(active.minimum, Math.min(active.maximum, Math.round(active.lead + delta * active.respectPerPixel)));
+    const targets = previewTargetsForLead(homeScore!, enemyScore!, active.homeTarget, active.enemyTarget, lead);
+    onTargetsChange(targets.home, targets.enemy);
   }
   function stopDrag() {
     const active = drag.current;
@@ -333,9 +336,10 @@ function WarProgressChart({ points, start, original, now, endedAt, currentLead, 
     event.preventDefault();
     event.stopPropagation();
     const step = event.shiftKey ? 1000 : 100;
-    const target = Math.max(homeScore!, Math.min(maximumHome, event.key === "Home" ? homeScore! : event.key === "End" ? maximumHome : plannedHome! + (event.key === "ArrowUp" ? step : -step)));
-    onHomeTargetChange(target);
-    showScenario({ score: target - plannedEnemy!, finish: rankedFinishAt(original, start, target - plannedEnemy!, now), planned: true });
+    const lead = Math.max(minimumLead, Math.min(maximumLead, event.key === "Home" ? minimumLead : event.key === "End" ? maximumLead : plannedLead! + (event.key === "ArrowUp" ? step : -step)));
+    const targets = previewTargetsForLead(homeScore!, enemyScore!, plannedHome!, plannedEnemy!, lead);
+    onTargetsChange(targets.home, targets.enemy);
+    showScenario({ score: lead, finish: rankedFinishAt(original, start, lead, now), planned: true });
   }
   function legendPointer(event: React.PointerEvent<HTMLElement>) {
     const bounds = container.current!.getBoundingClientRect();
@@ -384,11 +388,12 @@ function WarProgressChart({ points, start, original, now, endedAt, currentLead, 
         {canDrag ? <line x1={x(scenarioStart)} x2={x(plannedFinish === null ? end : Math.max(plannedFinish, Math.min(end, scenarioStart + 3600)))} y1={y(plannedLead!)} y2={y(plannedLead!)} className="progress-plan-hit" data-plan-drag="true" /> : null}
         {scenarios.map(({ score, finish, planned }) => score === null ? null : <g key={String(planned)} className={planned ? "progress-planned" : "progress-current"}
           tabIndex={planned && canDrag ? 0 : undefined} role={planned && canDrag ? "slider" : undefined}
-          aria-label={planned && canDrag ? `${homeName} planned target respect` : undefined}
+          aria-label={planned && canDrag ? "Planned net respect lead" : undefined}
           aria-orientation={planned && canDrag ? "vertical" : undefined}
-          aria-valuemin={planned && canDrag ? homeScore! : undefined} aria-valuemax={planned && canDrag ? maximumHome : undefined}
-          aria-valuenow={planned && canDrag ? plannedHome! : undefined}
-          aria-description={planned && canDrag ? "Drag up or down to adjust the home target. Arrow keys change it by 100; hold Shift for 1,000." : undefined}
+          aria-valuemin={planned && canDrag ? minimumLead : undefined} aria-valuemax={planned && canDrag ? maximumLead : undefined}
+          aria-valuenow={planned && canDrag ? plannedLead! : undefined}
+          aria-valuetext={planned && canDrag ? leadValue(plannedLead) : undefined}
+          aria-description={planned && canDrag ? `Drag up to favour ${homeName} or down to favour ${enemyName}. Targets stay at or above current scores. Arrow keys change the lead by 100; hold Shift for 1,000.` : undefined}
           onKeyDown={planned ? adjustPlan : undefined}
           onFocus={(event) => { if (planned && event.target === event.currentTarget) showScenario({ score, finish, planned }); }}
           onBlur={() => setTooltip(null)}>

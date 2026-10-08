@@ -41,3 +41,10 @@ An empty or exceeded target uses that faction's current official score. Local
 drafts survive polling and collapsing, but reset on reload or changing wars.
 They never call a write API or use browser storage. Stale data and gaps in
 history are indicated explicitly. Times are shown in TCT (UTC).
+
+Dragging the planned line adjusts the net lead in either direction. Once a
+target reaches its current score, further movement raises the opposing target
+instead. Neither target drops below recorded respect. Any planned increase
+shared by both sides is preserved, including when reversing direction. The
+keyboard slider also adjusts the net lead: up/down by 100 (Shift: 1,000),
+Home/End to the bottom/top of the displayed range.

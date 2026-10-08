@@ -78,3 +78,15 @@ export function previewFinalScore(current: number, input: string): number | null
   const entered = input.trim() === "" ? current : Number(input);
   return Number.isFinite(entered) && entered >= 0 && entered <= Number.MAX_SAFE_INTEGER ? Math.max(current, entered) : null;
 }
+
+// Move the net lead without lowering either target below its recorded score.
+// Preserve any increase shared by both targets so reversing direction does not
+// keep inflating them, or discard a scenario entered in the target inputs.
+export function previewTargetsForLead(homeScore: number, enemyScore: number, homeTarget: number, enemyTarget: number, lead: number): { home: number; enemy: number } {
+  const boundedLead = Math.max(homeScore - Number.MAX_SAFE_INTEGER, Math.min(Number.MAX_SAFE_INTEGER - enemyScore, lead));
+  const home = Math.max(homeScore, enemyScore + boundedLead);
+  const enemy = Math.max(enemyScore, homeScore - boundedLead);
+  const sharedIncrease = Math.max(0, Math.min(homeTarget - homeScore, enemyTarget - enemyScore,
+    Number.MAX_SAFE_INTEGER - Math.max(home, enemy)));
+  return { home: home + sharedIncrease, enemy: enemy + sharedIncrease };
+}
