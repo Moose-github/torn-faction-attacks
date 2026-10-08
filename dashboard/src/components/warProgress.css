@@ -19,6 +19,8 @@
 }
 .war-progress-scores { --war-target-height: 33px; padding: 2px 0; }
 .war-progress-scores-with-control { grid-template-columns: minmax(0, 1fr) clamp(44px, 22vw, 240px) minmax(0, 1fr); align-items: end; }
+.war-progress-scores:has(.war-progress-target-reset) { row-gap: 4px; }
+.war-progress-target-reset { grid-column: 1 / -1; justify-self: center; }
 .war-progress-scores > div { min-width: 0; overflow-wrap: anywhere; }
 .war-progress-faction-name { display: block; margin-bottom: 4px; }
 .war-progress-metrics { display: flex; align-items: flex-end; gap: 20px; }

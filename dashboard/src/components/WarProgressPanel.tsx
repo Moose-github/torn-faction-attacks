@@ -74,8 +74,11 @@ export function WarProgressPanel({ war, requireHistory = false, showCompletedRes
   const enemyScore = endedAt ? record.official_enemy_score ?? latest?.enemy_score ?? null : latest?.enemy_score ?? record.official_enemy_score ?? (scheduled ? 0 : null);
   const homeName = latest?.home_name || "Our faction";
   const enemyName = latest?.enemy_name || war.name;
-  const homeInput = homeDraft ?? (record.faction_respect_limit == null ? (scheduled ? "0" : "") : String(record.faction_respect_limit));
-  const enemyInput = enemyDraft ?? (record.enemy_target_respect == null ? (scheduled ? "0" : "") : String(record.enemy_target_respect));
+  const savedHomeInput = record.faction_respect_limit == null ? (scheduled ? "0" : "") : String(record.faction_respect_limit);
+  const savedEnemyInput = record.enemy_target_respect == null ? (scheduled ? "0" : "") : String(record.enemy_target_respect);
+  const homeInput = homeDraft ?? savedHomeInput;
+  const enemyInput = enemyDraft ?? savedEnemyInput;
+  const targetsChanged = homeInput !== savedHomeInput || enemyInput !== savedEnemyInput;
   const plannedHome = homeScore == null ? null : previewFinalScore(homeScore, homeInput);
   const plannedEnemy = enemyScore == null ? null : previewFinalScore(enemyScore, enemyInput);
   const valid = plannedHome !== null && plannedEnemy !== null;
@@ -103,9 +106,10 @@ export function WarProgressPanel({ war, requireHistory = false, showCompletedRes
   // Recorded war pages only show the panel once saved score history is available.
   if (requireHistory && (!canDraw || !data?.history.length)) return null;
 
+  const progressStatus = endedAt ? "Completed" : latest ? `Updated ${formatRelativeTime(latest.observed_at)}` : undefined;
   return (
     <CollapsiblePanel title="War progress" collapsed={collapsed} onToggle={() => setCollapsed((value) => !value)}
-      className="war-progress-panel" aside={endedAt ? "Completed" : latest ? `Updated ${formatRelativeTime(latest.observed_at)}` : undefined}>
+      className="war-progress-panel" aside={progressStatus}>
       {!data && !error ? <EmptyState text="Loading war progress…" /> : null}
       {error ? <p className="war-progress-notice" role="status">Unable to refresh war progress. {latest ? "Showing the last recorded scores." : error}</p> : null}
       {data ? <>
@@ -131,6 +135,9 @@ export function WarProgressPanel({ war, requireHistory = false, showCompletedRes
               <div className="war-progress-current-score"><strong>{enemyScore == null ? "—" : number(enemyScore)}</strong><small>{endedAt ? "Final respect" : "Current respect"}</small></div>
             </div>
           </div>
+          {war.war_type === "termed" && !endedAt && targetsChanged ?
+            <button type="button" className="panel-action-button war-progress-target-reset" title="Restore the saved targets for both factions"
+              onClick={() => { setHomeDraft(null); setEnemyDraft(null); }}>Reset targets</button> : null}
         </div>
         {!endedAt && homeScore != null && enemyScore != null && !valid ? <p className="war-progress-notice" role="alert">Enter non-negative target respect.</p> : null}
         {!endedAt && valid && belowCurrent ? <p className="war-progress-notice">Targets below current respect use the current score.</p> : null}

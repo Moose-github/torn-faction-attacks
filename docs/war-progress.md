@@ -44,6 +44,9 @@ have no projected finish.
 The inputs start with the saved faction respect limit and enemy target respect.
 An empty or exceeded target uses that faction's current official score. Local
 drafts survive polling and collapsing, but reset on reload or changing wars.
+While a termed war is not officially ended, Reset targets appears below the
+horizontal control only when a target differs from its saved amount. It clears
+both local drafts and restores the latest saved faction and enemy targets.
 They never call a write API or use browser storage. Stale data and gaps in
 history are indicated explicitly. Times are shown in TCT (UTC).
 
