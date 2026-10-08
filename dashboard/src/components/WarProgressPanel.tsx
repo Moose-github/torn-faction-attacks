@@ -21,6 +21,18 @@ const countdown = (seconds: number) => {
   const days = Math.floor(minutes / 1440);
   return `${days > 0 ? `${days}d ` : ""}${Math.floor(minutes % 1440 / 60)}h ${minutes % 60}m`;
 };
+const warLength = (seconds: number) => {
+  const totalMinutes = Math.max(0, Math.floor(seconds / 60));
+  const days = Math.floor(totalMinutes / 1440);
+  const hours = Math.floor(totalMinutes % 1440 / 60);
+  const minutes = totalMinutes % 60;
+  return [days ? `${days} day${days === 1 ? "" : "s"}` : "",
+    hours || !days && !minutes ? `${hours} hour${hours === 1 ? "" : "s"}` : "",
+    minutes ? `${minutes} minute${minutes === 1 ? "" : "s"}` : ""].filter(Boolean).join(" ");
+};
+const warEndDate = (value: number) => new Intl.DateTimeFormat("en-GB", {
+  timeZone: "UTC", day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", hour12: false,
+}).format(value * 1000) + " TCT";
 
 export function WarProgressPanel({ war, requireHistory = false, showCompletedResult = true }: {
   war: WarSummary; requireHistory?: boolean; showCompletedResult?: boolean;
@@ -71,6 +83,7 @@ export function WarProgressPanel({ war, requireHistory = false, showCompletedRes
   const plannedLead = valid ? plannedHome - plannedEnemy : null;
   const currentFinish = start === null || currentLead === null ? null : rankedFinishAt(original, start, currentLead, now);
   const plannedFinish = start === null || plannedLead === null ? null : rankedFinishAt(original, start, plannedLead, now);
+  const displayedFinish = endedAt ?? plannedFinish;
   const stale = !endedAt && latest !== null && now - latest.observed_at > 5 * 60;
   const belowCurrent = (homeInput.trim() !== "" && homeScore != null && Number(homeInput) < homeScore) ||
     (enemyInput.trim() !== "" && enemyScore != null && Number(enemyInput) < enemyScore);
@@ -129,6 +142,10 @@ export function WarProgressPanel({ war, requireHistory = false, showCompletedRes
             homeScore={homeScore ?? null} enemyScore={enemyScore ?? null} plannedHome={plannedHome} plannedEnemy={plannedEnemy}
             onTargetsChange={(home, enemy) => { setHomeDraft(String(home)); setEnemyDraft(String(enemy)); }}
             homeName={homeName} enemyName={enemyName} /> : null}
+        {canDraw ? <dl className="war-progress-timing" aria-label={endedAt ? "Recorded war timing" : "Planned war timing"}>
+          <div><dt>War length:</dt><dd>{displayedFinish !== null && start !== null ? warLength(displayedFinish - start) : "—"}</dd></div>
+          <div><dt>War end:</dt><dd>{displayedFinish !== null ? warEndDate(displayedFinish) : plannedLead === 0 ? "No winning side" : "Unavailable"}</dd></div>
+        </dl> : null}
         {!latest && !endedAt ? <EmptyState text="Waiting for the next Torn score update. History begins when score collection starts." /> : null}
         {latest && original === null && !endedAt ? <p className="war-progress-notice">The original winning target is unavailable, so finish times cannot be calculated yet.</p> : null}
         {endedAt && showCompletedResult ? <div className="war-progress-finish"><div><small>War ended</small><strong>{date(endedAt)}</strong><span>{record.winner_faction_id ? `${record.winner_faction_id === record.enemy_faction_id ? enemyName : homeName} won` : "Final result recorded"}</span></div></div> : null}

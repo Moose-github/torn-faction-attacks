@@ -65,6 +65,10 @@
 .war-progress-legend i.current { border-color: var(--text-main); border-top-style: dotted; }
 .war-progress-legend i.planned { border-color: var(--war-progress-plan); border-top-style: dotted; }
 .war-progress-finish { padding-top: 10px; border-top: 1px solid var(--border-soft); }
+.war-progress-timing { display: grid; gap: 4px; margin: 4px 0 12px; font-size: 13px; }
+.war-progress-timing > div { display: flex; align-items: baseline; gap: 6px; }
+.war-progress-timing dt { flex: none; color: var(--text-muted); }
+.war-progress-timing dd { margin: 0; color: var(--text-main); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 .war-progress-finish > div { display: grid; align-content: start; gap: 3px; min-width: 0; }
 .war-progress-finish strong { font-weight: 500; font-size: 16px; color: var(--text-strong); overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
 .war-progress-finish span { font-size: 12px; color: var(--text-muted); }

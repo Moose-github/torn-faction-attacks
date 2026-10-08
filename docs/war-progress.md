@@ -34,6 +34,11 @@ holding scores constant. No scoring pace is extrapolated. A tie has no projected
 winner; a planned lead that already meets the target ends when those scores are
 reached. Completed wars show the recorded finish instead of predictions.
 
+Below the graph, War length shows the duration from the official start to the
+planned finish, and War end shows that finish date in TCT. These follow the
+planned targets; completed wars use the official end instead. Tied targets
+have no projected finish.
+
 ## Temporary targets
 
 The inputs start with the saved faction respect limit and enemy target respect.
