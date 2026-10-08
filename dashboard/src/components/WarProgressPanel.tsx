@@ -75,6 +75,7 @@ export function WarProgressPanel({ war, requireHistory = false, showCompletedRes
   const belowCurrent = (homeInput.trim() !== "" && homeScore != null && Number(homeInput) < homeScore) ||
     (enemyInput.trim() !== "" && enemyScore != null && Number(enemyInput) < enemyScore);
   const canDraw = start !== null && (scheduled || latest !== null || Boolean(data?.history.length));
+  const canAdjustTargets = canDraw && !endedAt && homeScore !== null && enemyScore !== null && plannedHome !== null && plannedEnemy !== null;
   const points = React.useMemo(() => {
     if (!data || !latest) return data?.history ?? [];
     const observed = Math.min(latest.observed_at, endedAt ?? latest.observed_at);
@@ -95,7 +96,7 @@ export function WarProgressPanel({ war, requireHistory = false, showCompletedRes
       {!data && !error ? <EmptyState text="Loading war progress…" /> : null}
       {error ? <p className="war-progress-notice" role="status">Unable to refresh war progress. {latest ? "Showing the last recorded scores." : error}</p> : null}
       {data ? <>
-        <div className="war-progress-scores">
+        <div className={`war-progress-scores${canAdjustTargets ? " war-progress-scores-with-control" : ""}`}>
           <div className="war-progress-home">
             <span className="war-progress-faction-name">{homeName}</span>
             <div className="war-progress-metrics">
@@ -105,6 +106,9 @@ export function WarProgressPanel({ war, requireHistory = false, showCompletedRes
                 aria-invalid={homeScore != null && plannedHome === null} onChange={(event) => setHomeDraft(event.target.value)} /><span>Target</span></label> : null}
             </div>
           </div>
+          {canAdjustTargets ?
+            <WarTargetOffsetControl homeScore={homeScore!} enemyScore={enemyScore!} plannedHome={plannedHome!} plannedEnemy={plannedEnemy!}
+              onChange={(home, enemy) => { setHomeDraft(String(home)); setEnemyDraft(String(enemy)); }} /> : null}
           <div className="war-progress-enemy">
             <span className="war-progress-faction-name">{enemyName}</span>
             <div className="war-progress-metrics">
@@ -119,9 +123,6 @@ export function WarProgressPanel({ war, requireHistory = false, showCompletedRes
         {!endedAt && valid && belowCurrent ? <p className="war-progress-notice">Targets below current respect use the current score.</p> : null}
         {stale ? <p className="war-progress-notice">Scores have not updated for over five minutes. Finish times assume these last recorded scores.</p> : null}
         {scheduled ? <p className="war-progress-notice">War starts {date(start!)}.</p> : null}
-        {canDraw && !endedAt && homeScore !== null && enemyScore !== null && plannedHome !== null && plannedEnemy !== null ?
-          <WarTargetOffsetControl homeScore={homeScore} enemyScore={enemyScore} plannedHome={plannedHome} plannedEnemy={plannedEnemy}
-            onChange={(home, enemy) => { setHomeDraft(String(home)); setEnemyDraft(String(enemy)); }} /> : null}
         {canDraw ?
           <WarProgressChart points={points} start={start!} original={original} now={now} endedAt={endedAt}
             currentLead={currentLead} plannedLead={plannedLead} currentFinish={currentFinish} plannedFinish={plannedFinish}

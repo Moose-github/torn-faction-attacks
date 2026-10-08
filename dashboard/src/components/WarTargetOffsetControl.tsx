@@ -13,7 +13,6 @@ export function WarTargetOffsetControl({ homeScore, enemyScore, plannedHome, pla
   const slider = React.useRef<HTMLDivElement>(null);
   const drag = React.useRef<{ pointerId: number; x: number; home: number; enemy: number; step: number; moved: boolean } | null>(null);
   const [handleOffset, setHandleOffset] = React.useState(0);
-  const descriptionId = React.useId();
   const shared = Math.max(0, Math.min(plannedHome - homeScore, plannedEnemy - enemyScore));
   const available = Number.MAX_SAFE_INTEGER - Math.max(plannedHome, plannedEnemy);
   function adjust(offset: number, home = plannedHome, enemy = plannedEnemy) {
@@ -41,15 +40,11 @@ export function WarTargetOffsetControl({ homeScore, enemyScore, plannedHome, pla
     setHandleOffset(Math.max(-travel, Math.min(travel, change / active.step)));
   }
   return <div className="war-target-offset">
-    <span className="war-target-offset-label">Adjust both targets</span>
-    <div className="war-target-offset-controls">
-      <button type="button" aria-label="Decrease both targets by 100 respect" disabled={shared === 0} onClick={() => adjust(-100)}>−</button>
       <div ref={slider} className="war-target-offset-slider" role="slider" tabIndex={0}
         aria-label="Adjust both targets" aria-orientation="horizontal"
         aria-valuemin={0} aria-valuemax={shared + available} aria-valuenow={shared}
         aria-valuetext={`${shared.toLocaleString("en-GB", { maximumFractionDigits: 2 })} extra respect for each faction`}
-        aria-describedby={descriptionId}
-        aria-description="Left and right arrows adjust both targets by 100; hold Shift for 1,000. Home removes the shared increase. Release and drag again to keep adjusting."
+        aria-description="Drag left or right to adjust both targets while keeping the winner and finish unchanged. Left and right arrows adjust both targets by 100; hold Shift for 1,000. Home removes the shared increase. Release and drag again to keep adjusting."
         onPointerDown={(event) => {
           if (!event.isPrimary || event.button !== 0 || drag.current) return;
           event.preventDefault();
@@ -70,8 +65,5 @@ export function WarTargetOffsetControl({ homeScore, enemyScore, plannedHome, pla
         <span className="war-target-offset-track" aria-hidden="true" />
         <span className="war-target-offset-handle" style={{ transform: `translateX(${handleOffset}px)` }} aria-hidden="true">↔</span>
       </div>
-      <button type="button" aria-label="Increase both targets by 100 respect" disabled={available === 0} onClick={() => adjust(100)}>+</button>
-    </div>
-    <small id={descriptionId}>Drag left/right · Keeps winner and finish unchanged</small>
   </div>;
 }

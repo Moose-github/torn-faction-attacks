@@ -17,7 +17,8 @@
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 24px;
 }
-.war-progress-scores { padding: 2px 0; }
+.war-progress-scores { --war-target-height: 33px; padding: 2px 0; }
+.war-progress-scores-with-control { grid-template-columns: minmax(0, 1fr) clamp(44px, 22vw, 240px) minmax(0, 1fr); align-items: end; }
 .war-progress-scores > div { min-width: 0; overflow-wrap: anywhere; }
 .war-progress-faction-name { display: block; margin-bottom: 4px; }
 .war-progress-metrics { display: flex; align-items: flex-end; gap: 20px; }
@@ -29,15 +30,12 @@
 .war-progress-panel small { color: var(--text-muted); font-size: 12px; }
 .war-progress-target { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; font-size: 12px; color: var(--text-muted); }
 .war-progress-enemy .war-progress-target { align-items: flex-end; }
-.war-progress-target input { flex: none; width: 88px; min-width: 0; min-height: 33px; height: 33px; padding: 5px 9px; font-size: 16px; font-variant-numeric: tabular-nums; }
+.war-progress-target span { line-height: 15px; }
+.war-progress-target input { flex: none; width: 88px; min-width: 0; min-height: var(--war-target-height); height: var(--war-target-height); padding: 5px 9px; font-size: 16px; font-variant-numeric: tabular-nums; }
 .war-progress-target input[aria-invalid="true"] { border-color: var(--war-progress-enemy); }
-.war-target-offset { display: grid; justify-items: center; gap: 3px; width: min(100%, 340px); margin: 14px auto 4px; text-align: center; }
-.war-target-offset-label { color: var(--text-main); font-size: 13px; font-weight: 500; }
-.war-target-offset-controls { display: flex; align-items: center; width: 100%; gap: 8px; }
-.war-target-offset-controls button { flex: none; width: 44px; height: 44px; padding: 0; border: 1px solid var(--border-solid); border-radius: 6px; background: var(--panel-muted-bg); color: var(--text-main); font-size: 20px; cursor: pointer; }
-.war-target-offset-controls button:disabled { opacity: .4; cursor: default; }
-.war-target-offset-slider { position: relative; flex: 1; min-width: 0; height: 44px; display: grid; place-items: center; cursor: ew-resize; touch-action: none; user-select: none; border-radius: 6px; }
-.war-target-offset-slider:focus-visible, .war-target-offset-controls button:focus-visible { outline: 2px solid var(--war-progress-plan); outline-offset: 2px; }
+.war-target-offset { width: 100%; margin-bottom: calc(18px + (var(--war-target-height) - 44px) / 2); }
+.war-target-offset-slider { position: relative; min-width: 0; height: 44px; display: grid; place-items: center; cursor: ew-resize; touch-action: none; user-select: none; border-radius: 6px; }
+.war-target-offset-slider:focus-visible { outline: 2px solid var(--war-progress-plan); outline-offset: 2px; }
 .war-target-offset-track { position: absolute; left: 0; right: 0; height: 2px; background: var(--border-solid); pointer-events: none; }
 .war-target-offset-handle { z-index: 1; display: grid; place-items: center; width: 40px; height: 32px; border: 1px solid var(--war-progress-plan); border-radius: 5px; background: var(--panel-bg-solid); color: var(--war-progress-plan); font-size: 22px; pointer-events: none; }
 .war-progress-chart { min-width: 0; position: relative; }
@@ -83,9 +81,16 @@
 .war-progress-tooltip-row span { min-width: 0; overflow-wrap: anywhere; }
 .war-progress-tooltip-row span:last-child { text-align: right; font-variant-numeric: tabular-nums; }
 .war-progress-tooltip-row i { display: inline-block; width: 7px; height: 7px; margin-right: 6px; border-radius: 50%; }
+@media (max-width: 900px) {
+  .war-progress-scores-with-control { grid-template-columns: minmax(88px, 1fr) minmax(44px, 1fr) minmax(88px, 1fr); gap: 12px; }
+  .war-progress-scores-with-control .war-progress-metrics { flex-direction: column; align-items: flex-start; gap: 7px; }
+  .war-progress-scores-with-control .war-progress-enemy .war-progress-metrics { align-items: flex-end; }
+  .war-progress-scores-with-control .war-progress-current-score { order: -1; }
+}
 @media (max-width: 520px) {
   .panel.war-progress-panel { padding: 12px; }
   .war-progress-scores, .war-progress-finish { gap: 16px; }
+  .war-progress-scores-with-control { gap: 12px; }
   .war-progress-metrics { flex-direction: column; align-items: flex-start; gap: 7px; }
   .war-progress-enemy .war-progress-metrics { align-items: flex-end; }
   .war-progress-current-score { order: -1; }
@@ -96,7 +101,7 @@
 }
 @media (pointer: coarse) {
   .war-progress-chart .progress-plan-hit { stroke-width: 28; }
-  .war-progress-target input { height: 44px; }
+  .war-progress-scores { --war-target-height: 44px; }
   .war-progress-legend button { min-height: 44px; }
   .war-progress-history-note summary { width: 44px; height: 44px; }
 }
