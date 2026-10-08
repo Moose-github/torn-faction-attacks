@@ -347,10 +347,10 @@ export function WarDetailView({
               ) : null}
 
               {!isEvent && !isScheduledWar ? (
-                <WarProgressPanel key={selectedWar.id} war={selectedWar} requireHistory showCompletedResult={false} />
+                <WarProgressPanel key={`progress-${selectedWar.id}`} war={selectedWar} requireHistory showCompletedResult={false} />
               ) : null}
 
-              <PracticalPhases key={selectedWar.id} war={selectedWar} admin={isAdmin} />
+              <PracticalPhases key={`phases-${selectedWar.id}`} war={selectedWar} admin={isAdmin} />
 
               {hasWarData && hasTornReport ? (
                 <CollapsiblePanel
