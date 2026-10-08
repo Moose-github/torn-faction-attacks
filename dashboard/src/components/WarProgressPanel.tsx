@@ -55,13 +55,14 @@ export function WarProgressPanel({ war, requireHistory = false, showCompletedRes
   const latest = data?.latest ?? null;
   const endedAt = war.official_end_time ?? record.official_end_time ?? latest?.ended_at ?? null;
   const start = record.official_start_time ?? latest?.official_start_time ?? null;
+  const scheduled = start !== null && now < start;
   const original = latest?.original_target ?? null;
-  const homeScore = endedAt ? record.official_home_score ?? latest?.home_score ?? null : latest?.home_score ?? record.official_home_score;
-  const enemyScore = endedAt ? record.official_enemy_score ?? latest?.enemy_score ?? null : latest?.enemy_score ?? record.official_enemy_score;
+  const homeScore = endedAt ? record.official_home_score ?? latest?.home_score ?? null : latest?.home_score ?? record.official_home_score ?? (scheduled ? 0 : null);
+  const enemyScore = endedAt ? record.official_enemy_score ?? latest?.enemy_score ?? null : latest?.enemy_score ?? record.official_enemy_score ?? (scheduled ? 0 : null);
   const homeName = latest?.home_name || "Our faction";
   const enemyName = latest?.enemy_name || war.name;
-  const homeInput = homeDraft ?? (record.faction_respect_limit == null ? "" : String(record.faction_respect_limit));
-  const enemyInput = enemyDraft ?? (record.enemy_target_respect == null ? "" : String(record.enemy_target_respect));
+  const homeInput = homeDraft ?? (record.faction_respect_limit == null ? (scheduled ? "0" : "") : String(record.faction_respect_limit));
+  const enemyInput = enemyDraft ?? (record.enemy_target_respect == null ? (scheduled ? "0" : "") : String(record.enemy_target_respect));
   const plannedHome = homeScore == null ? null : previewFinalScore(homeScore, homeInput);
   const plannedEnemy = enemyScore == null ? null : previewFinalScore(enemyScore, enemyInput);
   const valid = plannedHome !== null && plannedEnemy !== null;
@@ -69,11 +70,10 @@ export function WarProgressPanel({ war, requireHistory = false, showCompletedRes
   const plannedLead = valid ? plannedHome - plannedEnemy : null;
   const currentFinish = start === null || currentLead === null ? null : rankedFinishAt(original, start, currentLead, now);
   const plannedFinish = start === null || plannedLead === null ? null : rankedFinishAt(original, start, plannedLead, now);
-  const scheduled = start !== null && now < start;
   const stale = !endedAt && latest !== null && now - latest.observed_at > 5 * 60;
   const belowCurrent = (homeInput.trim() !== "" && homeScore != null && Number(homeInput) < homeScore) ||
     (enemyInput.trim() !== "" && enemyScore != null && Number(enemyInput) < enemyScore);
-  const canDraw = start !== null && (latest !== null || Boolean(data?.history.length));
+  const canDraw = start !== null && (scheduled || latest !== null || Boolean(data?.history.length));
   const points = React.useMemo(() => {
     if (!data || !latest) return data?.history ?? [];
     const observed = Math.min(latest.observed_at, endedAt ?? latest.observed_at);
@@ -118,7 +118,7 @@ export function WarProgressPanel({ war, requireHistory = false, showCompletedRes
         {!endedAt && valid && belowCurrent ? <p className="war-progress-notice">Targets below current respect use the current score.</p> : null}
         {stale ? <p className="war-progress-notice">Scores have not updated for over five minutes. Finish times assume these last recorded scores.</p> : null}
         {scheduled ? <p className="war-progress-notice">War starts {date(start!)}.</p> : null}
-        {canDraw && !scheduled ?
+        {canDraw ?
           <WarProgressChart points={points} start={start!} original={original} now={now} endedAt={endedAt}
             currentLead={currentLead} plannedLead={plannedLead} currentFinish={currentFinish} plannedFinish={plannedFinish}
             homeScore={homeScore ?? null} plannedHome={plannedHome} plannedEnemy={plannedEnemy}
@@ -199,9 +199,11 @@ function WarProgressChart({ points, start, original, now, endedAt, currentLead, 
     return () => document.removeEventListener("pointerdown", dismiss);
   }, []);
   const height = width < 430 ? 290 : 330, left = 62, right = 14, top = 30, bottom = height - 46;
+  const scheduled = now < start;
+  const scenarioStart = Math.max(start, now);
   const endAt = endedAt ?? Math.max(now, currentFinish ?? now, plannedFinish ?? now);
   const duration = Math.max(3600, endAt - start);
-  const endHours = dragScale?.endHours ?? (endedAt ? duration / 3600 : Math.max((now - start) / 3600, Math.min(RANKED_WAR_MAX_HOURS, duration / 3600 + 8)));
+  const endHours = dragScale?.endHours ?? (endedAt ? duration / 3600 : scheduled ? RANKED_WAR_MAX_HOURS : Math.max((now - start) / 3600, Math.min(RANKED_WAR_MAX_HOURS, duration / 3600 + 8)));
   const end = start + endHours * 3600;
   const values = points.flatMap((point) => [point.home_score - point.enemy_score, point.target]);
   const limit = dragScale?.limit ?? Math.max(1, original ?? 0, ...values.map(Math.abs), Math.abs(currentLead ?? 0), endedAt ? 0 : Math.abs(plannedLead ?? 0));
@@ -253,7 +255,7 @@ function WarProgressChart({ points, start, original, now, endedAt, currentLead, 
     const marker = score !== null && finish !== null ? {
       x: x(finish), y: y(score), planned, color: planned ? "var(--war-progress-plan)" : "var(--text-main)",
     } : undefined;
-    setTooltip({ title: planned ? "Planned scores" : "Current scores", x: pointer?.x ?? marker?.x ?? x(now), y: pointer?.y ?? marker?.y ?? top, marker, rows: [
+    setTooltip({ title: planned ? "Planned scores" : "Current scores", x: pointer?.x ?? marker?.x ?? x(scenarioStart), y: pointer?.y ?? marker?.y ?? top, marker, rows: [
       { label: "Net lead", value: leadValue(score) },
       { label: "Finish", value: finish === null ? (score === 0 ? "No winning side" : "Unavailable") : finish <= now ? (planned ? "Target already low enough" : "Target already reached") : date(finish) },
     ] });
@@ -378,9 +380,9 @@ function WarProgressChart({ points, start, original, now, endedAt, currentLead, 
         {width > 520 ? <><text x={x(start + Math.min(20, endHours / 4) * 3600)} y={y(limit * .67)} textAnchor="middle" className="progress-team">{homeName}</text><text x={x(start + Math.min(20, endHours / 4) * 3600)} y={y(-limit * .65)} textAnchor="middle" className="progress-team">{enemyName}</text></> : null}
         {segments.map((d, index) => <path key={index} d={d} className="progress-score" />)}
         {points.map((point, index) => <circle key={point.observed_at} data-point-index={index} cx={x(point.observed_at)} cy={y(point.home_score - point.enemy_score)} r={2} className="progress-point" />)}
-        {!endedAt ? <line x1={x(now)} x2={x(now)} y1={top} y2={bottom} className="progress-now" /> : null}
-        {canDrag ? <line x1={x(now)} x2={x(plannedFinish === null ? end : Math.max(plannedFinish, Math.min(end, now + 3600)))} y1={y(plannedLead!)} y2={y(plannedLead!)} className="progress-plan-hit" data-plan-drag="true" /> : null}
-        {scenarios.map(({ score, finish, planned }) => score === null || original === null ? null : <g key={String(planned)} className={planned ? "progress-planned" : "progress-current"}
+        {!endedAt && !scheduled ? <line x1={x(now)} x2={x(now)} y1={top} y2={bottom} className="progress-now" /> : null}
+        {canDrag ? <line x1={x(scenarioStart)} x2={x(plannedFinish === null ? end : Math.max(plannedFinish, Math.min(end, scenarioStart + 3600)))} y1={y(plannedLead!)} y2={y(plannedLead!)} className="progress-plan-hit" data-plan-drag="true" /> : null}
+        {scenarios.map(({ score, finish, planned }) => score === null ? null : <g key={String(planned)} className={planned ? "progress-planned" : "progress-current"}
           tabIndex={planned && canDrag ? 0 : undefined} role={planned && canDrag ? "slider" : undefined}
           aria-label={planned && canDrag ? `${homeName} planned target respect` : undefined}
           aria-orientation={planned && canDrag ? "vertical" : undefined}
@@ -390,7 +392,7 @@ function WarProgressChart({ points, start, original, now, endedAt, currentLead, 
           onKeyDown={planned ? adjustPlan : undefined}
           onFocus={(event) => { if (planned && event.target === event.currentTarget) showScenario({ score, finish, planned }); }}
           onBlur={() => setTooltip(null)}>
-          <line x1={x(now)} x2={x(finish === null ? end : Math.max(finish, Math.min(end, now + 3600)))} y1={y(score)} y2={y(score)} className="progress-held" data-plan-drag={planned && canDrag ? "true" : undefined} />
+          <line x1={x(scenarioStart)} x2={x(finish === null ? end : Math.max(finish, Math.min(end, scenarioStart + 3600)))} y1={y(score)} y2={y(score)} className="progress-held" data-plan-drag={planned && canDrag ? "true" : undefined} />
           {finish !== null ? <><line x1={x(finish)} x2={x(finish)} y1={y(score)} y2={bottom} className="progress-finish-guide" />
             <g tabIndex={planned && canDrag ? undefined : 0} role={planned && canDrag ? undefined : "img"} aria-label={`${planned ? "Planned" : "Current"} scores finish marker`}
               aria-describedby={tooltip ? `${id}-tooltip` : undefined}
@@ -405,7 +407,7 @@ function WarProgressChart({ points, start, original, now, endedAt, currentLead, 
         </g> : null}
       </g>
       <rect x={left} y={top} width={width - left - right} height={bottom - top} fill="none" stroke="var(--border-solid)" />
-      {!endedAt ? <text x={x(now)} y={16} textAnchor="middle">Now</text> : null}
+      {!endedAt && !scheduled ? <text x={x(now)} y={16} textAnchor="middle">Now</text> : null}
     </svg>
     <div className="war-progress-legend">
       <button type="button" aria-describedby={tooltip ? `${id}-tooltip` : undefined} onPointerMove={(event) => showPoint(points.length - 1, legendPointer(event))}
