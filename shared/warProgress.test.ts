@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { originalRankedTarget, previewFinalScore, previewTargetsForLead, rankedFinishAt, rankedTargetAt, rankedTargetFraction } from "./warProgress";
+import { offsetPreviewTargets, originalRankedTarget, previewFinalScore, previewTargetsForLead, rankedFinishAt, rankedTargetAt, rankedTargetFraction } from "./warProgress";
 
 const start = 1_000_000;
 const at = (hours: number) => start + hours * 3600;
@@ -77,5 +77,28 @@ describe("dragging planned net respect", () => {
     const extreme = previewTargetsForLead(100, 200, 300, 400, Number.MAX_SAFE_INTEGER);
     expect(extreme.home).toBe(Number.MAX_SAFE_INTEGER);
     expect(extreme.enemy).toBe(200);
+  });
+});
+
+describe("adjusting both planned targets together", () => {
+  it.each([[8400, 0], [0, 8400], [1000, 1000]])("preserves the lead and finish for %s–%s", (home, enemy) => {
+    const targets = offsetPreviewTargets(0, 0, home, enemy, 600);
+    expect(targets).toEqual({ home: home + 600, enemy: enemy + 600 });
+    expect(targets.home - targets.enemy).toBe(home - enemy);
+    expect(rankedFinishAt(10000, start, targets.home - targets.enemy, start)).toBe(rankedFinishAt(10000, start, home - enemy, start));
+    expect(offsetPreviewTargets(0, 0, targets.home, targets.enemy, -600)).toEqual({ home, enemy });
+  });
+
+  it.each([[8200, 3200, 9000, 3500, 8700, 3200], [3200, 8200, 3500, 9000, 3200, 8700]])(
+    "clamps both targets together at whichever recorded score is reached first",
+    (homeScore, enemyScore, home, enemy, expectedHome, expectedEnemy) => {
+      expect(offsetPreviewTargets(homeScore, enemyScore, home, enemy, -10000)).toEqual({ home: expectedHome, enemy: expectedEnemy });
+    },
+  );
+
+  it("preserves fractional leads and clamps large increases as a pair", () => {
+    expect(offsetPreviewTargets(0, 0, 8400.25, 0.5, 600)).toEqual({ home: 9000.25, enemy: 600.5 });
+    const maximum = Number.MAX_SAFE_INTEGER;
+    expect(offsetPreviewTargets(0, 0, maximum - 200, maximum - 800, 1000)).toEqual({ home: maximum, enemy: maximum - 600 });
   });
 });

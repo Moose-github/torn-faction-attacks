@@ -3,6 +3,7 @@ import React from "react";
 import { Info } from "lucide-react";
 import { getWarProgress, type WarSummary } from "../api";
 import { CollapsiblePanel, EmptyState } from "./Common";
+import { WarTargetOffsetControl } from "./WarTargetOffsetControl";
 import { useCurrentTimeMs } from "../utils/time";
 import { formatRelativeTime } from "../utils/format";
 import {
@@ -118,6 +119,9 @@ export function WarProgressPanel({ war, requireHistory = false, showCompletedRes
         {!endedAt && valid && belowCurrent ? <p className="war-progress-notice">Targets below current respect use the current score.</p> : null}
         {stale ? <p className="war-progress-notice">Scores have not updated for over five minutes. Finish times assume these last recorded scores.</p> : null}
         {scheduled ? <p className="war-progress-notice">War starts {date(start!)}.</p> : null}
+        {canDraw && !endedAt && homeScore !== null && enemyScore !== null && plannedHome !== null && plannedEnemy !== null ?
+          <WarTargetOffsetControl homeScore={homeScore} enemyScore={enemyScore} plannedHome={plannedHome} plannedEnemy={plannedEnemy}
+            onChange={(home, enemy) => { setHomeDraft(String(home)); setEnemyDraft(String(enemy)); }} /> : null}
         {canDraw ?
           <WarProgressChart points={points} start={start!} original={original} now={now} endedAt={endedAt}
             currentLead={currentLead} plannedLead={plannedLead} currentFinish={currentFinish} plannedFinish={plannedFinish}

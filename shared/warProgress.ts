@@ -90,3 +90,11 @@ export function previewTargetsForLead(homeScore: number, enemyScore: number, hom
     Number.MAX_SAFE_INTEGER - Math.max(home, enemy)));
   return { home: home + sharedIncrease, enemy: enemy + sharedIncrease };
 }
+
+// Apply one shared offset, clamped as a pair, to preserve the planned net lead.
+export function offsetPreviewTargets(homeScore: number, enemyScore: number, homeTarget: number, enemyTarget: number, offset: number): { home: number; enemy: number } {
+  const minimum = Math.max(homeScore - homeTarget, enemyScore - enemyTarget);
+  const maximum = Number.MAX_SAFE_INTEGER - Math.max(homeTarget, enemyTarget);
+  const change = Math.max(minimum, Math.min(maximum, offset));
+  return { home: homeTarget + change, enemy: enemyTarget + change };
+}

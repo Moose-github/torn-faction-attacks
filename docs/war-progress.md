@@ -48,3 +48,11 @@ instead. Neither target drops below recorded respect. Any planned increase
 shared by both sides is preserved, including when reversing direction. The
 keyboard slider also adjusts the net lead: up/down by 100 (Shift: 1,000),
 Home/End to the bottom/top of the displayed range.
+
+The horizontal “Adjust both targets” control above the graph moves both targets
+by the same amount, preserving the lead, winner, and projected finish. Drag
+right to add respect to each side and left to subtract it; subtraction stops
+when either target reaches its recorded score. Each gesture starts from the
+current targets, and the handle recentres on release. The buttons and left/right
+arrow keys adjust each target by 100 (Shift + arrows: 1,000); Home removes the
+shared increase. This remains a local preview and does not save war settings.
