@@ -49,15 +49,24 @@ Confirmation immediately queues and refreshes every Discord sheet touched by the
 shift. Failed edits remain queued for the minute cron; the dashboard reads the
 new status on its next normal refresh (every 15 seconds while visible or on focus).
 
-The 60-second warning, 30-second critical warning and drop alert each post a new
-Discord message, with the live status message continuing to update separately.
-These three alerts use Discord Components V2 cards with orange, red and blue
-accents respectively. The heading contains the alert stage, with the chain
-count, last hit and timeout/drop time in the body. Mentions follow the card in
-the same message and still notify through the existing allowed-mentions rules.
+The 60-second warning and 30-second critical warning each post a new Discord
+message. When a chain drops, its existing live status message is edited to show
+**Chain Watch DROPPED**. Its ID and final chain details are retained until that
+edit succeeds; failed edits retry without creating a replacement post. This also
+applies when a cron detects the drop or a lower chain count reveals a replacement
+chain. The next chain gets a new status message once it exceeds 100 hits.
+Finalizing an existing status uses the status channel route and still happens
+when new alerts are muted. If no status message exists, the separate drop alert
+retains its configured route and enable setting.
+
+The warning, critical and dropped messages use Discord Components V2 cards with
+orange, red and blue accents respectively. The heading contains the alert stage,
+with the chain count, last hit and timeout/drop time in the body. Mentions follow
+the card; new warning posts notify through the existing allowed-mentions rules.
+The dropped status edit does not create a new notification post.
 Each alert keeps its configured user/role mentions and appends the current slot's
 assigned watcher using their linked Discord account, without changing alert
-subscriptions or routing. The assignment is read at alert time, including at
+subscriptions. The assignment is read at alert time, including at
 hourly handovers and after admin reassignment; an already mentioned watcher is
 included only once. Cancelled/unassigned slots, inactive watches and missing or
 invalid Discord links add no watcher. The global chain-alert enable setting is

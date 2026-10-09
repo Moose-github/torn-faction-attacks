@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { deliverChainWatchAlert, deleteWatchDiscordMessage, editWatchDiscordMessage, sendWatchDiscordMessage } from "./chainWatchDiscordDelivery";
+import { deliverChainWatchAlert, deliverChainWatchDroppedStatus, deleteWatchDiscordMessage, editWatchDiscordMessage, sendWatchDiscordMessage } from "./chainWatchDiscordDelivery";
 import { upsertDiscordAlertMessage } from "./discordAlertDelivery";
 import { isDiscordAlertEnabled } from "./discordAlertSettings";
 import { readDiscordAlertMentions } from "./discordMentions";
@@ -24,6 +24,14 @@ beforeEach(() => {
 afterEach(() => { vi.unstubAllGlobals(); });
 
 describe("chain watch Discord delivery outcomes", () => {
+  it("finalizes an existing status through its own route even when new alerts are muted", async () => {
+    vi.mocked(isDiscordAlertEnabled).mockResolvedValue(false);
+    const options = { message: "Chain Watch DROPPED", allowedMentions: { users: [], roles: [] } };
+    await deliverChainWatchDroppedStatus(env, "old-id", options, 0x3498db);
+    expect(upsertDiscordAlertMessage).toHaveBeenCalledWith(env, "chain_watch", "old-id", options.message,
+      options.allowedMentions, { cardColor: 0x3498db, editOnly: true });
+  });
+
   it("returns the delivered ID and preserves a stable nonce on retries", async () => {
     const payload = { content: "Reminder", allowed_mentions: { parse: [] } };
     expect(await sendWatchDiscordMessage(env, "channel", payload, "check-in:reminder"))

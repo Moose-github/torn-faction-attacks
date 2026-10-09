@@ -5,7 +5,7 @@ import {
   TORN_FACTION_CHAIN_API_URL,
 } from "./constants";
 import { type DiscordAllowedMentions } from "./discord";
-import { deliverChainWatchAlert, type WatchDeliveryResult } from "./chainWatchDiscordDelivery";
+import { deliverChainWatchAlert, deliverChainWatchDroppedStatus, type WatchDeliveryResult } from "./chainWatchDiscordDelivery";
 import { DISCORD_ALERT_KEYS, type DiscordAlertKey } from "./discordAlerts";
 import { formatDiscordAlertMessage, readDiscordAlertMentions } from "./discordMentions";
 import { fetchTrackedTornJson } from "./external/torn";
@@ -642,10 +642,16 @@ async function sendDroppedIfDue(
     chainWatchAlertEligible(state.alert_chain);
   if (
     state.drop_sent_at !== null ||
+    state.last_error !== null ||
     !wasAlertEligible ||
     state.timeout_at === null ||
     state.timeout_at > sentAt
   ) {
+    return;
+  }
+
+  if (state.discord_message_id) {
+    await finishChainWatchDiscordMessage(env, state, sentAt);
     return;
   }
 
@@ -678,6 +684,46 @@ async function sendDroppedIfDue(
   )
     .bind(sentAt, sentAt, state.faction_id, state.timer_version)
     .run();
+}
+
+async function finishChainWatchDiscordMessage(
+  env: Env, state: ChainWatchStateRow, checkedAt: number,
+): Promise<ChainWatchStateRow> {
+  const message = await chainWatchDroppedDiscordMessage(env, {
+    currentChain: Number(state.current_chain ?? state.alert_chain ?? 0),
+    timeoutAt: Math.min(state.timeout_at ?? checkedAt, checkedAt),
+    lastHit: state,
+  });
+  const current = await readChainWatchState(env);
+  if (!current || current.enabled !== 1 || current.timer_version !== state.timer_version ||
+    current.last_checked_at !== state.last_checked_at || current.discord_message_id !== state.discord_message_id ||
+    (current.last_checked_at !== null && current.last_checked_at > checkedAt)) {
+    throw new ChainWatchObservationConflict("Chain watch changed before its dropped message update.");
+  }
+  const delivery = await deliverChainWatchDroppedStatus(env, state.discord_message_id!, message, CHAIN_WATCH_DROP_COLOR);
+  // A missing route is not a completed edit either. Retain both the ID and old
+  // chain details so a cron/alarm retry cannot overwrite them with a new chain.
+  await requireChainWatchAlertDelivery(env, state, delivery.status === "skipped"
+    ? { status: "failed", error: new Error("Chain Watch dropped update has no status message route") }
+    : delivery, checkedAt);
+
+  const saved = await env.DB.prepare(`UPDATE faction_chain_watch_state
+    SET discord_message_id = NULL, drop_sent_at = ?, source = 'dropped',
+      timer_version = timer_version + 1, scheduled_alarm_stage = NULL,
+      scheduled_alarm_at = NULL, last_error = NULL, updated_at = ?
+    WHERE faction_id = ? AND enabled = 1 AND timer_version = ?
+      AND discord_message_id = ? AND last_checked_at IS ? RETURNING *`)
+    .bind(checkedAt, checkedAt, state.faction_id, state.timer_version, state.discord_message_id, state.last_checked_at)
+    .first<ChainWatchStateRow>();
+  if (saved) return saved;
+
+  // An attack may have extended this chain while Discord was editing it.
+  // Restore that newer active status rather than leaving a late drop visible.
+  const latest = await readChainWatchState(env);
+  if (latest?.discord_message_id === state.discord_message_id) {
+    await syncChainWatchStatusDiscordMessage(env, null, latest, checkedAt);
+  }
+  throw new ChainWatchObservationConflict("Chain watch changed during its dropped message update.");
 }
 
 async function requireChainWatchAlertDelivery(
@@ -757,27 +803,32 @@ async function saveChainWatchObservation(
   observation: ChainWatchObservation,
   checkedAt: number,
 ): Promise<ChainWatchStateRow> {
+  const activeObservation =
+    observation.resetAt !== null &&
+    observation.timeoutAt !== null &&
+    observation.timeoutAt > checkedAt;
+  if (existing?.discord_message_id && observation.lastError !== null && !activeObservation) {
+    return updateChainWatchLiveCheckStatus(env, existing, checkedAt, "stale", observation.lastError);
+  }
+  // Finalize the old chain before a confirmed drop or lower replacement count
+  // can erase its message ID, hit details, or final chain length.
+  const chainEnded = observation.lastError === null && (observation.source === "dropped" ||
+    !activeObservation ||
+    existing?.source === "dropped" || existing?.drop_sent_at != null ||
+    (existing?.current_chain != null && observation.currentChain !== null &&
+      observation.currentChain < existing.current_chain));
+  if (existing?.discord_message_id && chainEnded) {
+    existing = await finishChainWatchDiscordMessage(env, existing, checkedAt);
+  }
+  if (!activeObservation && existing?.drop_sent_at != null) {
+    observation = { ...observation, source: "dropped" };
+  }
   const chainWindowChanged =
     existing === null ||
     existing.current_chain !== observation.currentChain ||
     existing.reset_at !== observation.resetAt ||
     existing.timeout_at !== observation.timeoutAt;
-  const activeObservation =
-    observation.resetAt !== null &&
-    observation.timeoutAt !== null &&
-    observation.timeoutAt > checkedAt;
   const resetAlertState = chainWindowChanged && activeObservation;
-  // A status message belongs to one eligible chain, not to the monitor. A
-  // smaller count also detects a replacement chain if we missed its drop.
-  // Keep ownership on a failed live check until the drop can be confirmed.
-  const forgetDiscordMessage =
-    !chainWatchAlertEligible(observation.currentChain) ||
-    observation.source === "dropped" ||
-    (!activeObservation && observation.lastError === null) ||
-    existing?.source === "dropped" ||
-    existing?.drop_sent_at != null ||
-    (existing?.current_chain != null && observation.currentChain !== null &&
-      observation.currentChain < existing.current_chain);
   const hit = observation.lastHit;
   const hitAt = hit ? chainHitAt(hit) : null;
 
@@ -823,7 +874,6 @@ async function saveChainWatchObservation(
       drop_sent_at = CASE WHEN ? THEN NULL ELSE faction_chain_watch_state.drop_sent_at END,
       alert_chain = CASE WHEN ? THEN NULL ELSE faction_chain_watch_state.alert_chain END,
       alert_reset_at = CASE WHEN ? THEN NULL ELSE faction_chain_watch_state.alert_reset_at END,
-      discord_message_id = CASE WHEN ? THEN NULL ELSE faction_chain_watch_state.discord_message_id END,
       scheduled_alarm_stage = CASE WHEN ? THEN NULL ELSE faction_chain_watch_state.scheduled_alarm_stage END,
       scheduled_alarm_at = CASE WHEN ? THEN NULL ELSE faction_chain_watch_state.scheduled_alarm_at END,
       last_checked_at = excluded.last_checked_at,
@@ -855,7 +905,6 @@ async function saveChainWatchObservation(
       resetAlertState ? 1 : 0,
       resetAlertState ? 1 : 0,
       resetAlertState ? 1 : 0,
-      forgetDiscordMessage ? 1 : 0,
       chainWindowChanged ? 1 : 0,
       chainWindowChanged ? 1 : 0,
       existing?.timer_version ?? 0,

@@ -39,6 +39,7 @@ describe("discord alert delivery", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(editDiscordBotMessage).mockReset().mockResolvedValue(undefined);
     vi.mocked(readConfiguredDiscordNotificationChannel).mockResolvedValue(null);
     vi.mocked(createDiscordBotMessage).mockResolvedValue("bot-message-1");
     vi.mocked(sendDiscordBotMessageWithAttachment).mockResolvedValue("bot-message-1");
@@ -150,6 +151,14 @@ describe("discord alert delivery", () => {
 
     expect(messageId).toBeNull();
     expect(editDiscordBotMessage).not.toHaveBeenCalled();
+    expect(createDiscordBotMessage).not.toHaveBeenCalled();
+  });
+
+  it.each(["Discord HTTP 503", "unknown message"])("does not create a replacement on an edit-only failure: %s", async reason => {
+    vi.mocked(readConfiguredDiscordNotificationChannel).mockResolvedValue(route);
+    vi.mocked(editDiscordBotMessage).mockRejectedValue(new Error(reason));
+    await expect(upsertDiscordAlertMessage(env, DISCORD_ALERT_KEYS.chainWatch, "old-message", "DROPPED",
+      undefined, { cardColor: 0x3498db, editOnly: true })).rejects.toThrow(reason);
     expect(createDiscordBotMessage).not.toHaveBeenCalled();
   });
 });

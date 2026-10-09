@@ -76,3 +76,17 @@ export async function deliverChainWatchAlert(
     return messageId ? { status: "success", value: messageId } : { status: "skipped", reason: "no_route" };
   } catch (error) { return failed(error); }
 }
+
+// Finalizing an already published status is independent of alert subscriptions
+// and toggles. Use its status route, not the separately configured drop route.
+// Never replace a failed edit with a new post: the caller retains ownership and
+// retries until the original message has been updated.
+export async function deliverChainWatchDroppedStatus(
+  env: Env, messageId: string, options: { message: string; allowedMentions?: DiscordAllowedMentions }, cardColor: number,
+): Promise<WatchDeliveryResult<string, "no_route">> {
+  try {
+    const updatedId = await upsertDiscordAlertMessage(env, DISCORD_ALERT_KEYS.chainWatch,
+      messageId, options.message, options.allowedMentions, { cardColor, editOnly: true });
+    return updatedId ? { status: "success", value: updatedId } : { status: "skipped", reason: "no_route" };
+  } catch (error) { return failed(error); }
+}

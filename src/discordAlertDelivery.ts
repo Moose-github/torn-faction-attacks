@@ -18,6 +18,7 @@ type DiscordAlertDeliveryOptions = {
   embedColor?: number;
   embeds?: DiscordEmbed[];
   cardColor?: number;
+  editOnly?: boolean;
 };
 
 type DiscordAlertAttachment = {
@@ -101,10 +102,12 @@ export async function upsertDiscordAlertMessage(
       );
       return existingMessageId;
     } catch (err: any) {
+      if (options?.editOnly) throw err;
       console.warn(`Discord bot alert edit failed for ${alertKey}; creating a new bot message:`, err?.message || err);
     }
   }
 
+  if (options?.editOnly) throw new Error("An existing Discord message is required for an edit-only update");
   return await createDiscordBotMessage(
     env,
     discordNotificationChannelTargetId(route),
