@@ -1,5 +1,5 @@
 import { runChainWatchCron } from "../chainWatch";
-import { runMedicalArmoryCron } from "../armory";
+import { runArmoryCron, runMedicalStockAlertsCron } from "../armory";
 import { runWatchScheduleCron } from "../chainWatchScheduleDiscord";
 import { runEventCompetitionCron } from "../eventCompetition";
 import { syncDiscordTravelTracker } from "../discordTravelTracker";
@@ -34,12 +34,20 @@ import type { CronJobDefinition } from "./model";
 
 export const CRON_JOB_DEFINITIONS: CronJobDefinition[] = [
   {
-    label: "Cron medical armory stock",
-    cadence: "Snapshot +1h; 1m due check/stale retry and 5m alert retries",
+    label: "Cron faction armory inventory",
+    cadence: "15m",
     category: "maintenance",
-    purpose: "Refresh medical items even with the page closed and alert when available stock reaches its threshold.",
+    purpose: "Refresh medical, weapons and armor inventory even with the page closed, and fill missing equipment details.",
+    shouldRun: (date) => date.getUTCMinutes() % 15 === 0,
+    run: (env) => runArmoryCron(env),
+  },
+  {
+    label: "Cron medical armory stock alerts",
+    cadence: "1m rule checks; 5m delivery retries",
+    category: "maintenance",
+    purpose: "Evaluate saved medical stock rules and retry Discord alerts without fetching inventory.",
     shouldRun: () => true,
-    run: (env) => runMedicalArmoryCron(env),
+    run: (env) => runMedicalStockAlertsCron(env),
   },
   {
     label: "Cron chain watch sign-up sheets",

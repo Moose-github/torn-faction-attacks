@@ -27,7 +27,7 @@ export function ArmoryItems({ categoryTabs }: { categoryTabs: React.ReactNode })
         <RefreshCw size={15} /> {busy ? "Checking…" : "Refresh inventory"}</button>
         <ArmoryActivityRefresh fetchedAt={data?.activity_fetched_at ?? null} disabled={!data || busy} onRefresh={() => refresh()} /></div>
       <div className="armory-freshness"><span>Snapshot: {tct(data?.inventory_timestamp ?? null)}</span>
-        <span>Fetched: {tct(data?.checked_at ?? null)}</span><span>Torn updates Inventory data hourly</span></div>
+        <span>Fetched: {tct(data?.checked_at ?? null)}</span><span>Inventory checked every 15 minutes</span></div>
     </section>
     {categoryTabs}
     {error || data?.error ? <div className="panel armory-message armory-warning" role="alert">{error ?? data?.error} {data?.inventory_timestamp ? "Showing the last saved inventory." : ""}</div> : null}

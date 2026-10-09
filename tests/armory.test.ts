@@ -2,7 +2,7 @@ import { DatabaseSync } from "node:sqlite";
 import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { HOME_FACTION_ID } from "../src/constants";
-import { parseArmoryDetails, parseArmoryInventory, parseMedicalInventory, readMedicalArmory, readArmory, refreshArmoryDetails, syncArmory, runMedicalArmoryCron, updateMedicalStockSetting } from "../src/armory";
+import { parseArmoryDetails, parseArmoryInventory, parseMedicalInventory, readMedicalArmory, readArmory, refreshArmoryDetails, syncArmory, runArmoryCron, runMedicalStockAlertsCron, updateMedicalStockSetting } from "../src/armory";
 import { sendMedicalStockAlert } from "../src/armoryStock";
 import { fetchTrackedTornResponse } from "../src/external/torn";
 import type { Env } from "../src/types";
@@ -322,32 +322,32 @@ describe("medical background refresh and stock alerts", () => {
   const tick = async (amount: number) => {
     vi.setSystemTime(Date.now() + 3600_000);
     fetcher.mockResolvedValueOnce(Response.json(medical(amount)));
-    await runMedicalArmoryCron(env);
+    await syncArmory(env, "medical");
   };
 
-  it("refreshes medical stock with no page open, only hourly, without touching equipment", async () => {
+  it("refreshes medical stock on quarter-hour boundaries without touching equipment", async () => {
     fetcher.mockResolvedValueOnce(Response.json(medical()));
-    await runMedicalArmoryCron(env);
+    await syncArmory(env, "medical");
     expect(fetcher).toHaveBeenCalledTimes(1);
     expect(String(fetcher.mock.calls[0][1])).toContain("cat=medical");
     expect((await readMedicalArmory(env)).stock_settings[67]).toEqual({ name: "First Aid Kit", threshold: 0, enabled: true });
     expect(await readArmory(env)).toMatchObject({ items: [], inventory_timestamp: null });
     expect(await readArmory(env, "armor")).toMatchObject({ items: [], inventory_timestamp: null });
-    vi.setSystemTime((clock + 3599) * 1000);
-    await runMedicalArmoryCron(env);
+    vi.setSystemTime((clock + 899) * 1000);
+    await syncArmory(env, "medical");
     expect(fetcher).toHaveBeenCalledTimes(1);
-    vi.setSystemTime((clock + 3600) * 1000);
+    vi.setSystemTime((clock + 900) * 1000);
     fetcher.mockResolvedValueOnce(Response.json(medical()));
-    await runMedicalArmoryCron(env);
+    await syncArmory(env, "medical");
     expect(fetcher).toHaveBeenCalledTimes(2);
     expect(sendMedicalStockAlert).not.toHaveBeenCalled();
   });
 
   it("alerts at equality using only available quantity, suppresses repeats, and rearms above threshold", async () => {
     fetcher.mockResolvedValueOnce(Response.json(medical()));
-    await runMedicalArmoryCron(env);
+    await syncArmory(env, "medical");
     expect((await configure(10)).status).toBe(200);
-    await runMedicalArmoryCron(env);
+    await runMedicalStockAlertsCron(env);
     expect(sendMedicalStockAlert).toHaveBeenCalledExactlyOnceWith(env, "First Aid Kit", 10, 10);
     expect(fetcher).toHaveBeenCalledTimes(1);
     await tick(9);
@@ -359,71 +359,71 @@ describe("medical background refresh and stock alerts", () => {
 
   it("defaults to a zero threshold and remembers missing/all-loaned items as zero available", async () => {
     fetcher.mockResolvedValueOnce(Response.json({ ...medical(), inventory: [medical().inventory[1]] }));
-    await runMedicalArmoryCron(env);
+    await syncArmory(env, "medical");
     expect(sendMedicalStockAlert).toHaveBeenCalledExactlyOnceWith(env, "First Aid Kit", 0, 0);
     expect((await readMedicalArmory(env)).items.map(item => item.amount)).toEqual([0, 5]);
     await tick(1);
     vi.setSystemTime(Date.now() + 3600_000);
     fetcher.mockResolvedValueOnce(Response.json({ ...medical(), inventory: [] }));
-    await runMedicalArmoryCron(env);
+    await syncArmory(env, "medical");
     expect((await readMedicalArmory(env)).items).toEqual([{ id: 67, name: "First Aid Kit", type: "Medical", amount: 0, loaned: null }]);
     expect(sendMedicalStockAlert).toHaveBeenCalledTimes(2);
   });
 
   it("persists disabled thresholds and checks changed/enabled rules on the next cron tick", async () => {
     fetcher.mockResolvedValueOnce(Response.json(medical()));
-    await runMedicalArmoryCron(env);
+    await syncArmory(env, "medical");
     await configure(20, false);
     await tick(0);
     expect(sendMedicalStockAlert).not.toHaveBeenCalled();
     expect((await readMedicalArmory(env)).stock_settings[67]).toMatchObject({ threshold: 20, enabled: false });
     await configure(20, true);
-    await runMedicalArmoryCron(env);
+    await runMedicalStockAlertsCron(env);
     expect(sendMedicalStockAlert).toHaveBeenCalledTimes(1);
     await configure(20, true); // Saving an identical rule does not reset its alert.
-    await runMedicalArmoryCron(env);
+    await runMedicalStockAlertsCron(env);
     expect(sendMedicalStockAlert).toHaveBeenCalledTimes(1);
   });
 
   it("retries undelivered alerts after five minutes without fetching Torn again", async () => {
     vi.mocked(sendMedicalStockAlert).mockResolvedValueOnce(false).mockRejectedValueOnce(new Error("Discord unavailable"));
     fetcher.mockResolvedValueOnce(Response.json(medical(0)));
-    await runMedicalArmoryCron(env);
+    await syncArmory(env, "medical");
     vi.setSystemTime((clock + 299) * 1000);
-    await runMedicalArmoryCron(env);
+    await runMedicalStockAlertsCron(env);
     expect(sendMedicalStockAlert).toHaveBeenCalledTimes(1);
     vi.setSystemTime((clock + 300) * 1000);
-    await runMedicalArmoryCron(env);
+    await runMedicalStockAlertsCron(env);
     expect((await readMedicalArmory(env)).error).toBeNull();
     vi.setSystemTime((clock + 600) * 1000);
-    await runMedicalArmoryCron(env);
+    await runMedicalStockAlertsCron(env);
     vi.setSystemTime((clock + 900) * 1000);
-    await runMedicalArmoryCron(env);
+    await runMedicalStockAlertsCron(env);
     expect(sendMedicalStockAlert).toHaveBeenCalledTimes(3);
     expect(fetcher).toHaveBeenCalledTimes(1);
   });
 
   it("does not evaluate a failed or incomplete refresh and respects inventory backoff", async () => {
     fetcher.mockResolvedValueOnce(Response.json(medical()));
-    await runMedicalArmoryCron(env);
+    await syncArmory(env, "medical");
     await configure(10);
     advance();
     fetcher.mockResolvedValueOnce(Response.json({ ...medical(0), _metadata: { total: 3, links: { next: null, prev: null } } }));
-    await runMedicalArmoryCron(env);
-    await runMedicalArmoryCron(env);
+    await syncArmory(env, "medical");
+    await syncArmory(env, "medical");
     expect(sendMedicalStockAlert).not.toHaveBeenCalled();
     expect(fetcher).toHaveBeenCalledTimes(2);
     expect((await readMedicalArmory(env)).items[0].amount).toBe(10);
   });
 
-  it("serializes page and cron refreshes and rejects concurrent setting changes", async () => {
+  it("serializes medical syncs and rejects concurrent setting changes", async () => {
     fetcher.mockImplementationOnce(async () => {
-      await runMedicalArmoryCron(env);
+      await runMedicalStockAlertsCron(env);
       await syncArmory(env, "medical");
       expect((await configure(10)).status).toBe(409);
       return Response.json(medical(0));
     });
-    await runMedicalArmoryCron(env);
+    await syncArmory(env, "medical");
     expect(fetcher).toHaveBeenCalledTimes(1);
     expect(sendMedicalStockAlert).toHaveBeenCalledTimes(1);
   });
@@ -450,7 +450,7 @@ describe("medical background refresh and stock alerts", () => {
     } finally { legacy.close(); }
     db.sqlite.prepare("INSERT INTO faction_armory_state (faction_id, category, source_json) VALUES (?, 'medical', ?)").run(HOME_FACTION_ID, JSON.stringify(medical()));
     fetcher.mockResolvedValueOnce(Response.json({ ...medical(), inventory: [] }));
-    await runMedicalArmoryCron(env);
+    await syncArmory(env, "medical");
     expect(sendMedicalStockAlert).toHaveBeenCalledExactlyOnceWith(env, "First Aid Kit", 0, 0);
   });
 
@@ -458,77 +458,132 @@ describe("medical background refresh and stock alerts", () => {
     vi.mocked(sendMedicalStockAlert).mockResolvedValueOnce(true).mockResolvedValueOnce(false);
     fetcher.mockResolvedValueOnce(Response.json({ ...medical(), inventory: [medical(0).inventory[0],
       { ...medical(0).inventory[0], id: 68, name: "Small First Aid Kit" }] }));
-    await runMedicalArmoryCron(env);
+    await syncArmory(env, "medical");
     vi.setSystemTime((clock + 300) * 1000);
-    await runMedicalArmoryCron(env);
+    await runMedicalStockAlertsCron(env);
     expect(vi.mocked(sendMedicalStockAlert).mock.calls.map(call => call[1])).toEqual(["First Aid Kit", "Small First Aid Kit", "Small First Aid Kit"]);
   });
 });
 
-describe("snapshot-based inventory refresh", () => {
-  it.each(["weapons", "armor", "medical"] as const)("allows %s refresh exactly an hour after its snapshot", async category => {
-    fetcher.mockResolvedValueOnce(Response.json({ inventory_timestamp: clock - 1800, inventory: [] }));
+describe("quarter-hour inventory refresh", () => {
+  it.each(["weapons", "armor", "medical"] as const)("refreshes %s at the next quarter hour regardless of snapshot age", async category => {
+    vi.setSystemTime((clock + 20) * 1000);
+    fetcher.mockImplementation(async () => Response.json({ inventory_timestamp: clock - 1800, inventory: [] }));
     await syncArmory(env, category);
     const read = () => category === "medical" ? readMedicalArmory(env) : readArmory(env, category);
-    expect(await read()).toMatchObject({ checked_at: clock, next_inventory_at: clock + 1800 });
-    vi.setSystemTime((clock + 1799) * 1000);
+    expect(await read()).toMatchObject({ checked_at: clock + 20, next_inventory_at: clock + 900 });
+    vi.setSystemTime((clock + 899) * 1000);
     await syncArmory(env, category);
     expect(fetcher).toHaveBeenCalledTimes(1);
-    vi.setSystemTime((clock + 1800) * 1000);
-    fetcher.mockResolvedValueOnce(Response.json({ inventory_timestamp: clock + 1800, inventory: [] }));
+    vi.setSystemTime((clock + 900) * 1000);
     await syncArmory(env, category);
     expect(fetcher).toHaveBeenCalledTimes(2);
-    expect(await read()).toMatchObject({ checked_at: clock + 1800, next_inventory_at: clock + 5400 });
+    expect(await read()).toMatchObject({ checked_at: clock + 900, next_inventory_at: clock + 1800 });
   });
 
-  it("retries unchanged expired snapshots once per minute without spinning or postponing forever", async () => {
-    fetcher.mockImplementation(async () => Response.json({ inventory_timestamp: clock - 3600, inventory: [] }));
-    await runMedicalArmoryCron(env);
-    expect((await readMedicalArmory(env)).next_inventory_at).toBe(clock + 60);
-    vi.setSystemTime((clock + 59) * 1000);
-    await runMedicalArmoryCron(env);
-    expect(fetcher).toHaveBeenCalledTimes(1);
-    vi.setSystemTime((clock + 60) * 1000);
-    await runMedicalArmoryCron(env);
-    expect(fetcher).toHaveBeenCalledTimes(2);
-    expect((await readMedicalArmory(env)).next_inventory_at).toBe(clock + 120);
-  });
-
-  it("shortens an existing saved timer but preserves failure backoff and shared-key cooldowns", async () => {
+  it("shortens legacy hourly timers but preserves failure backoff and key cooldowns", async () => {
     fetcher.mockResolvedValueOnce(Response.json({ inventory_timestamp: clock - 1800, inventory: [] }));
     await syncArmory(env);
     db.sqlite.prepare("UPDATE faction_armory_state SET next_inventory_at = ?").run(clock + 3600);
-    expect((await readArmory(env)).next_inventory_at).toBe(clock + 1800);
+    expect((await readArmory(env)).next_inventory_at).toBe(clock + 900);
     db.sqlite.exec("UPDATE faction_armory_state SET inventory_failures = 1");
     expect((await readArmory(env)).next_inventory_at).toBe(clock + 3600);
     db.sqlite.prepare("UPDATE faction_armory_state SET inventory_failures = 0, details_blocked_until = ?").run(clock + 7200);
     expect((await readArmory(env)).next_inventory_at).toBe(clock + 7200);
   });
 
-  it("does not let a future snapshot delay refreshing beyond one hour from checking", async () => {
+  it("does not let a future snapshot postpone the next quarter-hour check", async () => {
     fetcher.mockResolvedValueOnce(Response.json({ inventory_timestamp: clock + 86400, inventory: [] }));
     await syncArmory(env, "medical");
-    expect((await readMedicalArmory(env)).next_inventory_at).toBe(clock + 3600);
+    expect((await readMedicalArmory(env)).next_inventory_at).toBe(clock + 900);
   });
 
-  it("keeps Discord retries at five minutes when expired inventory is fetched every minute", async () => {
+  it("keeps Discord retries at five minutes without refetching an expired snapshot", async () => {
     const payload = { inventory_timestamp: clock - 3600, inventory: [
       { id: 67, name: "First Aid Kit", type: "Medical", amount: 0, uids: [], loaned: null },
     ] };
     fetcher.mockImplementation(async () => Response.json(payload));
     vi.mocked(sendMedicalStockAlert).mockResolvedValue(false);
-    for (let minute = 0; minute < 5; minute++) {
+    await syncArmory(env, "medical");
+    for (let minute = 1; minute < 5; minute++) {
       vi.setSystemTime((clock + minute * 60) * 1000);
-      await runMedicalArmoryCron(env);
+      await runMedicalStockAlertsCron(env);
     }
-    expect(fetcher).toHaveBeenCalledTimes(5);
+    expect(fetcher).toHaveBeenCalledTimes(1);
     expect(sendMedicalStockAlert).toHaveBeenCalledTimes(1);
     vi.setSystemTime((clock + 300) * 1000);
-    await runMedicalArmoryCron(env);
+    await runMedicalStockAlertsCron(env);
     expect(sendMedicalStockAlert).toHaveBeenCalledTimes(2);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    vi.setSystemTime((clock + 900) * 1000);
+    await runMedicalStockAlertsCron(env);
+    expect(sendMedicalStockAlert).toHaveBeenCalledTimes(2);
+    expect(fetcher).toHaveBeenCalledTimes(1);
   });
 });
 
+describe("shared armory background refresh", () => {
+  const inventoryCalls = () => fetcher.mock.calls.map(call => new URL(String(call[1])))
+    .filter(url => url.pathname.endsWith("/inventory"));
+  beforeEach(() => {
+    fetcher.mockImplementation(async (_env, input) => {
+      const url = new URL(String(input));
+      if (url.pathname.endsWith("/inventory")) {
+        const category = url.searchParams.get("cat");
+        return Response.json(category === "medical" ? { inventory_timestamp: clock, inventory: [] }
+          : category === "armor" ? armorStock() : stock());
+      }
+      return Response.json({ itemdetails: url.pathname.includes("18059712452")
+        ? armorDetail() : [detail(7443497174), detail(10727704270)] });
+    });
+  });
+
+  it("refreshes all three categories with no page open and reuses cached equipment details", async () => {
+    await runArmoryCron(env);
+    expect(inventoryCalls().map(url => url.searchParams.get("cat"))).toEqual(["medical", "weapons", "armor"]);
+    expect(await readArmory(env)).toMatchObject({ pending: 0, inventory_timestamp: clock });
+    expect(await readArmory(env, "armor")).toMatchObject({ pending: 0, inventory_timestamp: clock });
+    expect(await readMedicalArmory(env)).toMatchObject({ inventory_timestamp: clock });
+    const initialCalls = fetcher.mock.calls.length;
+    await runArmoryCron(env);
+    expect(fetcher).toHaveBeenCalledTimes(initialCalls);
+    vi.setSystemTime((clock + 900) * 1000);
+    await runArmoryCron(env);
+    expect(inventoryCalls()).toHaveLength(6);
+    expect(fetcher).toHaveBeenCalledTimes(initialCalls + 3);
+    expect(await readArmory(env)).toMatchObject({ checked_at: clock + 900, next_inventory_at: clock + 1800 });
+  });
+
+  it("continues other categories after an upstream failure and honors retry backoff", async () => {
+    fetcher.mockResolvedValueOnce(new Response("{}", { status: 429, headers: { "Retry-After": "1800" } }));
+    await runArmoryCron(env);
+    expect(await readMedicalArmory(env)).toMatchObject({ inventory_timestamp: null, next_inventory_at: clock + 1800 });
+    expect((await readArmory(env)).pending).toBe(0);
+    expect((await readArmory(env, "armor")).pending).toBe(0);
+    vi.setSystemTime((clock + 900) * 1000);
+    await runArmoryCron(env);
+    expect(inventoryCalls().filter(url => url.searchParams.get("cat") === "medical")).toHaveLength(1);
+    expect(inventoryCalls().filter(url => url.searchParams.get("cat") === "weapons")).toHaveLength(2);
+  });
+
+  it("continues remaining categories when one category throws unexpectedly", async () => {
+    const prepare = db.prepare.bind(db);
+    vi.spyOn(db, "prepare").mockImplementationOnce(() => { throw new Error("Temporary database failure"); })
+      .mockImplementation(prepare);
+    await expect(runArmoryCron(env)).rejects.toThrow("Armory background refresh failed");
+    expect(inventoryCalls().map(url => url.searchParams.get("cat"))).toEqual(["weapons", "armor"]);
+  });
+
+  it("shares the page lease and leaves saved-alert checks free of Torn calls", async () => {
+    await runMedicalStockAlertsCron(env);
+    expect(fetcher).not.toHaveBeenCalled();
+    db.sqlite.prepare("INSERT INTO faction_armory_state (faction_id, category, lease_token, lease_until) VALUES (?, 'weapons', 'page', ?)")
+      .run(HOME_FACTION_ID, clock + 120);
+    await runArmoryCron(env);
+    expect(inventoryCalls().map(url => url.searchParams.get("cat"))).toEqual(["medical", "armor"]);
+    expect((await readArmory(env)).inventory_timestamp).toBeNull();
+  });
+});
 describe("medical stacks", () => {
   const sample = () => JSON.parse(readFileSync(new URL("./fixtures/armory-medical-inventory.json", import.meta.url), "utf8"));
   it("preserves quantities and separate available/borrowed stock without UIDs or loan dates", async () => {
@@ -744,7 +799,7 @@ describe("complete inventory pagination", () => {
     expect(repaired.items).toHaveLength(3);
     expect(repaired.pending).toBe(0);
     expect(repaired.error).toBeNull();
-    expect(repaired.next_inventory_at).toBe(clock + 3600);
+    expect(repaired.next_inventory_at).toBe(clock + 900);
   });
   it("renews the lease while fetching a long inventory", async () => {
     fetcher.mockImplementation(async (_env, input) => {

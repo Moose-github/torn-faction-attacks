@@ -97,7 +97,7 @@ function EquipmentInventory({ category, categoryTabs }: { category: ArmoryCatego
         <ArmoryActivityRefresh fetchedAt={data?.activity_fetched_at ?? null} disabled={!data || busy} onRefresh={() => refresh("check")} />
       </div>
       <div className="armory-freshness"><span>Snapshot: {tct(data?.inventory_timestamp ?? null)}{age !== null ? ` · ${Math.floor(age / 60)} min old` : ""}</span>
-        <span>Fetched: {tct(data?.checked_at ?? null)}</span><span>Torn updates Inventory data hourly</span></div>
+        <span>Fetched: {tct(data?.checked_at ?? null)}</span><span>Inventory checked every 15 minutes</span></div>
     </section>
     {categoryTabs}
     {error || data?.error ? <div className="panel armory-message armory-warning" role="alert">{error ?? data?.error} {data?.inventory_timestamp ? "Showing the last saved inventory." : ""}</div> : null}
@@ -116,7 +116,7 @@ function EquipmentInventory({ category, categoryTabs }: { category: ArmoryCatego
       </div><button type="button" disabled={!filtered.length} onClick={exportCsv}><Download size={15} /> Export CSV</button></div>
       <div className="armory-detail-progress" role="status">{data ? `${items.length - data.pending} of ${items.length} ${itemLabel.toLowerCase()} details loaded · ${counts.bonuses} ${plural} with bonuses${data.pending ? " (partial)" : ""}` : "Loading inventory…"}
         {data?.refreshing ? ` · ${data.refreshing} detail refreshes remaining` : ""}{data?.syncing ? " · Sync in progress" : ""}</div>
-      <p className="armory-loan-note">Loan times show when we first observed the current borrower, not the checkout date. Tracking updates during inventory refreshes while this page is open; returns between checks may be missed.</p>
+      <p className="armory-loan-note">Loan times show when we first observed the current borrower, not the checkout date. Inventory refreshes every 15 minutes even with this page closed; returns between snapshots may be missed.</p>
       <div className="armory-filters">
         <label className="armory-search">Search<input type="search" placeholder={`${itemLabel}, member or UID`} value={filters.search} onChange={event => field("search", event.target.value)} /></label>
         {!isArmor ? <Filter label="Slot" value={filters.slot} onChange={value => field("slot", value)} options={slots} /> : null}

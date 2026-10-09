@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("./enemyScoutingCron", () => ({
   runEnemyScoutingCronTick: vi.fn(),
 }));
-vi.mock("./armory", () => ({ runMedicalArmoryCron: vi.fn() }));
+vi.mock("./armory", () => ({ runArmoryCron: vi.fn(), runMedicalStockAlertsCron: vi.fn() }));
 vi.mock("./ingestion", () => ({
   runIngestion: vi.fn(),
 }));
@@ -43,7 +43,7 @@ import {
   shouldRunMonthlyXanaxCompetitionDiscordReminder,
 } from "./cronPlan";
 import { runChainWatchCron } from "./chainWatch";
-import { runMedicalArmoryCron } from "./armory";
+import { runArmoryCron, runMedicalStockAlertsCron } from "./armory";
 import { runIngestion } from "./ingestion";
 import { markOpenWarMemberStatsRebuildComplete, runHeatmapSamplingRetry, runScheduledMaintenance } from "./maintenance";
 import { syncRetaliationDiscordBoard } from "./retaliations";
@@ -54,14 +54,18 @@ beforeEach(() => {
   vi.clearAllMocks();
 });
 
-it("checks the medical armory due gate every minute without scheduling equipment refreshes", async () => {
+it("refreshes all armory inventory on quarter hours and checks saved stock alerts every minute", async () => {
   const env = {} as Env;
   for (let minute = 0; minute < 60; minute++) {
     const jobs = buildCronPlan(env, Date.UTC(2026, 8, 27, 1, minute)).filter(job => job.label.includes("armory"));
-    expect(jobs.map(job => job.label)).toEqual(["Cron medical armory stock"]);
-    await jobs[0].run();
+    expect(jobs.map(job => job.label)).toEqual(minute % 15 === 0
+      ? ["Cron faction armory inventory", "Cron medical armory stock alerts"]
+      : ["Cron medical armory stock alerts"]);
+    for (const job of jobs) await job.run();
   }
-  expect(runMedicalArmoryCron).toHaveBeenCalledTimes(60);
+  expect(runArmoryCron).toHaveBeenCalledTimes(4);
+  expect(runArmoryCron).toHaveBeenCalledWith(env);
+  expect(runMedicalStockAlertsCron).toHaveBeenCalledTimes(60);
 });
 
 describe("heatmap sampling retry cron", () => {

@@ -10,6 +10,7 @@ import { armoryOwnerOptionsQuery } from "./armoryOwnership";
 import type { ArmoryOwner } from "../shared/armory";
 
 const HOUR = 3600;
+const INVENTORY_INTERVAL = 15 * 60;
 const now = () => Math.floor(Date.now() / 1000);
 const object = (value: unknown): Record<string, unknown> => {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Invalid object");
@@ -140,20 +141,19 @@ function partialInventory(current: State | undefined): boolean {
   } catch { return true; }
 }
 
-function nextInventoryAt(timestamp: number, checkedAt: number): number {
-  // A successful fetch can return an already-aged Torn snapshot. Do not restart
-  // its hour; only wait a minute if Torn still returns an expired snapshot.
-  const expiresAt = Math.min(timestamp, checkedAt) + HOUR;
-  return expiresAt > checkedAt ? expiresAt : checkedAt + 60;
+function nextInventoryAt(checkedAt: number): number {
+  // Align with the quarter-hour cron, including when Torn returns the same snapshot.
+  // Adding 15 minutes to completion time would skip the next cron slot.
+  return (Math.floor(checkedAt / INVENTORY_INTERVAL) + 1) * INVENTORY_INTERVAL;
 }
 
 function inventoryDueAt(current: State | undefined): number {
   // Repair snapshots saved by the original single-page implementation without bypassing error backoff.
   if (partialInventory(current) && current?.inventory_failures === 0) return Math.max(0, current.details_blocked_until);
   if (!current || current.inventory_failures || !current.inventory_timestamp || !current.checked_at) return current?.next_inventory_at ?? 0;
-  // Also shorten timers saved before snapshot-based scheduling was introduced.
+  // Shorten legacy hourly timers without bypassing error or key cooldowns.
   return Math.max(current.details_blocked_until,
-    Math.min(current.next_inventory_at, nextInventoryAt(current.inventory_timestamp, current.checked_at)));
+    Math.min(current.next_inventory_at, nextInventoryAt(current.checked_at)));
 }
 
 type BorrowerActivityRow = ArmoryBorrowerActivity & { member_id: number };
@@ -344,7 +344,7 @@ async function fetchCompleteInventory(env: Env, token: string, category: ArmoryI
 async function saveInventory(env: Env, token: string, payload: unknown, previous: State, category: ArmoryInventoryCategory): Promise<void> {
   const inventory = category === "medical" ? parseMedicalInventory(payload) : parseArmoryInventory(payload);
   if (previous.inventory_timestamp !== null && inventory.timestamp < previous.inventory_timestamp) throw new Error("Older snapshot");
-  const checkedAt = now(), nextInventory = nextInventoryAt(inventory.timestamp, checkedAt);
+  const checkedAt = now(), nextInventory = nextInventoryAt(checkedAt);
   if (category === "medical") {
     // Persist only the latest quantity/borrower snapshot; no UIDs, detail calls or loan timestamps.
     let priorItems: ArmoryStack[] = [];
@@ -487,14 +487,27 @@ export async function refreshArmoryDetails(env: Env, category: ArmoryCategory = 
   return getArmory(env, category);
 }
 
-// Cron checks every minute; inventory becomes due one hour after Torn's snapshot.
-// Both page refreshes and cron use the same category lease, cache and error backoff.
-export async function runMedicalArmoryCron(env: Env): Promise<void> {
+// Every quarter-hour, refresh all categories through the same leases and backoff
+// as page requests. A failure in one category must not skip the remaining ones.
+export async function runArmoryCron(env: Env): Promise<void> {
+  const errors: unknown[] = [];
+  for (const category of ["medical", "weapons", "armor"] as const) {
+    try { await syncArmory(env, category); }
+    catch (error) { errors.push(error); }
+  }
+  if (errors.length) throw new AggregateError(errors, "Armory background refresh failed");
+}
+
+// Keep rule changes and five-minute Discord retries responsive without making
+// inventory requests between the shared quarter-hour runs.
+export async function runMedicalStockAlertsCron(env: Env): Promise<void> {
   const current = await state(env, "medical");
-  if ((current?.lease_until ?? 0) > now()) return;
-  const inventoryDue = inventoryDueAt(current ?? undefined) <= now();
-  const alertsDue = current?.source_json && !current.inventory_error && current.stock_alert_next_at <= now();
-  if (inventoryDue || alertsDue) await syncArmory(env, "medical");
+  if (!current?.source_json || current.lease_until > now() || current.inventory_error
+    || current.stock_alert_next_at > now() || inventoryDueAt(current) <= now()) return;
+  const token = await acquire(env, "medical");
+  if (!token) return;
+  try { await checkMedicalStockAlerts(env, token); }
+  finally { await release(env, token, "medical"); }
 }
 
 async function checkMedicalStockAlerts(env: Env, token: string): Promise<void> {
