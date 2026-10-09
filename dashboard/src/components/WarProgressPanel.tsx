@@ -91,6 +91,7 @@ export function WarProgressPanel({ war, requireHistory = false, showCompletedRes
   const belowCurrent = (homeInput.trim() !== "" && homeScore != null && Number(homeInput) < homeScore) ||
     (enemyInput.trim() !== "" && enemyScore != null && Number(enemyInput) < enemyScore);
   const canDraw = start !== null && (scheduled || latest !== null || Boolean(data?.history.length));
+  const showScoreFinishes = !endedAt && latest !== null && !scheduled;
   const canAdjustTargets = canDraw && !endedAt && homeScore !== null && enemyScore !== null && plannedHome !== null && plannedEnemy !== null;
   const points = React.useMemo(() => {
     if (!data || !latest) return data?.history ?? [];
@@ -149,14 +150,14 @@ export function WarProgressPanel({ war, requireHistory = false, showCompletedRes
             homeScore={homeScore ?? null} enemyScore={enemyScore ?? null} plannedHome={plannedHome} plannedEnemy={plannedEnemy}
             onTargetsChange={(home, enemy) => { setHomeDraft(String(home)); setEnemyDraft(String(enemy)); }}
             homeName={homeName} enemyName={enemyName} /> : null}
-        {canDraw ? <dl className="war-progress-timing" aria-label={endedAt ? "Recorded war timing" : "Planned war timing"}>
+        {canDraw && !showScoreFinishes ? <dl className="war-progress-timing" aria-label={endedAt ? "Recorded war timing" : "Planned war timing"}>
           <div><dt>War length:</dt><dd>{displayedFinish !== null && start !== null ? warLength(displayedFinish - start) : "—"}</dd></div>
           <div><dt>War end:</dt><dd>{displayedFinish !== null ? warEndDate(displayedFinish) : plannedLead === 0 ? "No winning side" : "Unavailable"}</dd></div>
         </dl> : null}
         {!latest && !endedAt ? <EmptyState text="Waiting for the next Torn score update. History begins when score collection starts." /> : null}
         {latest && original === null && !endedAt ? <p className="war-progress-notice">The original winning target is unavailable, so finish times cannot be calculated yet.</p> : null}
         {endedAt && showCompletedResult ? <div className="war-progress-finish"><div><small>War ended</small><strong>{date(endedAt)}</strong><span>{record.winner_faction_id ? `${record.winner_faction_id === record.enemy_faction_id ? enemyName : homeName} won` : "Final result recorded"}</span></div></div> : null}
-        {!endedAt && latest && !scheduled ? <div className="war-progress-finish">
+        {showScoreFinishes ? <div className="war-progress-finish">
             <FinishResult label="Current scores" finish={currentFinish} lead={currentLead} now={now} original={original} />
             <FinishResult label="Planned scores" finish={plannedFinish} lead={plannedLead} now={now} original={original} planned />
           </div> : null}

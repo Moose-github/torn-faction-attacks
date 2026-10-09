@@ -37,7 +37,8 @@ reached. Completed wars show the recorded finish instead of predictions.
 Below the graph, War length shows the duration from the official start to the
 planned finish, and War end shows that finish date in TCT. These follow the
 planned targets; completed wars use the official end instead. Tied targets
-have no projected finish.
+have no projected finish. These two lines are hidden whenever the Current scores
+and Planned scores finish section is displayed.
 
 ## Temporary targets
 
