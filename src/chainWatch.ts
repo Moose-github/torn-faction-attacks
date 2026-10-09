@@ -5,7 +5,8 @@ import {
   TORN_FACTION_CHAIN_API_URL,
 } from "./constants";
 import { type DiscordAllowedMentions } from "./discord";
-import { deliverChainWatchAlert, deliverChainWatchDroppedStatus, type WatchDeliveryResult } from "./chainWatchDiscordDelivery";
+import { deliverChainWatchAlert, deliverChainWatchDroppedStatus, deliverChainWatchWarningAlert, type WatchDeliveryResult } from "./chainWatchDiscordDelivery";
+import { recordChainWatchWarning, reconcileChainWatchWarningMessages } from "./chainWatchWarningCleanup";
 import { DISCORD_ALERT_KEYS, type DiscordAlertKey } from "./discordAlerts";
 import { formatDiscordAlertMessage, readDiscordAlertMentions } from "./discordMentions";
 import { fetchTrackedTornJson } from "./external/torn";
@@ -126,8 +127,15 @@ export async function reconcileChainWatchActivity(env: Env, checkedAt = nowSecon
 
 export async function runChainWatchCron(env: Env, scheduledTime: number): Promise<void> {
   const checkedAt = Math.max(Math.floor(scheduledTime / 1000), nowSeconds());
-  if (await reconcileChainWatchActivity(env, checkedAt)) {
-    await refreshChainWatch(env, checkedAt);
+  let refreshed = false;
+  try {
+    if (await reconcileChainWatchActivity(env, checkedAt)) {
+      await refreshChainWatch(env, checkedAt);
+      refreshed = true;
+    }
+  } finally {
+    // Finished watches and a failing live refresh must not strand cleanup.
+    if (!refreshed) await reconcileChainWatchWarningMessages(env, await readChainWatchState(env), checkedAt);
   }
 }
 
@@ -362,7 +370,9 @@ async function retryChainWatchObservation(
     // replaying a captured live response could undo a newer timer or restart.
     const observedAt = attempt === 0 ? checkedAt : Math.max(checkedAt, nowSeconds());
     try {
-      return await observeAndSave(state, observedAt);
+      const saved = await observeAndSave(state, observedAt);
+      await reconcileChainWatchWarningMessages(env, await readChainWatchState(env), observedAt);
+      return saved;
     } catch (error) {
       if (!(error instanceof ChainWatchObservationConflict)) throw error;
     }
@@ -525,12 +535,17 @@ async function sendWarningIfDue(
     });
   const current = await readChainWatchState(env);
   if (!current || current.enabled !== 1 || current.timer_version !== confirmedState.timer_version || current[warningColumn] !== null) return;
-  const delivery = await deliverChainWatchAlert(
-    env, null, message,
+  const delivery = await deliverChainWatchWarningAlert(
+    env, message,
     stage === "warning_60" ? CHAIN_WATCH_WARNING_COLOR : CHAIN_WATCH_CRITICAL_COLOR,
     chainWatchWarningAlertKey(stage),
+    `chain-warning:${confirmedState.faction_id}:${confirmedState.reset_at}:${stage}`,
   );
   await requireChainWatchAlertDelivery(env, confirmedState, delivery, sentAt);
+  if (delivery.status === "success") {
+    await recordChainWatchWarning(env, confirmedState, stage, delivery.value);
+    await reconcileChainWatchWarningMessages(env, await readChainWatchState(env), sentAt);
+  }
 
   await env.DB.prepare(
     `
@@ -727,7 +742,7 @@ async function finishChainWatchDiscordMessage(
 }
 
 async function requireChainWatchAlertDelivery(
-  env: Env, state: ChainWatchStateRow, delivery: WatchDeliveryResult<string>, checkedAt: number,
+  env: Env, state: ChainWatchStateRow, delivery: WatchDeliveryResult<unknown>, checkedAt: number,
 ): Promise<void> {
   // Disabled/unrouted alerts intentionally advance the stage. A failed request
   // leaves it pending and propagates to the alarm's retry mechanism.

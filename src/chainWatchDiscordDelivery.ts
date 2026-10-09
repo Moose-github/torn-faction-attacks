@@ -1,4 +1,5 @@
-import type { DiscordAllowedMentions } from "./discord";
+import { createDiscordBotMessage, type DiscordAllowedMentions } from "./discord";
+import { discordNotificationChannelTargetId, readConfiguredDiscordNotificationChannel } from "./discordNotificationChannels";
 import { upsertDiscordAlertMessage } from "./discordAlertDelivery";
 import { isDiscordAlertEnabled } from "./discordAlertSettings";
 import { DISCORD_ALERT_KEYS, type DiscordAlertKey } from "./discordAlerts";
@@ -74,6 +75,22 @@ export async function deliverChainWatchAlert(
     const allowedMentions = typeof options === "string" ? mentions!.allowedMentions ?? { users: [], roles: [] } : options.allowedMentions;
     const messageId = await upsertDiscordAlertMessage(env, alertKey, existingMessageId, message, allowedMentions, { cardColor });
     return messageId ? { status: "success", value: messageId } : { status: "skipped", reason: "no_route" };
+  } catch (error) { return failed(error); }
+}
+
+export async function deliverChainWatchWarningAlert(
+  env: Env, options: { message: string; allowedMentions?: DiscordAllowedMentions },
+  cardColor: number, alertKey: DiscordAlertKey, nonceKey: string,
+): Promise<WatchDeliveryResult<{ messageId: string; channelId: string }, "disabled" | "no_route">> {
+  try {
+    if (!await isDiscordAlertEnabled(env, alertKey)) return { status: "skipped", reason: "disabled" };
+    const route = await readConfiguredDiscordNotificationChannel(env, alertKey);
+    if (!route) return { status: "skipped", reason: "no_route" };
+    const channelId = discordNotificationChannelTargetId(route);
+    const messageId = await createDiscordBotMessage(env, channelId, options.message, options.allowedMentions,
+      { cardColor, nonce: await messageNonce(nonceKey) });
+    if (!messageId) throw new Error("Discord did not return a chain warning message ID");
+    return { status: "success", value: { messageId, channelId } };
   } catch (error) { return failed(error); }
 }
 

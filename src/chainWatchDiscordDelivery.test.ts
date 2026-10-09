@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { deliverChainWatchAlert, deliverChainWatchDroppedStatus, deleteWatchDiscordMessage, editWatchDiscordMessage, sendWatchDiscordMessage } from "./chainWatchDiscordDelivery";
+import { deliverChainWatchAlert, deliverChainWatchDroppedStatus, deliverChainWatchWarningAlert, deleteWatchDiscordMessage, editWatchDiscordMessage, sendWatchDiscordMessage } from "./chainWatchDiscordDelivery";
+import { readConfiguredDiscordNotificationChannel } from "./discordNotificationChannels";
 import { upsertDiscordAlertMessage } from "./discordAlertDelivery";
 import { isDiscordAlertEnabled } from "./discordAlertSettings";
 import { readDiscordAlertMentions } from "./discordMentions";
@@ -7,6 +8,10 @@ import type { Env } from "./types";
 
 vi.mock("./discordAlertDelivery", () => ({ upsertDiscordAlertMessage: vi.fn() }));
 vi.mock("./discordAlertSettings", () => ({ isDiscordAlertEnabled: vi.fn() }));
+vi.mock("./discordNotificationChannels", () => ({
+  readConfiguredDiscordNotificationChannel: vi.fn(),
+  discordNotificationChannelTargetId: (route: { channelId: string; threadId: string | null }) => route.threadId ?? route.channelId,
+}));
 vi.mock("./discordMentions", async importOriginal => ({
   ...await importOriginal<typeof import("./discordMentions")>(), readDiscordAlertMentions: vi.fn(),
 }));
@@ -18,12 +23,38 @@ beforeEach(() => {
   vi.mocked(isDiscordAlertEnabled).mockResolvedValue(true);
   vi.mocked(readDiscordAlertMentions).mockResolvedValue({ messageSuffix: "", allowedMentions: undefined });
   vi.mocked(upsertDiscordAlertMessage).mockResolvedValue("alert-id");
+  vi.mocked(readConfiguredDiscordNotificationChannel).mockResolvedValue({ channelId: "warning-channel", threadId: "warning-thread" } as
+    NonNullable<Awaited<ReturnType<typeof readConfiguredDiscordNotificationChannel>>>);
   fetcher.mockReset().mockImplementation(async () => Response.json({ id: "message-id" }));
   vi.stubGlobal("fetch", fetcher);
 });
 afterEach(() => { vi.unstubAllGlobals(); });
 
 describe("chain watch Discord delivery outcomes", () => {
+  it("records the exact warning thread and uses a stable nonce for repeated sends", async () => {
+    const options = { message: "Chain Watch WARNING", allowedMentions: { users: ["123456"] } };
+    const send = () => deliverChainWatchWarningAlert(env, options, 0xffa500, "chain_watch_warning", "faction:timer:warning");
+    expect(await send()).toEqual({ status: "success", value: { messageId: "message-id", channelId: "warning-thread" } });
+    await send();
+    expect(String(fetcher.mock.calls[0][0])).toContain("/channels/warning-thread/messages");
+    const bodies = fetcher.mock.calls.map(call => JSON.parse(call[1].body));
+    expect(bodies[0]).toEqual(bodies[1]);
+    expect(bodies[0]).toMatchObject({ nonce: expect.any(String), enforce_nonce: true, flags: 32768 });
+    await deliverChainWatchWarningAlert(env, options, 0xff0000, "chain_watch_critical", "faction:timer:critical");
+    expect(JSON.parse(fetcher.mock.calls[2][1].body).nonce).not.toBe(bodies[0].nonce);
+  });
+
+  it("does not record warning delivery when disabled, unrouted or failed", async () => {
+    const send = () => deliverChainWatchWarningAlert(env, { message: "Warning" }, 0xffa500, "chain_watch_warning", "warning");
+    vi.mocked(isDiscordAlertEnabled).mockResolvedValueOnce(false);
+    expect(await send()).toEqual({ status: "skipped", reason: "disabled" });
+    vi.mocked(readConfiguredDiscordNotificationChannel).mockResolvedValueOnce(null);
+    expect(await send()).toEqual({ status: "skipped", reason: "no_route" });
+    expect(fetcher).not.toHaveBeenCalled();
+    fetcher.mockImplementation(async () => Response.json({}, { status: 503 }));
+    expect(await send()).toEqual({ status: "failed", error: expect.any(Error) });
+  });
+
   it("finalizes an existing status through its own route even when new alerts are muted", async () => {
     vi.mocked(isDiscordAlertEnabled).mockResolvedValue(false);
     const options = { message: "Chain Watch DROPPED", allowedMentions: { users: [], roles: [] } };

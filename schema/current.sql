@@ -183,6 +183,25 @@ CREATE TABLE faction_chain_watch_state (
   updated_at INTEGER NOT NULL DEFAULT (unixepoch())
 );
 
+CREATE TABLE chain_watch_warning_cycles (
+  faction_id INTEGER NOT NULL,
+  reset_at INTEGER NOT NULL,
+  timeout_at INTEGER NOT NULL,
+  chain_length INTEGER NOT NULL,
+  warning_message_id TEXT,
+  warning_channel_id TEXT,
+  critical_message_id TEXT,
+  critical_channel_id TEXT,
+  outcome_text TEXT,
+  resolved_at INTEGER,
+  edited_message_id TEXT,
+  warning_deleted_at INTEGER,
+  lease_token TEXT,
+  lease_until INTEGER,
+  last_error TEXT,
+  PRIMARY KEY (faction_id, reset_at)
+);
+
 CREATE TABLE dice_game_losses (
   torn_user_id INTEGER PRIMARY KEY,
   member_name TEXT,
@@ -1423,6 +1442,9 @@ CREATE TABLE event_competition_eliminated_teams (
 
 CREATE INDEX idx_attacks_attacker_faction_started
   ON attacks(attacker_faction_id, started DESC, id DESC);
+
+CREATE INDEX idx_attacks_chain_watch_hit_at
+  ON attacks (attacker_faction_id, COALESCE(ended, started), id) WHERE chain > 0;
 
 CREATE INDEX idx_attacks_attacker_faction_war
   ON attacks(attacker_faction_id, war_id, started DESC);

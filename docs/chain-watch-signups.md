@@ -64,6 +64,24 @@ orange, red and blue accents respectively. The heading contains the alert stage,
 with the chain count, last hit and timeout/drop time in the body. Mentions follow
 the card; new warning posts notify through the existing allowed-mentions rules.
 The dropped status edit does not create a new notification post.
+
+Each warning cycle also retains its warning/critical message IDs and original
+channel or thread IDs. When an attack saves the chain, the latest alert becomes
+`Chain saved by M00SE with 21 seconds remaining`. The attacker and seconds left
+come from the first saving attack and the warned timer's expiry, even when several
+attacks arrive in one ingestion batch. If live chain data arrives first, cleanup
+waits for the saving attack's details. A dropped cycle instead becomes
+`Chain length 543 was dropped`.
+
+If a critical message was sent, it is edited first and the earlier warning is
+then deleted. With only one alert, that alert is edited and retained. These short
+summaries remove the original card and mentions without sending another message.
+Failed edits or deletes retain their IDs and exact summary for retries, including
+after another warning cycle or the end of the watch. Already deleted messages are
+treated as cleaned. This cleanup is separate from the persistent status message.
+Migration `0173` must be applied before deploying this behavior; older warning
+messages cannot be cleaned automatically because their IDs were not recorded.
+
 Each alert keeps its configured user/role mentions and appends the current slot's
 assigned watcher using their linked Discord account, without changing alert
 subscriptions. The assignment is read at alert time, including at

@@ -10,11 +10,31 @@ import { fetchTrackedTornJson } from "./external/torn";
 import { upsertDiscordAlertMessage } from "./discordAlertDelivery";
 import { readDiscordAlertMentions } from "./discordMentions";
 import { isDiscordAlertEnabled } from "./discordAlertSettings";
+import { deleteWatchDiscordMessage, editWatchDiscordMessage } from "./chainWatchDiscordDelivery";
+import type { Env } from "./types";
+import type { DiscordAlertKey } from "./discordAlerts";
+import type { DiscordAllowedMentions } from "./discord";
 
 vi.mock("./external/torn", () => ({ fetchTrackedTornJson: vi.fn() }));
 vi.mock("./tornKeyPool", () => ({ withTornKeyPool: (_env: unknown, options: { run: (key: unknown) => Promise<unknown> }) => options.run({ key: "test", keySource: "test" }) }));
 vi.mock("./discordAlertSettings", () => ({ isDiscordAlertEnabled: vi.fn().mockResolvedValue(true) }));
 vi.mock("./discordAlertDelivery", () => ({ upsertDiscordAlertMessage: vi.fn().mockResolvedValue("message") }));
+vi.mock("./chainWatchDiscordDelivery", async importOriginal => ({
+  ...await importOriginal<typeof import("./chainWatchDiscordDelivery")>(),
+  // Keep the existing alert transport spy for the monitor's concurrency tests;
+  // the real transport/channel capture is exercised in its own delivery tests.
+  deliverChainWatchWarningAlert: async (env: Env, options: { message: string }, color: number, key: DiscordAlertKey) => {
+    if (!await isDiscordAlertEnabled(env, key)) return { status: "skipped", reason: "disabled" };
+    try {
+      const id = await upsertDiscordAlertMessage(env, key, null, options.message,
+        (options as { allowedMentions?: DiscordAllowedMentions }).allowedMentions, { cardColor: color });
+      return id ? { status: "success", value: { messageId: id, channelId: `${key}-channel` } }
+        : { status: "skipped", reason: "no_route" };
+    } catch (error) { return { status: "failed", error }; }
+  },
+  editWatchDiscordMessage: vi.fn().mockResolvedValue({ status: "success", value: undefined }),
+  deleteWatchDiscordMessage: vi.fn().mockResolvedValue({ status: "success", value: undefined }),
+}));
 vi.mock("./discordMentions", async (importOriginal) => ({
   ...await importOriginal<typeof import("./discordMentions")>(),
   readDiscordAlertMentions: vi.fn(),
@@ -27,6 +47,8 @@ const getByName = vi.fn(() => alarm);
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ["Date"] });
   vi.clearAllMocks();
+  vi.mocked(editWatchDiscordMessage).mockReset().mockResolvedValue({ status: "success", value: undefined });
+  vi.mocked(deleteWatchDiscordMessage).mockReset().mockResolvedValue({ status: "success", value: undefined });
   vi.mocked(upsertDiscordAlertMessage).mockResolvedValue("message");
   vi.mocked(isDiscordAlertEnabled).mockResolvedValue(true);
   vi.mocked(readDiscordAlertMentions).mockResolvedValue({ messageSuffix: "", allowedMentions: undefined });
@@ -553,6 +575,172 @@ describe("per-chain persistent status messages", () => {
     });
     await tick();
     expect((await readChainWatchState(db.env))?.discord_message_id).toBeNull();
+  });
+});
+
+describe("warning message cleanup", () => {
+  async function warnings(critical = true) {
+    vi.mocked(upsertDiscordAlertMessage).mockImplementation(async (_env, key, id) => id ??
+      (key === "chain_watch_warning" ? "warning-1" : key === "chain_watch_critical" ? "critical-1" : "status-1"));
+    await watch(); await hit(1, start, { chain: 543 }); await tick();
+    vi.mocked(fetchTrackedTornJson).mockResolvedValue({ chain: { current: 543, timeout: 60 } });
+    advance(start + 240); await handleChainWatchAlarm(db.env, HOME_FACTION_ID);
+    if (critical) {
+      vi.mocked(fetchTrackedTornJson).mockResolvedValue({ chain: { current: 543, timeout: 30 } });
+      advance(start + 270); await handleChainWatchAlarm(db.env, HOME_FACTION_ID);
+    }
+    vi.mocked(fetchTrackedTornJson).mockResolvedValue({ chain: { current: 0, timeout: 0 } });
+  }
+  async function savingHit(at = start + 279) {
+    await hit(2, at, { chain: 544 });
+    await db.env.DB.prepare("UPDATE attacks SET attacker_name = 'M00SE' WHERE id = 2").run();
+  }
+  function editedSummary() {
+    return vi.mocked(editWatchDiscordMessage).mock.calls.at(-1)![3];
+  }
+
+  it.each([false, true])("summarizes a save using the saving attack and removes only the prior warning (critical: %s)", async critical => {
+    await warnings(critical);
+    await savingHit();
+    await hit(3, start + 290, { chain: 545 });
+    // The poll sees multiple hits; Alice's later hit must not take credit.
+    await tick(start + 295);
+    expect(vi.mocked(editWatchDiscordMessage).mock.calls[0].slice(1, 3)).toEqual([
+      critical ? "chain_watch_critical-channel" : "chain_watch_warning-channel", critical ? "critical-1" : "warning-1",
+    ]);
+    expect(editedSummary()).toEqual({ flags: 32768, content: null, embeds: [],
+      components: [{ type: 10, content: "Chain saved by M00SE with 21 seconds remaining" }], allowed_mentions: { parse: [] } });
+    if (critical) expect(deleteWatchDiscordMessage).toHaveBeenCalledWith(db.env, "chain_watch_warning-channel", "warning-1");
+    else expect(deleteWatchDiscordMessage).not.toHaveBeenCalled();
+    await tick(start + 296);
+    expect(editWatchDiscordMessage).toHaveBeenCalledTimes(1);
+    expect((await readChainWatchState(db.env))?.discord_message_id).toBe("status-1");
+  });
+
+  it.each([false, true])("summarizes a drop on the latest alert (critical: %s)", async critical => {
+    await warnings(critical);
+    await tick(start + 300);
+    expect(editedSummary()).toMatchObject({ components: [{ type: 10, content: "Chain length 543 was dropped" }] });
+    expect(vi.mocked(editWatchDiscordMessage).mock.calls[0][2]).toBe(critical ? "critical-1" : "warning-1");
+    expect(deleteWatchDiscordMessage).toHaveBeenCalledTimes(critical ? 1 : 0);
+    expect((await readChainWatchState(db.env))?.discord_message_id).toBeNull();
+    // The separate persistent watch status still receives its own dropped edit.
+    expect(vi.mocked(upsertDiscordAlertMessage).mock.calls.at(-1)![2]).toBe("status-1");
+    await tick(start + 301);
+    expect(editWatchDiscordMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps both IDs after an edit failure, then retries the same summary after another hit", async () => {
+    await warnings(); await savingHit();
+    vi.mocked(editWatchDiscordMessage).mockResolvedValue({ status: "failed", error: new Error("Discord 503") });
+    await tick(start + 285);
+    expect(deleteWatchDiscordMessage).not.toHaveBeenCalled();
+    const pending = await db.env.DB.prepare("SELECT * FROM chain_watch_warning_cycles").first();
+    expect(pending).toMatchObject({ warning_message_id: "warning-1", critical_message_id: "critical-1",
+      outcome_text: "Chain saved by M00SE with 21 seconds remaining", edited_message_id: null, last_error: "Discord 503" });
+    await hit(3, start + 290, { chain: 545 });
+    vi.mocked(editWatchDiscordMessage).mockResolvedValue({ status: "success", value: undefined });
+    await tick(start + 295);
+    expect(editedSummary()).toMatchObject({ components: [{ type: 10, content: "Chain saved by M00SE with 21 seconds remaining" }] });
+    expect(deleteWatchDiscordMessage).toHaveBeenCalledTimes(1);
+    expect(await db.env.DB.prepare("SELECT * FROM chain_watch_warning_cycles").first())
+      .toMatchObject({ edited_message_id: "critical-1", warning_deleted_at: start + 295, last_error: null });
+  });
+
+  it("retries deletion without repeating the successful critical edit, even after monitoring stops", async () => {
+    await warnings(); await savingHit();
+    vi.mocked(deleteWatchDiscordMessage).mockResolvedValue({ status: "failed", error: new Error("delete unavailable") });
+    await tick(start + 280);
+    expect(editWatchDiscordMessage).toHaveBeenCalledTimes(1);
+    await db.env.DB.prepare("UPDATE chain_watch_schedules SET finish_at = ?").bind(start + 3600).run();
+    vi.mocked(deleteWatchDiscordMessage).mockResolvedValue({ status: "success", value: undefined });
+    await tick(start + 3601);
+    expect(editWatchDiscordMessage).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(deleteWatchDiscordMessage).mock.calls.at(-1)!.slice(1)).toEqual(["chain_watch_warning-channel", "warning-1"]);
+    expect(await db.env.DB.prepare("SELECT * FROM chain_watch_warning_cycles").first())
+      .toMatchObject({ warning_deleted_at: start + 3601, last_error: null });
+  });
+
+  it("waits for the first saving attack when live confirmation and later attacks arrive first", async () => {
+    await warnings(false);
+    vi.mocked(fetchTrackedTornJson).mockResolvedValue({ chain: { current: 544, timeout: 291 } });
+    advance(start + 270); await handleChainWatchAlarm(db.env, HOME_FACTION_ID);
+    expect(editWatchDiscordMessage).not.toHaveBeenCalled();
+    await hit(3, start + 280, { chain: 545 }); await tick(start + 281);
+    expect(editWatchDiscordMessage).not.toHaveBeenCalled();
+    await savingHit(start + 261); await tick(start + 282);
+    expect(editedSummary()).toMatchObject({ components: [{ type: 10, content: "Chain saved by M00SE with 39 seconds remaining" }] });
+  });
+
+  it("cleans a critical sent while the saving attack is being ingested", async () => {
+    await warnings(false);
+    vi.mocked(upsertDiscordAlertMessage).mockImplementation(async (_env, key, id) => {
+      if (key === "chain_watch_critical") {
+        await savingHit(start + 271); advance(start + 271);
+        await refreshActiveChainWatchFromStoredAttacks(db.env, start + 271);
+        return "late-critical";
+      }
+      return id ?? "status-1";
+    });
+    vi.mocked(fetchTrackedTornJson).mockResolvedValue({ chain: { current: 543, timeout: 30 } });
+    advance(start + 270); await handleChainWatchAlarm(db.env, HOME_FACTION_ID);
+    await tick(start + 272);
+    expect(vi.mocked(editWatchDiscordMessage).mock.calls.map(call => call[2])).toEqual(["warning-1", "late-critical"]);
+    expect(editedSummary()).toMatchObject({ components: [{ type: 10, content: "Chain saved by M00SE with 29 seconds remaining" }] });
+    expect(deleteWatchDiscordMessage).toHaveBeenCalledWith(db.env, "chain_watch_warning-channel", "warning-1");
+  });
+
+  it("does not let a failed old cleanup edit or delete messages from the next warning cycle", async () => {
+    await warnings(); await savingHit();
+    vi.mocked(editWatchDiscordMessage).mockResolvedValue({ status: "failed", error: new Error("retry later") });
+    await tick(start + 280);
+    vi.mocked(upsertDiscordAlertMessage).mockImplementation(async (_env, key, id) => id ??
+      (key === "chain_watch_warning" ? "warning-2" : key === "chain_watch_critical" ? "critical-2" : "status-1"));
+    vi.mocked(fetchTrackedTornJson).mockResolvedValue({ chain: { current: 544, timeout: 60 } });
+    advance(start + 519); await handleChainWatchAlarm(db.env, HOME_FACTION_ID);
+    vi.mocked(editWatchDiscordMessage).mockClear().mockResolvedValue({ status: "success", value: undefined });
+    await tick(start + 520);
+    expect(vi.mocked(editWatchDiscordMessage).mock.calls.map(call => call[2])).toEqual(["critical-1"]);
+    expect(vi.mocked(deleteWatchDiscordMessage).mock.calls.map(call => call[2])).toEqual(["warning-1"]);
+  });
+
+  it("treats already removed messages as cleaned and does not post replacements", async () => {
+    await warnings(); await savingHit();
+    vi.mocked(editWatchDiscordMessage).mockResolvedValue({ status: "skipped", reason: "not_found" });
+    vi.mocked(deleteWatchDiscordMessage).mockResolvedValue({ status: "skipped", reason: "not_found" });
+    await tick(start + 280);
+    await tick(start + 281);
+    expect(editWatchDiscordMessage).toHaveBeenCalledTimes(1);
+    expect(deleteWatchDiscordMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it("serializes overlapping cleanup attempts for the same warning cycle", async () => {
+    await warnings(); await savingHit();
+    const reached = gate(), release = gate();
+    vi.mocked(editWatchDiscordMessage).mockImplementationOnce(async () => {
+      reached.resolve(); await release.promise; return { status: "success", value: undefined };
+    });
+    const first = tick(start + 280);
+    await reached.promise;
+    try {
+      await tick(start + 281);
+      expect(editWatchDiscordMessage).toHaveBeenCalledTimes(1);
+      expect(deleteWatchDiscordMessage).not.toHaveBeenCalled();
+    } finally { release.resolve(); }
+    await first;
+    expect(deleteWatchDiscordMessage).toHaveBeenCalledTimes(1);
+    expect(await db.env.DB.prepare("SELECT * FROM chain_watch_warning_cycles").first())
+      .toMatchObject({ lease_token: null, lease_until: null, edited_message_id: "critical-1" });
+  });
+
+  it("cleans already sent alerts after toggles are muted without creating another notification", async () => {
+    await warnings(); await savingHit();
+    vi.mocked(upsertDiscordAlertMessage).mockClear();
+    vi.mocked(isDiscordAlertEnabled).mockResolvedValue(false);
+    await tick(start + 280);
+    expect(upsertDiscordAlertMessage).not.toHaveBeenCalled();
+    expect(editWatchDiscordMessage).toHaveBeenCalledTimes(1);
+    expect(deleteWatchDiscordMessage).toHaveBeenCalledTimes(1);
   });
 });
 
