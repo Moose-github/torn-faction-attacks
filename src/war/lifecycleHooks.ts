@@ -21,6 +21,11 @@ import { DISCORD_ALERT_KEYS } from "../discordAlerts";
 import { upsertDiscordAlertMessage } from "../discordAlertDelivery";
 import { readDiscordAlertMentions, formatDiscordAlertMessage } from "../discordMentions";
 
+function formatPracticalPhaseDateTime(timestamp: number): string {
+  const [date, time] = new Date(timestamp * 1000).toISOString().split("T");
+  return `${date.split("-").reverse().join("-")} ${time.slice(0, 8)}`;
+}
+
 export async function runPracticalPhaseHooks(env: Env, phase: PracticalPhase, officiallyEnded: boolean): Promise<boolean> {
   const handlers: WarLifecycleHandler[] = [];
   if (phase.status === "active" && !officiallyEnded) {
@@ -39,7 +44,7 @@ export async function runPracticalPhaseHooks(env: Env, phase: PracticalPhase, of
       if (receipt) return;
       const mentions = await readDiscordAlertMentions(env, DISCORD_ALERT_KEYS.termedWarAutoEnd);
       const war = await env.DB.prepare("SELECT name FROM wars WHERE id = ?").bind(phase.war_id).first<{ name: string }>();
-      const message = `${war?.name ?? "Termed war"}: practical phase closed\nPhase start: ${new Date(phase.start_time! * 1000).toISOString()}\nCumulative target reached: ${phase.target}\nFinish time: ${new Date(phase.finish_time! * 1000).toISOString()}`;
+      const message = `${war?.name ?? "Termed war"}: practical phase closed\nTarget reached: ${phase.target}\nPhase start: ${formatPracticalPhaseDateTime(phase.start_time!)}\nPhase finish: ${formatPracticalPhaseDateTime(phase.finish_time!)}`;
       const messageId = await upsertDiscordAlertMessage(env, DISCORD_ALERT_KEYS.termedWarAutoEnd, null,
         formatDiscordAlertMessage(message, mentions.messageSuffix), mentions.allowedMentions ?? { users: [], roles: [] },
         { nonce: phase.id.replaceAll("-", "").slice(0, 25) });
