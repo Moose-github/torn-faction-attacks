@@ -105,11 +105,12 @@ async function readPhaseScoreRows(env: Env, war: PhaseWar, through: number): Pro
       war.official_start_time ?? war.practical_start_time, through).all<PhaseScoreRow>()).results ?? [];
 }
 
-function phaseScoreMatches(total: number, score: number | null, officiallyEnded: boolean): boolean {
+function phaseScoreMatches(total: number, score: number | null): boolean {
   if (score === null) return false;
-  // Final ranked-war reports truncate scores to whole respect.
+  // Both live ranked-war scores and final reports truncate to whole respect,
+  // while individual attacks retain decimals. Accept only that one-sided gap.
   return Math.abs(total - score) < 0.1 ||
-    (officiallyEnded && Number.isInteger(score) && total >= score && total - score < 1);
+    (Number.isInteger(score) && total >= score && total - score < 1);
 }
 
 function phaseTargetCrossing(rows: PhaseScoreRow[], target: number | null): number | null {
@@ -123,7 +124,7 @@ function phaseTargetCrossing(rows: PhaseScoreRow[], target: number | null): numb
 async function automaticHistoryPhase(env: Env, war: PhaseWar, phase: PracticalPhase, now: number): Promise<PracticalPhase> {
   const rows = await readPhaseScoreRows(env, war, Math.min(now, war.official_end_time ?? now));
   const total = rows.reduce((sum, row) => sum + row.respect_gain, 0);
-  if (!phaseScoreMatches(total, war.official_home_score, war.official_end_time !== null)) {
+  if (!phaseScoreMatches(total, war.official_home_score)) {
     throw new Error("Cannot determine the automatic finish until attack history matches the war score. Refresh war data or enter a finish time.");
   }
   const crossing = phaseTargetCrossing(rows, phase.target);
@@ -150,7 +151,7 @@ export async function processPracticalPhases(env: Env, warId: number, score: num
     if (phase.removed_at !== null) return phase;
     return resolvePhase(phase, { score: score ?? -1, observed_at: observedAt,
       crossing_at: phaseTargetCrossing(rows, phase.target),
-      complete: score !== null && (score < (phase.target ?? Infinity) || phaseScoreMatches(total, score, end !== null)) }, nowSeconds(), end);
+      complete: score !== null && (score < (phase.target ?? Infinity) || phaseScoreMatches(total, score)) }, nowSeconds(), end);
   });
   if (JSON.stringify(after) !== JSON.stringify(before)) await savePhaseTimeline(env, war, before, after, "automatic_transition", null);
   await reconcilePracticalPhaseStats(env, warId);

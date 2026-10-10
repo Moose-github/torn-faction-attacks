@@ -168,6 +168,36 @@ describe("practical phase database and lifecycle", () => {
     });
   });
 
+  it("closes a live phase with a truncated score while the enemy is below target (Undead Crows)", async () => {
+    war(null, 6350);
+    db.exec("UPDATE wars SET enemy_target_respect=3750, official_enemy_score=3228 WHERE id=1");
+    attack(1, base + 6 * 3600, 6344.20);
+    const crossingAt = base + 6 * 3600 + 464;
+    attack(2, crossingAt, 8.72);
+
+    await processPracticalPhases(env, 1, 6352, crossingAt + 22);
+
+    expect((await readPracticalPhases(env, 1))[0]).toMatchObject({
+      status: "completed", finish_time: crossingAt, reason: "target_reached",
+    });
+    expect(db.prepare("SELECT war_state FROM sync_state WHERE name='attacks'").get()!.war_state).toBe("practically_finished");
+  });
+
+  it.each([
+    { total: 7001, score: 7000 },
+    { total: 6999.75, score: 7000 },
+    { total: 7000.92, score: 7000.5 },
+  ])("keeps mismatched live evidence pending (total $total, score $score)", async ({ total, score }) => {
+    war(null);
+    attack(1, base + 12 * 3600, total);
+
+    await processPracticalPhases(env, 1, score, base + 25 * 3600);
+
+    expect((await readPracticalPhases(env, 1))[0]).toMatchObject({
+      status: "active", finish_time: null, reason: "awaiting_reconciliation",
+    });
+  });
+
   it.each([false, true])("reconciles all excluded windows with a reopened phase (active: %s)", async (active) => {
     war();
     db.exec(`UPDATE wars SET official_start_time=${base - 3600}, official_end_time=${base + 30 * 3600} WHERE id=1`);
@@ -431,6 +461,53 @@ describe("practical phase database and lifecycle", () => {
     war(null); attack(1, base + 12 * 3600, 7000);
     await processPracticalPhases(env, 1, 7000, base + 25 * 3600);
     expect((await readPracticalPhases(env, 1))[0]).toMatchObject({ status: "completed", finish_time: base + 12 * 3600 });
+  });
+
+  it.each([0, 4999, 5000, 6000])("closes at our target independently of the enemy score (%i of 5000)", async (enemyScore) => {
+    war(null);
+    db.prepare("UPDATE wars SET enemy_target_respect = 5000, official_enemy_score = ? WHERE id = 1").run(enemyScore);
+    attack(1, base + 11 * 3600, 6900);
+    attack(2, base + 12 * 3600, 100);
+    attack(3, base + 13 * 3600, 50);
+
+    await processPracticalPhases(env, 1, 7050, base + 25 * 3600);
+
+    expect((await readPracticalPhases(env, 1))[0]).toMatchObject({
+      status: "completed", finish_time: base + 12 * 3600, reason: "target_reached",
+    });
+    expect(db.prepare("SELECT status, practical_finish_time, official_end_time FROM wars WHERE id = 1").get())
+      .toMatchObject({ status: "active", practical_finish_time: base + 12 * 3600, official_end_time: null });
+    expect(db.prepare("SELECT war_state FROM sync_state WHERE name = 'attacks'").get()!.war_state).toBe("practically_finished");
+    expect(db.prepare("SELECT attacks_vs_enemy_total, respect_gained_raw FROM war_member_stats WHERE war_id = 1").get())
+      .toMatchObject({ attacks_vs_enemy_total: 2, respect_gained_raw: 7000 });
+  });
+
+  it("keeps practical time open when only the enemy target is reached", async () => {
+    war(null);
+    db.prepare("UPDATE wars SET enemy_target_respect = 5000, official_enemy_score = 5000 WHERE id = 1").run();
+    attack(1, base + 12 * 3600, 6900);
+
+    await processPracticalPhases(env, 1, 6900, base + 25 * 3600);
+
+    expect((await readPracticalPhases(env, 1))[0]).toMatchObject({ status: "active", finish_time: null, reason: null });
+    expect(db.prepare("SELECT war_state FROM sync_state WHERE name = 'attacks'").get()!.war_state).toBe("current");
+  });
+
+  it("reconciles a delayed home crossing while the enemy remains below target", async () => {
+    war(null);
+    db.prepare("UPDATE wars SET enemy_target_respect = 5000, official_enemy_score = 1000 WHERE id = 1").run();
+    attack(1, base + 11 * 3600, 6900);
+
+    await processPracticalPhases(env, 1, 7050, base + 25 * 3600);
+    expect((await readPracticalPhases(env, 1))[0]).toMatchObject({ status: "active", finish_time: null, reason: "awaiting_reconciliation" });
+
+    attack(2, base + 12 * 3600, 100);
+    attack(3, base + 13 * 3600, 50);
+    await processPracticalPhases(env, 1, 7050, base + 25 * 3600);
+
+    expect((await readPracticalPhases(env, 1))[0]).toMatchObject({
+      status: "completed", finish_time: base + 12 * 3600, reason: "target_reached",
+    });
   });
 
   it("retains manual phase closure and leaves the official war open", async () => {

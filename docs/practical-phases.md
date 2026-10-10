@@ -16,6 +16,11 @@ active phase is bounded by official end while its earlier target crossing is bei
 reconciled; an unresolved scheduled phase contributes no practical time. No monitoring
 samples are invented for delayed execution.
 
+Live ranked-war scores and final reports truncate to whole respect, while attack
+records retain decimals. Reconciliation accepts an attack total less than one
+respect above an integer official score. The enemy target does not gate practical
+closure; only the home faction's cumulative target does.
+
 ## Interfaces
 
 `GET /api/wars/:name/practical-phases` is member-authenticated. It returns
