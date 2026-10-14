@@ -32,11 +32,15 @@ function issueKindSql(error: string): string {
 
 // Retry timestamps, pending -> expired, and a newer returned bucket do not turn
 // an accepted missing date into a new issue. Other failures still match exactly.
-export function acceptedDailyStatsIssueSql(statsAlias: string): string {
+export function acceptedDailyStatsIssueSql(
+  statsAlias: string,
+  memberId = `${statsAlias}.member_id`,
+  snapshotDate = `${statsAlias}.snapshot_date`,
+): string {
   return `EXISTS (
     SELECT 1 FROM daily_stats_issue_acceptances accepted
-    WHERE accepted.member_id = ${statsAlias}.member_id
-      AND accepted.snapshot_date = ${statsAlias}.snapshot_date
+    WHERE accepted.member_id = ${memberId}
+      AND accepted.snapshot_date = ${snapshotDate}
       AND (
         accepted.issue_error IS ${statsAlias}.error
         OR (${issueKindSql("accepted.issue_error")} = 'missing_data'

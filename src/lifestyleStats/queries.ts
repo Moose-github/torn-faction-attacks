@@ -1,6 +1,6 @@
 import { HOME_FACTION_ID } from "../constants";
 import type { Env } from "../types";
-import { PERSONAL_STATS_ATTENTION_CTE, personalStatsAttentionParams } from "./attentionPolicy";
+import { acceptedDailyStatsIssueSql, PERSONAL_STATS_ATTENTION_CTE, personalStatsAttentionParams } from "./attentionPolicy";
 import type {
   DailyStatsAttention,
   LifestyleMemberRow,
@@ -60,8 +60,16 @@ export type DailyStatsAttentionCounts = Pick<
 export async function readCompleteLifestyleSnapshotDateRange(
   env: Env,
   readyFilter: LifestyleSnapshotReadyFilter,
+  options: { allowAcceptedPersonalGaps?: boolean } = {},
 ): Promise<{ start_date: string; end_date: string } | null> {
   const readyCondition = lifestyleSnapshotReadyCondition("snapshots", readyFilter);
+  // Accepted personal gaps may unlock reports, but never substitute for gym data
+  // or change the strict completeness required by competition callers.
+  const acceptedCondition = options.allowAcceptedPersonalGaps && readyFilter !== "gym_ready"
+    ? `COALESCE(snapshots.personal_ready, 0) = 0
+       AND ${readyFilter === "fully_ready" ? "(COALESCE(snapshots.gym_ready, 0) = 1 AND snapshots.gym_error IS NULL)" : "1 = 1"}
+       AND ${acceptedDailyStatsIssueSql("recent", "members.member_id", "candidate_dates.snapshot_date")}`
+    : "0";
   const row = (await env.DB.prepare(
     `
     SELECT
@@ -77,12 +85,15 @@ export async function readCompleteLifestyleSnapshotDateRange(
       LEFT JOIN member_lifestyle_stat_snapshots snapshots
         ON snapshots.member_id = members.member_id
        AND snapshots.snapshot_date = candidate_dates.snapshot_date
-       AND ${readyCondition}
+      LEFT JOIN member_personal_stats_recent recent
+        ON recent.member_id = members.member_id
+       AND recent.snapshot_date = candidate_dates.snapshot_date
       WHERE members.faction_id = ?
         AND members.is_current = 1
         AND members.report_exempt = 0
         AND ${currentMembershipDateCondition("members", "candidate_dates.snapshot_date")}
-        AND snapshots.member_id IS NULL
+        AND COALESCE(${readyCondition}, 0) = 0
+        AND NOT (${acceptedCondition})
     )
     `,
   ).bind(HOME_FACTION_ID).first()) as { start_date: string | null; end_date: string | null } | null;

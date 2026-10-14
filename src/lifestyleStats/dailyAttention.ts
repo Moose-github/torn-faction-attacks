@@ -1,5 +1,6 @@
 import type { Env } from "../types";
 import { readAuthenticatedUserId } from "../auth";
+import { bumpMemberLifestyleCacheVersion } from "../cacheVersions";
 import { readJsonObject } from "../backend/request";
 import { json, nowSeconds } from "../utils";
 import { calendarDateDiffDays, recentCompletedPersonalStatsDates } from "./dates";
@@ -30,6 +31,7 @@ export async function acceptDailyStatsIssueFromRequest(request: Request, env: En
   if (!accepted) {
     return json({ ok: false, error: "This issue has changed or is no longer outstanding. Refresh Data health and try again." }, 409);
   }
+  await bumpMemberLifestyleCacheVersion(env);
   return json({ ok: true });
 }
 

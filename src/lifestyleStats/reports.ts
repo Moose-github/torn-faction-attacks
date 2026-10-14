@@ -28,7 +28,7 @@ import {
 } from "./queries";
 
 export async function getMemberLifestyleStats(url: URL, env: Env): Promise<Response> {
-  const availableRange = await readCompleteLifestyleSnapshotDateRange(env, "fully_ready");
+  const availableRange = await readCompleteLifestyleSnapshotDateRange(env, "fully_ready", { allowAcceptedPersonalGaps: true });
   const period = readLifestylePeriod(url, availableRange);
   const snapshotRows = await readLifestylePeriodSnapshotRows(env, period.start_date, period.end_date);
   const rows = buildPeriodRows(snapshotRows);
@@ -47,7 +47,7 @@ export async function getMemberLifestyleDailyChart(url: URL, env: Env): Promise<
     return json({ ok: false, error: "A valid metric is required", code: "INVALID_METRIC" }, 400);
   }
   const readyColumn = lifestyleMetricReadyColumn(metric);
-  const availableRange = await readCompleteLifestyleSnapshotDateRange(env, readyColumn);
+  const availableRange = await readCompleteLifestyleSnapshotDateRange(env, readyColumn, { allowAcceptedPersonalGaps: true });
   const period = readLifestylePeriod(url, availableRange);
 
   const memberIds = parseLifestyleDailyChartMemberIds(url);

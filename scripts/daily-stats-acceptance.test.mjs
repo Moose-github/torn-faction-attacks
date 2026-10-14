@@ -18,6 +18,9 @@ beforeEach(() => {
   vi.setSystemTime(new Date("2026-06-06T12:00:00Z"));
   sqlite = new DatabaseSync(":memory:");
   sqlite.exec(`
+    CREATE TABLE sync_state (
+      name TEXT PRIMARY KEY, last_started INTEGER, active_war_id INTEGER, updated_at TEXT
+    );
     CREATE TABLE home_faction_members (
       member_id INTEGER PRIMARY KEY, faction_id INTEGER, name TEXT,
       is_current INTEGER DEFAULT 1, report_exempt INTEGER DEFAULT 0, current_join_date TEXT
