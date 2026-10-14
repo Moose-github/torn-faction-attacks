@@ -4,6 +4,7 @@
 -- schema is easy to review. Do not apply this file to existing databases:
 -- Cloudflare D1 migration history lives in migrations/ and remains the source
 -- of truth for deployed databases.
+-- Data migration 0174 converts legacy repeat war names to ordinal suffixes.
 
 CREATE TABLE admin_access_revocations (
   torn_user_id INTEGER PRIMARY KEY,

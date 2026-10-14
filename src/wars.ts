@@ -1,3 +1,4 @@
+import { sanitizeWarName, uniqueWarName } from "./warNames";
 import { readPracticalPhases, updateTermedWarSettings } from "./practicalPhases";
 import {
   HOME_FACTION_ID,
@@ -464,7 +465,7 @@ export async function importHistoricalWar(request: Request, env: Env): Promise<R
     );
     const now = nowSeconds();
 
-    if (!/^[a-zA-Z0-9 _-]{1,50}$/.test(name)) {
+    if (!/^[a-zA-Z0-9 ()_-]{1,50}$/.test(name)) {
       return json({ ok: false, error: "Invalid war name", code: "INVALID_NAME" }, 400);
     }
 
@@ -1630,40 +1631,6 @@ function parseWarType(value: unknown, fallback: string): string {
   }
 
   return warType;
-}
-
-function sanitizeWarName(value: string): string {
-  const name = value.replace(/[^a-zA-Z0-9 _-]/g, "").trim().slice(0, 50);
-  return name || "historical-war";
-}
-
-async function uniqueWarName(
-  env: Env,
-  baseName: string,
-): Promise<string> {
-  let candidate = baseName;
-  for (let suffix = 1; suffix <= 99; suffix += 1) {
-    const existing = await env.DB.prepare(
-      `
-      SELECT id
-      FROM wars
-      WHERE LOWER(name) = LOWER(?)
-      LIMIT 1
-      `,
-    )
-      .bind(candidate)
-      .first();
-
-    if (!existing) {
-      return candidate;
-    }
-
-    const suffixText = ` ${suffix + 1}`;
-    candidate = `${baseName.slice(0, 50 - suffixText.length)}${suffixText}`;
-  }
-
-  const fallbackSuffix = ` ${nowSeconds()}`;
-  return `${baseName.slice(0, 50 - fallbackSuffix.length)}${fallbackSuffix}`;
 }
 
 function parseOptionalBoolean(value: unknown, field = "boolean"): boolean {
