@@ -80,10 +80,15 @@ export async function editDiscordBotMessage(
   await patchDiscordBotJson(
     botToken,
     discordChannelMessagePath(channelId, messageId),
-    discordPayload(message, allowedMentions, {
-      ...options,
-      clearEmbeds: options?.embedColor === undefined && options?.embeds === undefined,
-    }),
+    {
+      ...discordPayload(message, allowedMentions, {
+        ...options,
+        clearEmbeds: options?.embedColor === undefined && options?.embeds === undefined,
+      }),
+      // PATCH retains omitted fields. Clear legacy text/embeds when converting
+      // an existing status message to Components V2 (also safe for V2 retries).
+      ...(options?.cardColor !== undefined ? { content: null, embeds: [] } : {}),
+    },
   );
 }
 
