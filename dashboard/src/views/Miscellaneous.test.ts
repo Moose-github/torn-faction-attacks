@@ -81,3 +81,51 @@ describe("war payout respect limit", () => {
     expect(payout.rows[0].finalPayment).toBe(2500);
   });
 });
+
+describe("war payout point deductions", () => {
+  const pointMembers = [
+    { member_id: 1, attacks_vs_enemy_successful: 1, outside_hits: 2, friendly_hosps: 1 },
+    { member_id: 2, attacks_vs_enemy_successful: 3, outside_hits: 0, friendly_hosps: 0 },
+  ] as MemberStats[];
+  const pointRules: Parameters<typeof calculatePayoutRows>[0]["pointRules"] = [
+    { id: "hits", metric: "attacks_vs_enemy_successful", points: "1" },
+    { id: "deduction", metric: "outside_hits", points: "-1" },
+  ];
+
+  it("does not subtract negative point totals from other members' shares", () => {
+    const payout = calculate({ members: pointMembers, mode: "points", totalPool: 100, pointRules });
+    expect(payout.rows.find(row => row.member.member_id === 1)).toMatchObject({ basis: 0, adjustedBasis: 0, variablePayment: 0, finalPayment: 0 });
+    expect(payout.rows.find(row => row.member.member_id === 2)).toMatchObject({ basis: 3, variablePayment: 100, finalPayment: 100 });
+    expect(payout.finalTotal).toBe(100);
+  });
+
+  it("preserves point deductions when the resulting total is still positive", () => {
+    const payout = calculate({
+      members: [{ ...pointMembers[0], attacks_vs_enemy_successful: 5 }, pointMembers[1]],
+      mode: "points", totalPool: 100, pointRules,
+    });
+    expect(payout.rows.map(row => row.basis)).toEqual([3, 3]);
+    expect(payout.rows.map(row => row.finalPayment)).toEqual([50, 50]);
+  });
+
+  it("keeps flat payments and clamps points before percentage adjustments", () => {
+    const payout = calculate({
+      members: pointMembers, mode: "points", totalPool: 100, pointRules,
+      flatPaymentRules: [{ id: "flat", metric: "friendly_hosps", amount: "10" }],
+      bonusRules: [{ id: "bonus", type: "bonus", metric: "outside_hits", operator: ">=", threshold: "2", percent: "50" }],
+    });
+    expect(payout.rows.find(row => row.member.member_id === 1)).toMatchObject({ basis: 0, bonusPercent: 50, adjustedBasis: 0, variablePayment: 0, finalPayment: 10 });
+    expect(payout.rows.find(row => row.member.member_id === 2)?.finalPayment).toBe(90);
+    expect(payout.finalTotal).toBe(100);
+  });
+
+  it("distributes no variable payout when every point total is non-positive", () => {
+    const payout = calculate({
+      members: [pointMembers[0], { ...pointMembers[1], outside_hits: 3 }],
+      mode: "points", totalPool: 100, pointRules,
+      flatPaymentRules: [{ id: "flat", metric: "friendly_hosps", amount: "10" }],
+    });
+    expect(payout.rows.every(row => row.basis === 0 && row.adjustedBasis === 0 && row.variablePayment === 0)).toBe(true);
+    expect(payout.finalTotal).toBe(10);
+  });
+});

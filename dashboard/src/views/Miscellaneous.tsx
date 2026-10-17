@@ -270,6 +270,7 @@ export function WarPayoutCalculator({
     async function loadWar() {
       if (!selectedWarName) {
         setWarDetail(null);
+        setIsLoadingWar(false);
         return;
       }
 
@@ -304,11 +305,11 @@ export function WarPayoutCalculator({
     };
   }, [selectedWarName]);
 
-  const members = React.useMemo(
-    () => [...(warDetail?.members ?? [])].sort((a, b) => b.respect_gained - a.respect_gained),
-    [warDetail?.members],
-  );
   const loadedWar = !isLoadingWar && warDetail?.war.name === selectedWarName ? warDetail.war : null;
+  const members = React.useMemo(
+    () => loadedWar ? [...(warDetail?.members ?? [])].sort((a, b) => b.respect_gained - a.respect_gained) : [],
+    [loadedWar, warDetail?.members],
+  );
   const respectLimit = respectLimitInput.trim() === "" ? null : Math.max(0, decimalInput(respectLimitInput));
   const payout = React.useMemo(
     () =>
@@ -745,15 +746,15 @@ export function WarPayoutCalculator({
         </PayoutRuleSection>
       </section>
 
-      <section className="panel table-panel payout-results-panel" aria-label="Calculated payouts">
+      <section className="panel table-panel payout-results-panel" aria-label="Calculated payouts" aria-busy={isLoadingWar || isLoadingWars}>
         <PanelHeader
           title="Calculated payouts"
           control={
             <button
               type="button"
               className="panel-action-button"
-              onClick={() => exportPayoutRowsCsv(payout.rows, warDetail?.war.name ?? selectedWarName, mode)}
-              disabled={payout.rows.length === 0}
+              onClick={() => loadedWar && exportPayoutRowsCsv(payout.rows, loadedWar.name, mode)}
+              disabled={!loadedWar || payout.rows.length === 0}
             >
               CSV
             </button>
@@ -949,10 +950,10 @@ function memberPayoutBasis(
     return respectLimit === null ? respect : Math.min(respect, Math.max(0, respectLimit));
   }
 
-  return pointRules.reduce(
+  return Math.max(0, pointRules.reduce(
     (total, rule) => total + Math.max(0, memberMetricValue(member, rule.metric)) * decimalInput(rule.points),
     0,
-  );
+  ));
 }
 
 function memberFlatPayment(member: MemberStats, rules: FlatPaymentRule[]): number {
