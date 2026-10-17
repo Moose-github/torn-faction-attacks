@@ -26,9 +26,7 @@ export function WarPayouts({
         </div>
       </section>
 
-      <section className="panel table-panel payout-calculator-panel">
-        <WarPayoutCalculator initialWars={wars} isLoadingInitialWars={isLoadingWars} />
-      </section>
+      <WarPayoutCalculator initialWars={wars} isLoadingInitialWars={isLoadingWars} />
     </>
   );
 }

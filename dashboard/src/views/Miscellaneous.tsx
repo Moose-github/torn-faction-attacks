@@ -1,5 +1,6 @@
 import { startPolling, type PollContext } from "../utils/polling";
 import React from "react";
+import { ChevronDown, ChevronRight } from "lucide-react";
 import {
   getMiscellaneousData,
   getWar,
@@ -474,74 +475,138 @@ export function WarPayoutCalculator({
 
   return (
     <>
-      <PanelHeader
-        title="Calculator"
-        aside={isLoadingWar ? "Loading war" : `${members.length} members`}
-      />
-      <p className="panel-description">
-        Draft calculator for splitting war reward money. Flat payments are deducted from the pool first; bonuses
-        rebalance each member's share of the remaining pool.
-      </p>
-      {error ? <p className="form-error">{error}</p> : null}
-      <div className="payout-controls">
-        <label>
-          <span>War</span>
-          <select
-            value={selectedWarName}
-            onChange={(event) => setSelectedWarName(event.target.value)}
-            disabled={isLoadingWars || wars.length === 0}
-          >
-            {wars.map((war) => (
-              <option key={war.id} value={war.name}>
-                {war.name}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          <span>Total payout pool</span>
-          <input
-            inputMode="numeric"
-            value={poolInput}
-            onChange={(event) => setPoolInput(event.target.value)}
-            placeholder="1000000000"
-          />
-        </label>
-        <label>
-          <span>Mode</span>
-          <select value={mode} onChange={(event) => setMode(event.target.value as PayoutMode)}>
-            <option value="points">Points</option>
-            <option value="respect">Respect</option>
-          </select>
-        </label>
-        {mode === "respect" ? (
+      <section className="panel table-panel payout-calculator-panel" aria-label="Calculator">
+        <PanelHeader
+          title="Calculator"
+          aside={isLoadingWar ? "Loading war" : `${members.length} members`}
+        />
+        <p className="panel-description">
+          Draft calculator for splitting war reward money. Flat payments are deducted from the pool first; bonuses
+          rebalance each member's share of the remaining pool.
+        </p>
+        {error ? <p className="form-error">{error}</p> : null}
+        <div className="payout-controls">
           <label>
-            <span>Respect basis</span>
+            <span>War</span>
             <select
-              value={respectBasis}
-              onChange={(event) => setRespectBasis(event.target.value as RespectBasis)}
+              value={selectedWarName}
+              onChange={(event) => setSelectedWarName(event.target.value)}
+              disabled={isLoadingWars || wars.length === 0}
             >
-              <option value="adjusted">Adjusted respect</option>
-              <option value="raw">Raw respect</option>
+              {wars.map((war) => (
+                <option key={war.id} value={war.name}>
+                  {war.name}
+                </option>
+              ))}
             </select>
           </label>
-        ) : null}
-      </div>
+          <label>
+            <span>Total payout pool</span>
+            <input
+              inputMode="numeric"
+              value={poolInput}
+              onChange={(event) => setPoolInput(event.target.value)}
+              placeholder="1000000000"
+            />
+          </label>
+          <label>
+            <span>Mode</span>
+            <select value={mode} onChange={(event) => setMode(event.target.value as PayoutMode)}>
+              <option value="points">Points</option>
+              <option value="respect">Respect</option>
+            </select>
+          </label>
+          {mode === "respect" ? (
+            <label>
+              <span>Respect basis</span>
+              <select
+                value={respectBasis}
+                onChange={(event) => setRespectBasis(event.target.value as RespectBasis)}
+              >
+                <option value="adjusted">Adjusted respect</option>
+                <option value="raw">Raw respect</option>
+              </select>
+            </label>
+          ) : null}
+        </div>
 
-      {mode === "points" ? (
-        <section className="payout-rule-section payout-section-divider">
+        {mode === "points" ? (
+          <PayoutRuleSection title="Points">
+            <div className="payout-section-header">
+              <div>
+                <p>Choose which member stats create payout points.</p>
+              </div>
+              <div className="payout-add-control">
+                <select
+                  value={pointMetricToAdd}
+                  onChange={(event) => setPointMetricToAdd(event.target.value as PayoutMetric)}
+                  disabled={availablePointMetrics.length === 0}
+                >
+                  {availablePointMetrics.map((metric) => (
+                    <option key={metric.value} value={metric.value}>
+                      {metric.label}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  className="panel-action-button"
+                  onClick={addPointRule}
+                  disabled={availablePointMetrics.length === 0}
+                >
+                  Add variable
+                </button>
+              </div>
+            </div>
+            <div className="table-scroll">
+              <table className="payout-rules-table">
+                <thead>
+                  <tr>
+                    <th>Variable</th>
+                    <th>Points per</th>
+                    <th />
+                  </tr>
+                </thead>
+                <tbody>
+                  {pointRules.map((rule) => (
+                    <tr key={rule.id}>
+                      <td>{payoutMetricLabel(rule.metric)}</td>
+                      <td>
+                        <input
+                          inputMode="decimal"
+                          value={rule.points}
+                          onChange={(event) => updatePointRule(rule.id, { points: event.target.value })}
+                        />
+                      </td>
+                      <td>
+                        <button
+                          type="button"
+                          className="panel-action-button"
+                          onClick={() => removePointRule(rule.id)}
+                        >
+                          Remove
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </PayoutRuleSection>
+        ) : null}
+
+        <PayoutRuleSection title="Flat payments">
           <div className="payout-section-header">
             <div>
-              <strong>Points</strong>
-              <p>Choose which member stats create payout points.</p>
+              <p>Flat payments are always deducted from the total pool before the remaining pool is split.</p>
             </div>
             <div className="payout-add-control">
               <select
-                value={pointMetricToAdd}
-                onChange={(event) => setPointMetricToAdd(event.target.value as PayoutMetric)}
-                disabled={availablePointMetrics.length === 0}
+                value={flatMetricToAdd}
+                onChange={(event) => setFlatMetricToAdd(event.target.value as PayoutMetric)}
+                disabled={availableFlatMetrics.length === 0}
               >
-                {availablePointMetrics.map((metric) => (
+                {availableFlatMetrics.map((metric) => (
                   <option key={metric.value} value={metric.value}>
                     {metric.label}
                   </option>
@@ -550,8 +615,8 @@ export function WarPayoutCalculator({
               <button
                 type="button"
                 className="panel-action-button"
-                onClick={addPointRule}
-                disabled={availablePointMetrics.length === 0}
+                onClick={addFlatPaymentRule}
+                disabled={availableFlatMetrics.length === 0}
               >
                 Add variable
               </button>
@@ -562,26 +627,26 @@ export function WarPayoutCalculator({
               <thead>
                 <tr>
                   <th>Variable</th>
-                  <th>Points per</th>
+                  <th>Payment per</th>
                   <th />
                 </tr>
               </thead>
               <tbody>
-                {pointRules.map((rule) => (
+                {flatPaymentRules.map((rule) => (
                   <tr key={rule.id}>
                     <td>{payoutMetricLabel(rule.metric)}</td>
                     <td>
                       <input
-                        inputMode="decimal"
-                        value={rule.points}
-                        onChange={(event) => updatePointRule(rule.id, { points: event.target.value })}
+                        inputMode="numeric"
+                        value={rule.amount}
+                        onChange={(event) => updateFlatPaymentRule(rule.id, { amount: event.target.value })}
                       />
                     </td>
                     <td>
                       <button
                         type="button"
                         className="panel-action-button"
-                        onClick={() => removePointRule(rule.id)}
+                        onClick={() => removeFlatPaymentRule(rule.id)}
                       >
                         Remove
                       </button>
@@ -591,228 +656,190 @@ export function WarPayoutCalculator({
               </tbody>
             </table>
           </div>
-        </section>
-      ) : null}
+        </PayoutRuleSection>
 
-      <section className="payout-rule-section payout-section-divider">
-        <div className="payout-section-header">
-          <div>
-            <strong>Flat payments</strong>
-            <p>Flat payments are always deducted from the total pool before the remaining pool is split.</p>
+        <PayoutRuleSection title="Percentage adjustment rules">
+          <div className="payout-section-header">
+            <div>
+              <p>Use bonuses or penalties. Only the strongest matching rule for each metric and type is used.</p>
+            </div>
+            <button type="button" className="panel-action-button" onClick={addBonusRule}>
+              Add rule
+            </button>
           </div>
-          <div className="payout-add-control">
-            <select
-              value={flatMetricToAdd}
-              onChange={(event) => setFlatMetricToAdd(event.target.value as PayoutMetric)}
-              disabled={availableFlatMetrics.length === 0}
-            >
-              {availableFlatMetrics.map((metric) => (
-                <option key={metric.value} value={metric.value}>
-                  {metric.label}
-                </option>
-              ))}
-            </select>
+          <div className="table-scroll">
+            <table className="payout-rules-table">
+              <thead>
+                <tr>
+                  <th>Type</th>
+                  <th>Metric</th>
+                  <th>Condition</th>
+                  <th>Value</th>
+                  <th>Percent</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {bonusRules.map((rule) => (
+                  <tr key={rule.id}>
+                    <td>
+                      <select
+                        value={rule.type}
+                        onChange={(event) =>
+                          updateBonusRule(rule.id, { type: event.target.value as PercentageRuleType })
+                        }
+                      >
+                        <option value="bonus">Bonus</option>
+                        <option value="penalty">Penalty</option>
+                      </select>
+                    </td>
+                    <td>
+                      <select
+                        value={rule.metric}
+                        onChange={(event) => updateBonusRule(rule.id, { metric: event.target.value as PayoutMetric })}
+                      >
+                        {PAYOUT_METRICS.map((metric) => (
+                          <option key={metric.value} value={metric.value}>
+                            {metric.label}
+                          </option>
+                        ))}
+                      </select>
+                    </td>
+                    <td>
+                      <select
+                        value={rule.operator}
+                        onChange={(event) => updateBonusRule(rule.id, { operator: event.target.value as BonusOperator })}
+                      >
+                        <option value=">=">&gt;=</option>
+                        <option value=">">&gt;</option>
+                        <option value="<=">&lt;=</option>
+                        <option value="<">&lt;</option>
+                        <option value="=">=</option>
+                      </select>
+                    </td>
+                    <td>
+                      <input inputMode="decimal" value={rule.threshold} onChange={(event) => updateBonusRule(rule.id, { threshold: event.target.value })} />
+                    </td>
+                    <td>
+                      <input
+                        inputMode="decimal"
+                        aria-label="Adjustment percentage"
+                        value={rule.percent}
+                        onChange={(event) => updateBonusRule(rule.id, { percent: event.target.value })}
+                      />
+                    </td>
+                    <td>
+                      <button type="button" className="panel-action-button" onClick={() => removeBonusRule(rule.id)}>
+                        Remove
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </PayoutRuleSection>
+      </section>
+
+      <section className="panel table-panel payout-results-panel" aria-label="Calculated payouts">
+        <PanelHeader
+          title="Calculated payouts"
+          control={
             <button
               type="button"
               className="panel-action-button"
-              onClick={addFlatPaymentRule}
-              disabled={availableFlatMetrics.length === 0}
+              onClick={() => exportPayoutRowsCsv(payout.rows, warDetail?.war.name ?? selectedWarName, mode)}
+              disabled={payout.rows.length === 0}
             >
-              Add variable
+              CSV
             </button>
-          </div>
+          }
+        />
+        <p className="panel-description">Export the current payout calculation with the selected rules and pool.</p>
+        <div className="payout-summary-grid">
+          <PayoutSummaryItem label="Total pool" value={payout.totalPool} />
+          <PayoutSummaryItem label="Flat payments" value={payout.flatTotal} />
+          <PayoutSummaryItem label="Remaining pool" value={payout.remainingPool} />
+          <PayoutSummaryItem label="Final total" value={payout.finalTotal} />
         </div>
-        <div className="table-scroll">
-          <table className="payout-rules-table">
-            <thead>
-              <tr>
-                <th>Variable</th>
-                <th>Payment per</th>
-                <th />
-              </tr>
-            </thead>
-            <tbody>
-              {flatPaymentRules.map((rule) => (
-                <tr key={rule.id}>
-                  <td>{payoutMetricLabel(rule.metric)}</td>
-                  <td>
-                    <input
-                      inputMode="numeric"
-                      value={rule.amount}
-                      onChange={(event) => updateFlatPaymentRule(rule.id, { amount: event.target.value })}
-                    />
-                  </td>
-                  <td>
-                    <button
-                      type="button"
-                      className="panel-action-button"
-                      onClick={() => removeFlatPaymentRule(rule.id)}
-                    >
-                      Remove
-                    </button>
-                  </td>
+        {payout.flatTotal > payout.totalPool && payout.totalPool > 0 ? (
+          <p className="form-error">Flat payments exceed the total pool, so no remaining pool is distributed.</p>
+        ) : null}
+        {members.length === 0 ? (
+          <EmptyState text={isLoadingWar || isLoadingWars ? "Loading payout data" : "No member stats for this war"} />
+        ) : (
+          <div className="table-scroll">
+            <table className="payout-table">
+              <thead>
+                <tr>
+                  <th>Member</th>
+                  <th>{mode === "points" ? "Points" : "Respect"}</th>
+                  <th>Bonus %</th>
+                  <th>Penalty %</th>
+                  <th>Net %</th>
+                  <th>Flat</th>
+                  <th>Variable</th>
+                  <th>Final</th>
+                  <th>Pay</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {payout.rows.map((row) => (
+                  <tr key={row.member.member_id}>
+                    <td>{displayMember(row.member)}</td>
+                    <td title={`Adjusted basis: ${formatDecimal(row.adjustedBasis)}`}>
+                      {formatDecimal(row.basis)}
+                    </td>
+                    <td>{formatDecimal(row.bonusPercent)}%</td>
+                    <td>{formatDecimal(row.penaltyPercent)}%</td>
+                    <td>{formatDecimal(row.netPercent)}%</td>
+                    <td>{formatMoney(row.flatPayment)}</td>
+                    <td>{formatMoney(row.variablePayment)}</td>
+                    <td>
+                      <strong>{formatMoney(row.finalPayment)}</strong>
+                    </td>
+                    <td className="payout-pay">
+                      <a
+                        href={payoutPayUrl(row)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        Add Money
+                      </a>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </section>
+    </>
+  );
+}
 
-      <div className="payout-bonus-rules payout-section-divider">
-        <div className="payout-section-header">
-          <div>
-            <strong>Percentage adjustment rules</strong>
-            <p>Use bonuses or penalties. Only the strongest matching rule for each metric and type is used.</p>
-          </div>
-          <button type="button" className="panel-action-button" onClick={addBonusRule}>
-            Add rule
-          </button>
-        </div>
-        <div className="table-scroll">
-          <table className="payout-rules-table">
-            <thead>
-              <tr>
-                <th>Type</th>
-                <th>Metric</th>
-                <th>Condition</th>
-                <th>Value</th>
-                <th>Percent</th>
-                <th />
-              </tr>
-            </thead>
-            <tbody>
-              {bonusRules.map((rule) => (
-                <tr key={rule.id}>
-                  <td>
-                    <select
-                      value={rule.type}
-                      onChange={(event) =>
-                        updateBonusRule(rule.id, { type: event.target.value as PercentageRuleType })
-                      }
-                    >
-                      <option value="bonus">Bonus</option>
-                      <option value="penalty">Penalty</option>
-                    </select>
-                  </td>
-                  <td>
-                    <select
-                      value={rule.metric}
-                      onChange={(event) => updateBonusRule(rule.id, { metric: event.target.value as PayoutMetric })}
-                    >
-                      {PAYOUT_METRICS.map((metric) => (
-                        <option key={metric.value} value={metric.value}>
-                          {metric.label}
-                        </option>
-                      ))}
-                    </select>
-                  </td>
-                  <td>
-                    <select
-                      value={rule.operator}
-                      onChange={(event) => updateBonusRule(rule.id, { operator: event.target.value as BonusOperator })}
-                    >
-                      <option value=">=">&gt;=</option>
-                      <option value=">">&gt;</option>
-                      <option value="<=">&lt;=</option>
-                      <option value="<">&lt;</option>
-                      <option value="=">=</option>
-                    </select>
-                  </td>
-                  <td>
-                    <input inputMode="decimal" value={rule.threshold} onChange={(event) => updateBonusRule(rule.id, { threshold: event.target.value })} />
-                  </td>
-                  <td>
-                    <input
-                      inputMode="decimal"
-                      aria-label="Adjustment percentage"
-                      value={rule.percent}
-                      onChange={(event) => updateBonusRule(rule.id, { percent: event.target.value })}
-                    />
-                  </td>
-                  <td>
-                    <button type="button" className="panel-action-button" onClick={() => removeBonusRule(rule.id)}>
-                      Remove
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
+function PayoutRuleSection({ title, children }: { title: string; children: React.ReactNode }) {
+  const [collapsed, setCollapsed] = React.useState(false);
+  const contentId = React.useId();
 
-      <div className="payout-summary-grid payout-section-divider">
-        <PayoutSummaryItem label="Total pool" value={payout.totalPool} />
-        <PayoutSummaryItem label="Flat payments" value={payout.flatTotal} />
-        <PayoutSummaryItem label="Remaining pool" value={payout.remainingPool} />
-        <PayoutSummaryItem label="Final total" value={payout.finalTotal} />
-      </div>
-      {payout.flatTotal > payout.totalPool && payout.totalPool > 0 ? (
-        <p className="form-error">Flat payments exceed the total pool, so no remaining pool is distributed.</p>
-      ) : null}
-      <div className="payout-section-header payout-section-divider">
-        <div>
-          <strong>Calculated payouts</strong>
-          <p>Export the current payout calculation with the selected rules and pool.</p>
-        </div>
+  return (
+    <section className="payout-rule-section payout-section-divider">
+      <h3 className="payout-rule-heading">
         <button
           type="button"
-          className="panel-action-button"
-          onClick={() => exportPayoutRowsCsv(payout.rows, warDetail?.war.name ?? selectedWarName, mode)}
-          disabled={payout.rows.length === 0}
+          className="collapse-button payout-rule-toggle"
+          aria-expanded={!collapsed}
+          aria-controls={contentId}
+          onClick={() => setCollapsed((current) => !current)}
         >
-          CSV
+          <span aria-hidden="true">{collapsed ? <ChevronRight size={15} /> : <ChevronDown size={15} />}</span>
+          <strong>{title}</strong>
         </button>
+      </h3>
+      <div id={contentId} className="payout-rule-content" hidden={collapsed}>
+        {children}
       </div>
-      {members.length === 0 ? (
-        <EmptyState text={isLoadingWar || isLoadingWars ? "Loading payout data" : "No member stats for this war"} />
-      ) : (
-        <div className="table-scroll">
-          <table className="payout-table">
-            <thead>
-              <tr>
-                <th>Member</th>
-                <th>{mode === "points" ? "Points" : "Respect"}</th>
-                <th>Bonus %</th>
-                <th>Penalty %</th>
-                <th>Net %</th>
-                <th>Flat</th>
-                <th>Variable</th>
-                <th>Final</th>
-                <th>Pay</th>
-              </tr>
-            </thead>
-            <tbody>
-              {payout.rows.map((row) => (
-                <tr key={row.member.member_id}>
-                  <td>{displayMember(row.member)}</td>
-                  <td title={`Adjusted basis: ${formatDecimal(row.adjustedBasis)}`}>
-                    {formatDecimal(row.basis)}
-                  </td>
-                  <td>{formatDecimal(row.bonusPercent)}%</td>
-                  <td>{formatDecimal(row.penaltyPercent)}%</td>
-                  <td>{formatDecimal(row.netPercent)}%</td>
-                  <td>{formatMoney(row.flatPayment)}</td>
-                  <td>{formatMoney(row.variablePayment)}</td>
-                  <td>
-                    <strong>{formatMoney(row.finalPayment)}</strong>
-                  </td>
-                  <td className="payout-pay">
-                    <a
-                      href={payoutPayUrl(row)}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                    >
-                      Add Money
-                    </a>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </>
+    </section>
   );
 }
 

@@ -6394,7 +6394,8 @@ h2 {
   justify-items: start;
 }
 
-.payout-calculator-panel {
+.payout-calculator-panel,
+.payout-results-panel {
   display: grid;
   gap: 14px;
 }
@@ -6443,12 +6444,30 @@ h2 {
 .payout-rule-section,
 .payout-bonus-rules {
   display: grid;
+  min-width: 0;
   gap: 8px;
+}
+
+.payout-rule-content {
+  min-width: 0;
 }
 
 .payout-section-divider {
   padding-top: 14px;
   border-top: 1px solid rgba(148, 163, 184, 0.24);
+}
+
+.payout-rule-heading {
+  margin: 0;
+}
+
+.payout-rule-toggle {
+  width: 100%;
+  text-align: left;
+}
+
+.payout-rule-toggle > span {
+  flex-shrink: 0;
 }
 
 .payout-rules-table input,
