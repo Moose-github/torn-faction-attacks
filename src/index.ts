@@ -11,6 +11,7 @@ import { routeMemberUtilityApi } from "./http/memberRoutes";
 import { routePublicApi } from "./http/publicRoutes";
 import { routeTradeApi } from "./http/tradeRoutes";
 import { routeWarCommands, routeWarReads } from "./http/warRoutes";
+import { routeWarPayoutPresetApi } from "./http/warPayoutPresetRoutes";
 import { Env } from "./types";
 import { corsHeaders, json } from "./utils";
 
@@ -54,6 +55,7 @@ export default {
 async function routeApiRequest(routeContext: RouteContext): Promise<RouteResult> {
   return (
     (await routeWatchScheduleApi(routeContext)) ??
+    (await routeWarPayoutPresetApi(routeContext)) ??
     (await routePublicApi(routeContext)) ??
     (await routeAdminApi(routeContext)) ??
     (await routeArrestScoutApi(routeContext)) ??

@@ -14,51 +14,12 @@ import { EmptyState, PanelHeader } from "../components/Common";
 import { downloadCsv, sanitizeCsvFilename } from "../utils/csv";
 import { detailNumber, formatLongDateTime, formatNumber, formatRelativeTime } from "../utils/format";
 import { displayMember, memberDefendsLost } from "../utils/members";
-
-type PayoutMode = "points" | "respect";
-type RespectBasis = "adjusted" | "raw";
-type PercentageRuleType = "bonus" | "penalty";
-type PayoutMetric =
-  | "average_fair_fight"
-  | "defends_lost"
-  | "defends_total"
-  | "defends_won"
-  | "defends_other"
-  | "defends_lost_non_hospitalized"
-  | "attacks_vs_enemy_successful"
-  | "outside_hits"
-  | "assists_vs_enemy"
-  | "friendly_hosps"
-  | "hospitalizations_vs_enemy"
-  | "mugs_vs_enemy"
-  | "retaliations_vs_enemy"
-  | "respect_gained"
-  | "respect_gained_raw"
-  | "respect_lost"
-  | "respect_lost_raw"
-  | "respect_lost_non_hospitalized";
-type BonusOperator = ">=" | ">" | "<=" | "<" | "=";
-
-type PointRule = {
-  id: string;
-  metric: PayoutMetric;
-  points: string;
-};
-
-type FlatPaymentRule = {
-  id: string;
-  metric: PayoutMetric;
-  amount: string;
-};
-
-type BonusRule = {
-  id: string;
-  type: PercentageRuleType;
-  metric: PayoutMetric;
-  operator: BonusOperator;
-  threshold: string;
-  percent: string;
-};
+import { WarPayoutPresetsPanel } from "../components/WarPayoutPresetsPanel";
+import {
+  PAYOUT_METRICS, type BonusOperator, type BonusRule, type FlatPaymentRule,
+  type PayoutMetric, type PayoutMode, type PercentageRuleType, type PointRule,
+  type RespectBasis, type WarPayoutPresetConfig,
+} from "../../../shared/warPayoutPresets";
 
 type PayoutRow = {
   member: MemberStats;
@@ -97,27 +58,6 @@ const DEFAULT_BONUS_RULES: BonusRule[] = [
     threshold: "10",
     percent: "10",
   },
-];
-
-const PAYOUT_METRICS: Array<{ value: PayoutMetric; label: string }> = [
-  { value: "attacks_vs_enemy_successful", label: "War hits" },
-  { value: "outside_hits", label: "Outside hits" },
-  { value: "assists_vs_enemy", label: "Assists" },
-  { value: "friendly_hosps", label: "Friendly hosps" },
-  { value: "hospitalizations_vs_enemy", label: "Hospitalizations" },
-  { value: "mugs_vs_enemy", label: "Mugs" },
-  { value: "retaliations_vs_enemy", label: "Retaliations" },
-  { value: "defends_total", label: "Defends" },
-  { value: "defends_won", label: "Defends won" },
-  { value: "defends_other", label: "Other defends" },
-  { value: "defends_lost", label: "Defends lost" },
-  { value: "defends_lost_non_hospitalized", label: "Non-hosp defends lost" },
-  { value: "respect_gained", label: "Respect gained" },
-  { value: "respect_gained_raw", label: "Respect gained raw" },
-  { value: "respect_lost", label: "Respect lost" },
-  { value: "respect_lost_raw", label: "Respect lost raw" },
-  { value: "respect_lost_non_hospitalized", label: "Non-hosp respect lost" },
-  { value: "average_fair_fight", label: "Average fair fight" },
 ];
 
 const DEFAULT_POINT_RULES: PointRule[] = [
@@ -340,6 +280,11 @@ export function WarPayoutCalculator({
         const response = await getWar(selectedWarName);
         if (!cancelled) {
           setWarDetail(response);
+          setRespectLimitInput(
+            response.war.war_type === "termed" && response.war.member_respect_limit != null
+              ? String(response.war.member_respect_limit)
+              : "",
+          );
         }
       } catch (err) {
         if (!cancelled) {
@@ -478,8 +423,20 @@ export function WarPayoutCalculator({
     setBonusRules((current) => current.filter((rule) => rule.id !== id));
   }
 
+  function loadPreset(config: WarPayoutPresetConfig) {
+    setMode(config.mode);
+    setRespectBasis(config.respectBasis);
+    setPointRules(config.pointRules);
+    setFlatPaymentRules(config.flatPaymentRules);
+    setBonusRules(config.bonusRules);
+  }
+
   return (
     <>
+      <WarPayoutPresetsPanel
+        config={{ schemaVersion: 1, mode, respectBasis, pointRules, flatPaymentRules, bonusRules }}
+        onLoad={loadPreset}
+      />
       <section className="panel table-panel payout-calculator-panel" aria-label="Calculator">
         <PanelHeader
           title="Calculator"

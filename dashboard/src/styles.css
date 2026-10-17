@@ -6395,6 +6395,7 @@ h2 {
 }
 
 .payout-calculator-panel,
+.payout-presets-panel,
 .payout-results-panel {
   display: grid;
   gap: 14px;
@@ -6418,6 +6419,7 @@ h2 {
 }
 
 .payout-controls label,
+.payout-preset-field,
 .payout-limit-controls label,
 .payout-bonus-rules label {
   display: grid;
@@ -6429,6 +6431,43 @@ h2 {
 
 .payout-limit-controls {
   width: min(100%, 260px);
+}
+
+.payout-preset-row,
+.payout-preset-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 10px;
+  min-width: 0;
+}
+
+.payout-preset-field {
+  flex: 1 1 260px;
+  min-width: 0;
+}
+
+.payout-preset-field input,
+.payout-preset-field select {
+  width: 100%;
+  min-width: 0;
+}
+
+.payout-preset-note,
+.payout-preset-delete p {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.payout-preset-delete {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--border-faint);
+  border-radius: var(--radius-sm);
 }
 
 .payout-section-header {
