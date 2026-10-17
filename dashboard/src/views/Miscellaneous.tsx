@@ -262,6 +262,7 @@ export function WarPayoutCalculator({
   const [poolInput, setPoolInput] = React.useState("");
   const [mode, setMode] = React.useState<PayoutMode>("points");
   const [respectBasis, setRespectBasis] = React.useState<RespectBasis>("adjusted");
+  const [respectLimitInput, setRespectLimitInput] = React.useState("");
   const [pointRules, setPointRules] = React.useState<PointRule[]>(DEFAULT_POINT_RULES);
   const [flatPaymentRules, setFlatPaymentRules] =
     React.useState<FlatPaymentRule[]>(DEFAULT_FLAT_PAYMENT_RULES);
@@ -362,6 +363,8 @@ export function WarPayoutCalculator({
     () => [...(warDetail?.members ?? [])].sort((a, b) => b.respect_gained - a.respect_gained),
     [warDetail?.members],
   );
+  const loadedWar = !isLoadingWar && warDetail?.war.name === selectedWarName ? warDetail.war : null;
+  const respectLimit = respectLimitInput.trim() === "" ? null : Math.max(0, decimalInput(respectLimitInput));
   const payout = React.useMemo(
     () =>
       calculatePayoutRows({
@@ -369,6 +372,7 @@ export function WarPayoutCalculator({
         totalPool: moneyInput(poolInput),
         mode,
         respectBasis,
+        respectLimit,
         pointRules,
         flatPaymentRules,
         bonusRules,
@@ -381,6 +385,7 @@ export function WarPayoutCalculator({
       pointRules,
       poolInput,
       respectBasis,
+      respectLimit,
     ],
   );
 
@@ -529,6 +534,21 @@ export function WarPayoutCalculator({
             </label>
           ) : null}
         </div>
+        {loadedWar ? (
+          <p className="payout-war-info">
+            <strong>
+              {loadedWar.war_type === "termed" ? "Termed war" : loadedWar.war_type === "event" ? "Event" : "Real war"}
+            </strong>
+            {loadedWar.war_type === "termed" ? (
+              <>
+                {" · Faction respect limit: "}
+                {loadedWar.faction_respect_limit == null ? "Not set" : formatNumber(loadedWar.faction_respect_limit)}
+                {" · Per-player respect limit: "}
+                {loadedWar.member_respect_limit == null ? "Not set" : formatNumber(loadedWar.member_respect_limit)}
+              </>
+            ) : null}
+          </p>
+        ) : null}
 
         {mode === "points" ? (
           <PayoutRuleSection title="Points">
@@ -655,6 +675,33 @@ export function WarPayoutCalculator({
                 ))}
               </tbody>
             </table>
+          </div>
+        </PayoutRuleSection>
+
+        <PayoutRuleSection title="Limit respect">
+          <div className="payout-section-header">
+            <div>
+              <p>
+                Cap the respect rewarded per player before bonuses and penalties, using the selected respect basis.
+                Leave blank for no limit.
+              </p>
+              {mode !== "respect" ? <p>Choose Respect mode to apply a respect limit.</p> : null}
+            </div>
+          </div>
+          <div className="payout-limit-controls">
+            <label>
+              <span>Maximum respect per player</span>
+              <input
+                type="number"
+                inputMode="decimal"
+                min="0"
+                step="any"
+                value={respectLimitInput}
+                onChange={(event) => setRespectLimitInput(event.target.value)}
+                placeholder="No limit"
+                disabled={mode !== "respect"}
+              />
+            </label>
           </div>
         </PayoutRuleSection>
 
@@ -875,11 +922,12 @@ function PayoutSummaryItem({ label, value }: { label: string; value: number }) {
   );
 }
 
-function calculatePayoutRows({
+export function calculatePayoutRows({
   members,
   totalPool,
   mode,
   respectBasis,
+  respectLimit = null,
   pointRules,
   flatPaymentRules,
   bonusRules,
@@ -888,13 +936,14 @@ function calculatePayoutRows({
   totalPool: number;
   mode: PayoutMode;
   respectBasis: RespectBasis;
+  respectLimit?: number | null;
   pointRules: PointRule[];
   flatPaymentRules: FlatPaymentRule[];
   bonusRules: BonusRule[];
 }): { rows: PayoutRow[]; totalPool: number; flatTotal: number; remainingPool: number; finalTotal: number } {
   const flatRows = members.map((member) => ({
     member,
-    basis: memberPayoutBasis(member, mode, respectBasis, pointRules),
+    basis: memberPayoutBasis(member, mode, respectBasis, pointRules, respectLimit),
     ...memberPercentageAdjustments(member, bonusRules),
     flatPayment: memberFlatPayment(member, flatPaymentRules),
   }));
@@ -931,14 +980,16 @@ function memberPayoutBasis(
   mode: PayoutMode,
   respectBasis: RespectBasis,
   pointRules: PointRule[],
+  respectLimit: number | null,
 ): number {
   if (mode === "respect") {
-    return Math.max(
+    const respect = Math.max(
       0,
       respectBasis === "raw"
         ? detailNumber(member.respect_gained_raw, member.respect_gained)
         : Number(member.respect_gained ?? 0),
     );
+    return respectLimit === null ? respect : Math.min(respect, Math.max(0, respectLimit));
   }
 
   return pointRules.reduce(
