@@ -11,6 +11,8 @@ const ROOT = 'https://api.torn.com/v2/faction/';
 const FEATURE = 'ranked_war_research' as const;
 const KEY_PERMISSION = 'enemy_scouting' as const;
 const MAX_FAILURES = 5;
+const REPORT_CONCURRENCY = 4;
+const MAX_BATCH_REQUESTS = 120;
 const retryDelay = (failures: number) => Math.min(900, 60 * 2 ** Math.min(failures - 1, 4));
 class ResearchRequestError extends Error {
   constructor(message: string, readonly kind: 'temporary' | 'key' | 'rate' | 'report' | 'fatal', readonly code?: number) { super(message); }
@@ -30,7 +32,7 @@ export function validateResearchAnalysis(value: unknown) {
   check(['eligible_wars', 'observations', 'distinct_factions', 'model_observations'].every(k => integer(value[k])), 'Invalid analysis sample counts.');
   check(isRecord(value.range) && typeof value.range.start === 'string' && typeof value.range.end === 'string', 'Invalid analysis range.');
   check(strings(value.warnings) && isRecord(value.prices) && Object.values(value.prices).every(v => v === null || (finite(v) && v >= 0)), 'Invalid analysis assumptions.');
-  check(Array.isArray(value.summaries) && value.summaries.every(s => isRecord(s) && integer(s.division) && s.division >= 1 && s.division <= 4 && (s.won === 0 || s.won === 1) && integer(s.n) && finite(s.median_value) && finite(s.mean_value)), 'Invalid reward summaries.');
+  check(Array.isArray(value.summaries) && value.summaries.every(s => isRecord(s) && integer(s.division) && s.division <= 4 && (s.won === 0 || s.won === 1) && integer(s.n) && finite(s.median_value) && finite(s.mean_value)), 'Invalid reward summaries.');
   function validateModel(model: unknown) {
     check(isRecord(model) && typeof model.available === 'boolean', 'Invalid adjusted analysis.');
     if (model.available) {
@@ -48,7 +50,7 @@ export function validateResearchAnalysis(value: unknown) {
     check(isRecord(whole) && ['eligible_wars', 'valued_wars', 'model_observations'].every(k => integer(whole[k])), 'Invalid whole-war sample counts.');
     check(whole.eligible_wars === value.eligible_wars && Number(whole.model_observations) <= Number(whole.valued_wars) && Number(whole.valued_wars) <= Number(whole.eligible_wars), 'Inconsistent whole-war sample counts.');
     check(['median_value', 'mean_value'].every(k => whole.valued_wars === 0 ? whole[k] === null : finite(whole[k]) && Number(whole[k]) >= 0), 'Invalid whole-war reward values.');
-    check(Array.isArray(whole.summaries) && whole.summaries.every(s => isRecord(s) && [s.winner_division, s.loser_division].every(v => integer(v) && v >= 1 && v <= 4) && integer(s.n) && finite(s.median_value) && finite(s.mean_value)), 'Invalid whole-war reward summaries.');
+    check(Array.isArray(whole.summaries) && whole.summaries.every(s => isRecord(s) && [s.winner_division, s.loser_division].every(v => integer(v) && v <= 4) && integer(s.n) && finite(s.median_value) && finite(s.mean_value)), 'Invalid whole-war reward summaries.');
     validateModel(whole.model);
   }
   validateResearchEvidence(value, check);
@@ -79,7 +81,7 @@ export function validateResearchReport(payload: unknown) {
   else if (factions.some(f => !String((f.rank as Record<string, unknown>).before).trim().toLowerCase().startsWith('platinum'))) classification = 'not_platinum_vs_platinum';
   else {
     check(factions.some(f => f.id === r.winner), 'Invalid winner.');
-    check(factions.every(f => /^Platinum\s+(IV|III|II|I|[1-4])$/i.test(String((f.rank as Record<string, unknown>).before).trim())), 'Unrecognised Platinum division.');
+    check(factions.every(f => /^Platinum(?:\s+(IV|III|II|I|[1-4]))?$/i.test(String((f.rank as Record<string, unknown>).before).trim())), 'Unrecognised Platinum division.');
     for (const f of factions) {
       check(integer(f.attacks) && typeof f.score === 'number' && Number.isFinite(f.score) && f.score >= 0, 'Invalid faction totals.');
       check(Array.isArray(f.members) && f.members.length > 0 && f.members.every(m => isRecord(m) && integer(m.id) && integer(m.attacks) && typeof m.score === 'number' && Number.isFinite(m.score) && m.score >= 0), 'Invalid member details.');
@@ -127,9 +129,11 @@ export async function reserveResearchAttempt(env: Env, runId: string, lease: str
       AND EXISTS (SELECT 1 FROM json_each(k.allowed_features_json) WHERE value = 'enemy_scouting')
       AND (SELECT COUNT(*) FROM ranked_research_attempts a WHERE a.owner_id = k.owner_torn_user_id AND a.attempted_at > ?) < 20
       AND (SELECT COUNT(*) FROM torn_api_call_log l JOIN torn_api_keys owner_key ON l.key_source = 'key_pool:' || owner_key.id
-        WHERE owner_key.owner_torn_user_id = k.owner_torn_user_id AND l.requested_at > ?) < 50
+        WHERE owner_key.owner_torn_user_id = k.owner_torn_user_id AND l.requested_at > ?)
+        + (SELECT COUNT(*) FROM ranked_research_attempts a WHERE a.owner_id = k.owner_torn_user_id
+          AND a.attempted_at > ? AND a.outcome IS NULL) < 50
       AND COALESCE((SELECT request_count FROM torn_api_key_usage_windows WHERE key_id = k.id AND window_start = ?), 0) < COALESCE(k.max_requests_per_minute, 35) - 5`)
-      .bind(id, now, warId, runId, lease, now, now, candidate.id, now, now, now - 60, now - 60, window),
+      .bind(id, now, warId, runId, lease, now, now, candidate.id, now, now, now - 60, now - 60, now - 60, window),
     env.DB.prepare(`INSERT INTO torn_api_key_usage_windows(key_id, window_start, request_count)
       SELECT ?, ?, 1 WHERE EXISTS (SELECT 1 FROM ranked_research_attempts WHERE id = ?)
       ON CONFLICT(key_id, window_start) DO UPDATE SET request_count = request_count + 1`).bind(candidate.id, window, id),
@@ -151,8 +155,7 @@ function apiFailure(data: Record<string, unknown>): ResearchRequestError | null 
   return new ResearchRequestError(`Unexpected Torn API error${code === undefined ? '' : ` (code ${code})`}. Check the endpoint before resuming.`, 'fatal', code);
 }
 
-async function requestTorn(env: Env, run: ResearchRun, url: string, warId: number | null, deadline: number) {
-  const candidates = await readAvailableTornApiKeys(env, KEY_PERMISSION, nowSeconds(), { includeFallback: false });
+async function requestTorn(env: Env, run: ResearchRun, url: string, warId: number | null, deadline: number, candidates: TornKeyPoolCandidate[]) {
   for (const candidate of candidates) {
     if (Date.now() >= deadline) return null;
     const attemptId = crypto.randomUUID();
@@ -161,7 +164,9 @@ async function requestTorn(env: Env, run: ResearchRun, url: string, warId: numbe
     try {
       data = await fetchTrackedTornJson<Record<string, unknown>>(env, url,
         { headers: { Authorization: `ApiKey ${candidate.key}` } },
-        { feature: FEATURE, keySource: candidate.keySource, timeoutMs: Math.max(1, Math.min(15000, deadline - Date.now())) }, { rejectApiError: false });
+        // Let an already reserved request finish; the batch deadline only stops
+        // new work. A nearly expired batch must not manufacture timeout failures.
+        { feature: FEATURE, keySource: candidate.keySource, timeoutMs: 15000 }, { rejectApiError: false });
       if (!isRecord(data)) throw new ResearchRequestError('Torn returned an unexpected response.', warId === null ? 'fatal' : 'report');
       const failure = apiFailure(data);
       if (failure) throw failure;
@@ -206,6 +211,58 @@ async function readRun(env: Env, id: string) {
   return env.DB.prepare('SELECT * FROM ranked_research_runs WHERE id = ?').bind(id).first<ResearchRun>();
 }
 
+function savedAttemptStatements(env: Env, runId: string, attemptId: string, reportSaved: boolean) {
+  return [
+    env.DB.prepare("UPDATE ranked_research_attempts SET outcome = 'saved' WHERE id = ?").bind(attemptId),
+    env.DB.prepare(`UPDATE ranked_research_runs SET
+      consecutive_failures = CASE WHEN status = 'running' THEN 0 ELSE consecutive_failures END,
+      retry_at = CASE WHEN status = 'running' THEN 0 ELSE retry_at END, last_success_at = ?,
+      last_saved_at = CASE WHEN ? THEN ? ELSE last_saved_at END,
+      message = CASE WHEN status = 'running' THEN 'Collecting; saved reports are reused automatically.' ELSE message END
+      WHERE id = ? AND status <> 'frozen'`)
+      .bind(nowSeconds(), reportSaved ? 1 : 0, nowSeconds(), runId),
+  ];
+}
+
+async function saveResearchResponse(env: Env, run: ResearchRun, url: string, warId: number | null,
+  response: { data: Record<string, unknown>; attemptId: string }) {
+  const { data, attemptId } = response;
+  const statements: D1PreparedStatement[] = [];
+  if (warId !== null) {
+    let report: ReturnType<typeof validateResearchReport>;
+    try {
+      report = validateResearchReport(data);
+      check(report.id === warId, 'Torn returned a different war.');
+      check(report.start >= run.from_ts && report.start <= run.to_ts, 'Report start is outside this dataset.');
+    } catch (error) {
+      if (!(error instanceof ResearchInputError)) throw error;
+      await env.DB.prepare("UPDATE ranked_research_attempts SET outcome = 'failed' WHERE id = ?").bind(attemptId).run();
+      await deferReport(env, run.id, warId, error.message);
+      return false;
+    }
+    statements.push(env.DB.prepare(`UPDATE ranked_research_reports SET report_json = ?, classification = ?, start = ?, end = ?, fetched_at = ?
+      WHERE war_id = ? AND report_json IS NULL`).bind(report.raw, report.classification, report.start, report.end, nowSeconds(), report.id));
+  } else {
+    check(Array.isArray(data.warfareranked), 'Torn returned an unexpected war listing.');
+    const metadata = isRecord(data._metadata) && isRecord(data._metadata.links) ? data._metadata.links : {};
+    const next = researchNextCursor(metadata.next, run);
+    const seen = next && await env.DB.prepare('SELECT 1 FROM ranked_research_cursors WHERE run_id = ? AND cursor = ?').bind(run.id, next).first();
+    check(next !== url && !seen, 'Torn repeated a pagination cursor. Collection paused without skipping wars.');
+    for (const entry of data.warfareranked) {
+      check(isRecord(entry) && integer(entry.id) && entry.id > 0 && integer(entry.start) && integer(entry.end), 'Invalid war listing entry.');
+      check(entry.start >= run.from_ts && entry.start <= run.to_ts, 'Listing left the selected date range.');
+      if (entry.end <= entry.start) continue;
+      statements.push(env.DB.prepare('INSERT OR IGNORE INTO ranked_research_reports(war_id, start, end) VALUES (?, ?, ?)').bind(entry.id, entry.start, entry.end));
+      statements.push(env.DB.prepare(`INSERT OR IGNORE INTO ranked_research_run_wars(run_id, war_id, reused)
+        SELECT ?, war_id, report_json IS NOT NULL FROM ranked_research_reports WHERE war_id = ?`).bind(run.id, entry.id));
+    }
+    statements.push(env.DB.prepare('INSERT OR IGNORE INTO ranked_research_cursors(run_id, cursor) VALUES (?, ?)').bind(run.id, url));
+    statements.push(env.DB.prepare('UPDATE ranked_research_runs SET cursor = ?, discovery_done = ? WHERE id = ?').bind(next, next === null ? 1 : 0, run.id));
+  }
+  await env.DB.batch([...statements, ...savedAttemptStatements(env, run.id, attemptId, warId !== null)]);
+  return true;
+}
+
 export async function runRankedResearchTick(env: Env) {
   const now = nowSeconds();
   const token = crypto.randomUUID();
@@ -216,11 +273,12 @@ export async function runRankedResearchTick(env: Env) {
     RETURNING *`).bind(now + 180, token, now, now, now, now).first<ResearchRun>();
   if (!run) return;
   const deadline = Date.now() + 45000;
-  let activeAttemptId: string | null = null;
   try {
-    // Independent owners can each contribute up to 20 calls. Bound total work
-    // and elapsed time as well; reservations remain the authority for limits.
-    for (let step = 0; step < 60 && Date.now() < deadline; step++) {
+    // Decrypt keys once per batch, but recheck opt-in, status, cooldowns, budgets
+    // and shared-owner capacity atomically for EVERY outgoing request.
+    const candidates = await readAvailableTornApiKeys(env, KEY_PERMISSION, nowSeconds(), { includeFallback: false });
+    let keyOffset = 0;
+    for (let step = 0; step < MAX_BATCH_REQUESTS && Date.now() < deadline;) {
       const current = await readRun(env, run.id);
       if (!current || current.status !== 'running' || current.lease_token !== token) break;
       if (current.requests >= current.request_limit) {
@@ -230,8 +288,9 @@ export async function runRankedResearchTick(env: Env) {
       const pending = await env.DB.prepare(`SELECT p.war_id FROM ranked_research_run_wars w JOIN ranked_research_reports p USING(war_id)
         LEFT JOIN ranked_research_report_retries t ON t.run_id = w.run_id AND t.war_id = w.war_id
         WHERE w.run_id = ? AND p.report_json IS NULL AND COALESCE(t.failures, 0) < ? AND COALESCE(t.next_attempt_at, 0) <= ?
-        ORDER BY COALESCE(t.failures, 0), p.start, p.war_id LIMIT 1`).bind(run.id, MAX_FAILURES, nowSeconds()).first<{ war_id: number }>();
-      if (!pending && current.discovery_done) {
+        ORDER BY COALESCE(t.failures, 0), p.start, p.war_id LIMIT ?`)
+        .bind(run.id, MAX_FAILURES, nowSeconds(), Math.min(REPORT_CONCURRENCY, MAX_BATCH_REQUESTS - step, current.request_limit - current.requests)).all<{ war_id: number }>();
+      if (!pending.results.length && current.discovery_done) {
         const waiting = await env.DB.prepare(`SELECT COUNT(*) AS pending, SUM(COALESCE(t.failures, 0) < ?) AS retryable,
           MIN(CASE WHEN COALESCE(t.failures, 0) < ? THEN t.next_attempt_at END) AS retry_at
           FROM ranked_research_run_wars w JOIN ranked_research_reports p USING(war_id)
@@ -245,75 +304,65 @@ export async function runRankedResearchTick(env: Env) {
           .bind(status, waiting?.retry_at ?? 0, message, run.id).run();
         break;
       }
-      const url = pending ? ROOT + pending.war_id + '/rankedwarreport' : current.cursor!;
-      let response: Awaited<ReturnType<typeof requestTorn>>;
-      try {
-        response = await requestTorn(env, current, url, pending?.war_id ?? null, deadline);
-      } catch (error) {
-        if (error instanceof ResearchRequestError && error.kind === 'report' && pending) {
-          await deferReport(env, run.id, pending.war_id, error.message);
-          continue;
+      // A listing must finish before discovering more work. Each report in a
+      // wave is distinct, and all requests settle before selecting the next wave.
+      const work = pending.results.length
+        ? pending.results.map(p => ({ warId: p.war_id as number | null, url: ROOT + p.war_id + '/rankedwarreport' }))
+        : [{ warId: null, url: current.cursor! }];
+      step += work.length;
+      const responses = await Promise.allSettled(work.map(item => {
+        const offset = candidates.length ? keyOffset++ % candidates.length : 0;
+        return requestTorn(env, current, item.url, item.warId, deadline, [...candidates.slice(offset), ...candidates.slice(0, offset)]);
+      }));
+      let attempted = false;
+      let saved = false;
+      let serviceFailures = 0;
+      let serviceMessage = '';
+      let fatal: unknown;
+      // Save every successful in-flight response even if a sibling fails. Apply
+      // service backoff AFTER saves so a later success cannot erase the delay.
+      for (const [index, result] of responses.entries()) {
+        const item = work[index];
+        try {
+          if (result.status === 'rejected') throw result.reason;
+          if (!result.value) continue;
+          attempted = true;
+          if (result.value.keyFailure) continue;
+          try {
+            saved = await saveResearchResponse(env, run, item.url, item.warId, result.value) || saved;
+          } catch (error) {
+            if (error instanceof ResearchInputError) await env.DB.prepare("UPDATE ranked_research_attempts SET outcome = 'failed' WHERE id = ?").bind(result.value.attemptId).run();
+            throw error;
+          }
+        } catch (error) {
+          attempted = true;
+          if (error instanceof ResearchRequestError && error.kind === 'report' && item.warId !== null) {
+            try { await deferReport(env, run.id, item.warId, error.message); }
+            catch (storageError) { fatal ??= storageError; }
+          } else if (error instanceof ResearchRequestError && error.kind === 'temporary') {
+            serviceFailures++;
+            serviceMessage = error.message;
+          } else {
+            fatal ??= error instanceof ResearchRequestError ? new ResearchInputError(error.message) : error;
+          }
         }
-        if (error instanceof ResearchRequestError && error.kind === 'temporary') {
-          const failures = current.consecutive_failures + 1;
-          await env.DB.prepare(`UPDATE ranked_research_runs SET consecutive_failures = ?, retry_at = ?, last_error = ?,
-            status = ?, message = ? WHERE id = ? AND status = 'running'`)
-            .bind(failures, nowSeconds() + retryDelay(failures), error.message, failures >= MAX_FAILURES ? 'paused' : 'running',
-              failures >= MAX_FAILURES ? 'Five consecutive service failures. Saved progress is safe; check service health and resume.'
-                : `Temporary service failure ${failures}/${MAX_FAILURES}; automatic retry scheduled.`, run.id).run();
-          break;
-        }
-        if (error instanceof ResearchRequestError) throw new ResearchInputError(error.message);
-        throw error;
       }
-      if (!response) {
+      if (fatal) throw fatal;
+      if (serviceFailures) {
+        const failures = (saved ? 0 : current.consecutive_failures) + serviceFailures;
+        await env.DB.prepare(`UPDATE ranked_research_runs SET consecutive_failures = ?, retry_at = ?, last_error = ?,
+          status = ?, message = ? WHERE id = ? AND status = 'running'`)
+          .bind(failures, nowSeconds() + retryDelay(failures), serviceMessage, failures >= MAX_FAILURES ? 'paused' : 'running',
+            failures >= MAX_FAILURES ? 'Five service failures without a successful batch. Saved progress is safe; check service health and resume.'
+              : `Temporary service failures (${failures}/${MAX_FAILURES}); automatic retry scheduled.`, run.id).run();
+        break;
+      }
+      if (!attempted) {
         await env.DB.prepare("UPDATE ranked_research_runs SET message = 'Waiting for spare capacity or healthy keys opted into Enemy scouting.' WHERE id = ? AND status = 'running'").bind(run.id).run();
         break;
       }
-      if (response.keyFailure) continue;
-      const { data, attemptId } = response;
-      activeAttemptId = attemptId;
-      if (pending) {
-        let report: ReturnType<typeof validateResearchReport>;
-        try {
-          report = validateResearchReport(data);
-          check(report.id === pending.war_id, 'Torn returned a different war.');
-          check(report.start >= run.from_ts && report.start <= run.to_ts, 'Report start is outside this dataset.');
-        } catch (error) {
-          if (!(error instanceof ResearchInputError)) throw error;
-          await env.DB.prepare("UPDATE ranked_research_attempts SET outcome = 'failed' WHERE id = ?").bind(attemptId).run();
-          await deferReport(env, run.id, pending.war_id, error.message);
-          activeAttemptId = null;
-          continue;
-        }
-        await env.DB.prepare(`UPDATE ranked_research_reports SET report_json = ?, classification = ?, start = ?, end = ?, fetched_at = ?
-          WHERE war_id = ? AND report_json IS NULL`).bind(report.raw, report.classification, report.start, report.end, nowSeconds(), report.id).run();
-        await env.DB.prepare('UPDATE ranked_research_runs SET last_saved_at = ? WHERE id = ?').bind(nowSeconds(), run.id).run();
-      } else {
-        check(Array.isArray(data.warfareranked), 'Torn returned an unexpected war listing.');
-        const metadata = isRecord(data._metadata) && isRecord(data._metadata.links) ? data._metadata.links : {};
-        const next = researchNextCursor(metadata.next, run);
-        const seen = next && await env.DB.prepare('SELECT 1 FROM ranked_research_cursors WHERE run_id = ? AND cursor = ?').bind(run.id, next).first();
-        check(next !== url && !seen, 'Torn repeated a pagination cursor. Collection paused without skipping wars.');
-        const statements: D1PreparedStatement[] = [];
-        for (const entry of data.warfareranked) {
-          check(isRecord(entry) && integer(entry.id) && entry.id > 0 && integer(entry.start) && integer(entry.end), 'Invalid war listing entry.');
-          check(entry.start >= run.from_ts && entry.start <= run.to_ts, 'Listing left the selected date range.');
-          if (entry.end <= entry.start) continue;
-          statements.push(env.DB.prepare('INSERT OR IGNORE INTO ranked_research_reports(war_id, start, end) VALUES (?, ?, ?)').bind(entry.id, entry.start, entry.end));
-          statements.push(env.DB.prepare(`INSERT OR IGNORE INTO ranked_research_run_wars(run_id, war_id, reused)
-            SELECT ?, war_id, report_json IS NOT NULL FROM ranked_research_reports WHERE war_id = ?`).bind(run.id, entry.id));
-        }
-        statements.push(env.DB.prepare('INSERT OR IGNORE INTO ranked_research_cursors(run_id, cursor) VALUES (?, ?)').bind(run.id, url));
-        statements.push(env.DB.prepare('UPDATE ranked_research_runs SET cursor = ?, discovery_done = ? WHERE id = ?').bind(next, next === null ? 1 : 0, run.id));
-        await env.DB.batch(statements);
-      }
-      await env.DB.prepare("UPDATE ranked_research_attempts SET outcome = 'saved' WHERE id = ?").bind(attemptId).run();
-      activeAttemptId = null;
-      await env.DB.prepare("UPDATE ranked_research_runs SET consecutive_failures = 0, retry_at = 0, last_success_at = ?, message = 'Collecting; saved reports are reused automatically.' WHERE id = ? AND status = 'running'").bind(nowSeconds(), run.id).run();
     }
   } catch (error) {
-    if (activeAttemptId && error instanceof ResearchInputError) await env.DB.prepare("UPDATE ranked_research_attempts SET outcome = 'failed' WHERE id = ?").bind(activeAttemptId).run();
     const message = error instanceof ResearchInputError ? error.message : 'Collection paused after a storage or response error. Saved progress is retained.';
     await env.DB.prepare("UPDATE ranked_research_runs SET status = 'paused', message = ? WHERE id = ? AND status = 'running'").bind(message, run.id).run();
   } finally {

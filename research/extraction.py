@@ -31,10 +31,17 @@ def number(value, label, integer=False):
 
 
 def platinum_division(rank):
+    # The base division has no suffix; keep it distinct from Platinum I.
+    if str(rank).strip().lower() == 'platinum':
+        return 0
     match = re.fullmatch(r'Platinum\s+(IV|III|II|I|[1-4])', str(rank).strip(), re.I)
     if not match:
         return None
     return {'I': 1, 'II': 2, 'III': 3, 'IV': 4}.get(match[1].upper(), int(match[1]) if match[1].isdigit() else None)
+
+
+def platinum_label(division):
+    return 'Platinum' if division == 0 else f'Platinum {division}'
 
 
 def extract(payload, prices=None):

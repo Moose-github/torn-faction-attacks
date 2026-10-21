@@ -1,5 +1,6 @@
 """Escaped offline presentation of coverage and factor evidence."""
 from html import escape
+from extraction import platinum_label
 
 
 def money(value):
@@ -19,7 +20,7 @@ def coverage_html(c):
     weeks = table(['UTC start', 'UTC end', 'Saved', 'Eligible', 'Fully priced', 'Eligible factions'],
                   [[w[k] for k in ('start', 'end', 'saved', 'eligible', 'valued', 'factions')] for w in c['weeks']])
     divisions = table(['Winner division', 'Loser division', 'Eligible wars'],
-                      [[p[k] for k in ('winner_division', 'loser_division', 'wars')] for p in c['division_pairs']])
+                      [[platinum_label(p['winner_division']), platinum_label(p['loser_division']), p['wars']] for p in c['division_pairs']])
     rosters = table(['Listed faction roster', 'Observations', 'Wars', 'Factions'],
                     [[r[k] for k in ('label', 'observations', 'wars', 'factions')] for r in c['rosters']])
     factions = table(['Faction', 'ID', 'Eligible wars'], [[f['name'], f['id'], f['wars']] for f in c['top_factions']])

@@ -1,6 +1,7 @@
 import React from 'react';
 import { getJson, postJson } from '../../api/client';
 import type { ResearchAnalysis, ResearchRun, ResearchHealth } from '../../../../shared/rankedResearch';
+import { researchPlatinumLabel } from '../../../../shared/rankedResearch';
 import './rankedWarResearch.css';
 import { ResearchCoveragePanel, ResearchEvidenceCards } from './ResearchEvidence';
 import { ResearchGraphPanel } from './ResearchGraphs';
@@ -188,9 +189,9 @@ function ResearchResults({ result: r }: { result: ResearchAnalysis }) {
     </article>)}</div>}
     <h3>{whole ? 'Observed combined rewards' : 'Observed faction rewards'}</h3><p className="panel-description">These summaries do not isolate individual factors. Values use one stated price table, rather than historical sale prices.</p>
     {whole ? <div className="stock-status-table-wrap"><table className="stock-status-table"><thead><tr><th>Winner starting division</th><th>Loser starting division</th><th>Wars</th><th>Median pot</th><th>Mean pot</th></tr></thead>
-      <tbody>{whole.summaries.map(s => <tr key={`${s.winner_division}-${s.loser_division}`}><td>Platinum {s.winner_division}</td><td>Platinum {s.loser_division}</td><td>{s.n}</td><td>{dollars(s.median_value)}</td><td>{dollars(s.mean_value)}</td></tr>)}</tbody></table></div>
+      <tbody>{whole.summaries.map(s => <tr key={`${s.winner_division}-${s.loser_division}`}><td>{researchPlatinumLabel(s.winner_division)}</td><td>{researchPlatinumLabel(s.loser_division)}</td><td>{s.n}</td><td>{dollars(s.median_value)}</td><td>{dollars(s.mean_value)}</td></tr>)}</tbody></table></div>
       : <div className="stock-status-table-wrap"><table className="stock-status-table"><thead><tr><th>Division</th><th>Outcome</th><th>Observations</th><th>Median</th><th>Mean</th></tr></thead>
-      <tbody>{r.summaries.map(s => <tr key={`${s.division}-${s.won}`}><td>Platinum {s.division}</td><td>{s.won ? 'Win' : 'Loss'}</td><td>{s.n}</td><td>{dollars(s.median_value)}</td><td>{dollars(s.mean_value)}</td></tr>)}</tbody></table></div>
+      <tbody>{r.summaries.map(s => <tr key={`${s.division}-${s.won}`}><td>{researchPlatinumLabel(s.division)}</td><td>{s.won ? 'Win' : 'Loss'}</td><td>{s.n}</td><td>{dollars(s.median_value)}</td><td>{dollars(s.mean_value)}</td></tr>)}</tbody></table></div>
     }
     <details><summary>Price assumptions, method and limitations</summary>
       <p>{model.method}</p><ul>{r.warnings.map((w, i) => <li key={i}>{w}</li>)}</ul>

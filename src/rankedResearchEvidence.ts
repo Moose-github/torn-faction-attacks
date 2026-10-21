@@ -29,7 +29,7 @@ export function validateResearchEvidence(value: Record<string, unknown>, assert:
       && p.value >= g.value_range[0] && p.value <= g.value_range[1] && Array.isArray(p.values) && p.values.length === factors.length
       && p.values.every((v, i) => nonnegative(v) && v >= (factors[i] as { range: number[] }).range[0] && v <= (factors[i] as { range: number[] }).range[1]), 'Invalid scatter point.');
     check(new Set(g.points.map(p => `${(p as Record<string, unknown>).war_id}:${(p as Record<string, unknown>).faction_id}`)).size === g.points.length, 'Duplicate scatter observations.');
-    check(Array.isArray(g.distributions) && g.distributions.length <= 32, 'Invalid division distributions.');
+    check(Array.isArray(g.distributions) && g.distributions.length <= 50, 'Invalid division distributions.');
     for (const d of g.distributions) check(isRecord(d) && typeof d.label === 'string' && count(d.n) && d.n > 0 && count(d.wars) && d.wars <= d.n
       && Array.isArray(d.five_number) && d.five_number.length === 5 && d.five_number.every((v, i, values) => nonnegative(v) && (i === 0 || v >= values[i-1]))
       && d.five_number[0] >= g.value_range[0] && d.five_number[4] <= g.value_range[1], 'Invalid reward distribution.');
@@ -76,8 +76,8 @@ export function validateResearchEvidence(value: Record<string, unknown>, assert:
   for (const w of c.weeks) check(isRecord(w) && date(w.start) && date(w.end) && w.start <= w.end
     && ['saved', 'eligible', 'valued', 'factions'].every(k => count(w[k])) && Number(w.valued) <= Number(w.eligible)
     && Number(w.eligible) <= Number(w.saved), 'Invalid coverage week.');
-  check(Array.isArray(c.division_pairs) && c.division_pairs.length <= 16 && c.division_pairs.every(p => isRecord(p)
-    && [p.winner_division, p.loser_division].every(d => count(d) && d >= 1 && d <= 4) && count(p.wars)), 'Invalid division coverage.');
+  check(Array.isArray(c.division_pairs) && c.division_pairs.length <= 25 && c.division_pairs.every(p => isRecord(p)
+    && [p.winner_division, p.loser_division].every(d => count(d) && d <= 4) && count(p.wars)), 'Invalid division coverage.');
   check(Array.isArray(c.rosters) && c.rosters.length <= 10 && c.rosters.every(r => isRecord(r) && typeof r.label === 'string'
     && ['observations', 'wars', 'factions'].every(k => count(r[k]))), 'Invalid roster coverage.');
   check(Array.isArray(c.top_factions) && c.top_factions.length <= 10 && c.top_factions.every(f => isRecord(f)

@@ -8,6 +8,7 @@ import type { Env } from '../src/types';
 import { routeAdminApi } from '../src/http/adminRoutes';
 import { ExternalApiError } from '../src/external/http';
 import type { ResearchHealth } from '../shared/rankedResearch';
+import { researchPlatinumLabel } from '../shared/rankedResearch';
 
 vi.mock('../src/external/torn', () => ({ fetchTrackedTornJson: vi.fn() }));
 vi.mock('../src/discordImageRenderer', () => ({}));
@@ -50,14 +51,21 @@ async function create(budget = 10) {
 function row(id: string) { return db.prepare('SELECT * FROM ranked_research_runs WHERE id = ?').get(id)!; }
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.mocked(fetchTrackedTornJson).mockReset();
   vi.useFakeTimers();
   vi.setSystemTime(new Date('2026-10-21T12:00:00Z'));
   db = new DatabaseSync(':memory:');
   db.exec(readFileSync(new URL('../schema/current.sql', import.meta.url), 'utf8'));
-  env = { DB: { prepare: statement, batch: async (statements: ReturnType<typeof statement>[]) => {
-    db.exec('BEGIN');
-    try { const results = []; for (const s of statements) results.push(await s.run()); db.exec('COMMIT'); return results; }
-    catch (error) { db.exec('ROLLBACK'); throw error; }
+  let transactionQueue = Promise.resolve();
+  env = { DB: { prepare: statement, batch: (statements: ReturnType<typeof statement>[]) => {
+    // D1 serializes transactions. Model that when report reservations overlap.
+    const result = transactionQueue.then(async () => {
+      db.exec('BEGIN');
+      try { const results = []; for (const s of statements) results.push(await s.run()); db.exec('COMMIT'); return results; }
+      catch (error) { db.exec('ROLLBACK'); throw error; }
+    });
+    transactionQueue = result.then(() => undefined, () => undefined);
+    return result;
   } } } as unknown as Env;
   addKey(); vi.mocked(readAvailableTornApiKeys).mockResolvedValue([candidate()]);
 });
@@ -204,9 +212,9 @@ describe('finite ranked research', () => {
     const id = await create(200); await call(`/${id}/resume`, {});
     vi.mocked(fetchTrackedTornJson).mockImplementation(async (_env, url) => String(url).includes('warfareranked') ? listing(Array.from({ length: 100 }, (_, i) => 100 + i)) : report(Number(String(url).match(/faction\/(\d+)/)![1])));
     await runRankedResearchTick(env);
-    expect(row(id).requests).toBe(60);
+    expect(row(id).requests).toBe(80);
     expect(db.prepare('SELECT MAX(n) AS n FROM (SELECT COUNT(*) AS n FROM ranked_research_attempts GROUP BY owner_id)').get()?.n).toBe(20);
-    await runRankedResearchTick(env); // Remaining fourth owner can contribute, but not already-spent owners.
+    await runRankedResearchTick(env); // All four owners have spent their rolling allowance.
     expect(row(id).requests).toBe(80);
     await runRankedResearchTick(env);
     expect(row(id).requests).toBe(80);
@@ -218,6 +226,86 @@ describe('finite ranked research', () => {
     vi.mocked(fetchTrackedTornJson).mockImplementation(async () => { advance(45); return listing(); });
     await runRankedResearchTick(env);
     expect(row(id)).toMatchObject({ requests: 1, lease_until: 0 });
+  });
+  it('fetches four distinct reports concurrently, loads keys once and drains in-flight work before releasing the lease', async () => {
+    const id = await create(30); await call(`/${id}/resume`, {});
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    let waveStarted!: () => void;
+    const started = new Promise<void>(resolve => { waveStarted = resolve; });
+    const ids: number[] = [];
+    vi.mocked(fetchTrackedTornJson).mockImplementation(async (_env, url, _init, usage) => {
+      if (String(url).includes('warfareranked')) return listing([123, 124, 125, 126, 127]);
+      const warId = Number(String(url).match(/faction\/(\d+)/)![1]);
+      ids.push(warId);
+      expect(usage.timeoutMs).toBe(15000);
+      if (ids.length === 4) waveStarted();
+      await gate;
+      return report(warId);
+    });
+    const tick = runRankedResearchTick(env);
+    await started;
+    expect(ids).toEqual([123, 124, 125, 126]);
+    expect(row(id).requests).toBe(5);
+    expect(readAvailableTornApiKeys).toHaveBeenCalledTimes(1);
+    await call(`/${id}/pause`, {});
+    expect((await call(`/${id}/freeze`, {})).status).toBe(400);
+    await runRankedResearchTick(env);
+    expect(ids).toHaveLength(4);
+    advance(3);
+    release(); await tick;
+    expect(row(id)).toMatchObject({ status: 'paused', requests: 5, lease_until: 0, last_saved_at: Math.floor(Date.now() / 1000) });
+    expect(String(row(id).message)).toContain('Paused by an administrator');
+    expect(db.prepare('SELECT COUNT(*) AS n FROM ranked_research_reports WHERE report_json IS NOT NULL').get()?.n).toBe(4);
+    expect((await call(`/${id}/freeze`, {})).status).toBe(200);
+  });
+  it('never overspends a budget smaller than the report wave', async () => {
+    const id = await create(3); await call(`/${id}/resume`, {});
+    vi.mocked(fetchTrackedTornJson).mockImplementation(async (_env, url) => String(url).includes('warfareranked')
+      ? listing([123, 124, 125, 126, 127]) : report(Number(String(url).match(/faction\/(\d+)/)![1])));
+    await runRankedResearchTick(env);
+    expect(row(id)).toMatchObject({ status: 'paused', requests: 3 });
+    expect(fetchTrackedTornJson).toHaveBeenCalledTimes(3);
+    expect(db.prepare('SELECT COUNT(*) AS n FROM ranked_research_reports WHERE report_json IS NOT NULL').get()?.n).toBe(2);
+  });
+  it('saves successful siblings without erasing service backoff or starting another wave', async () => {
+    const id = await create(30); await call(`/${id}/resume`, {});
+    vi.mocked(fetchTrackedTornJson).mockImplementation(async (_env, url) => {
+      if (String(url).includes('warfareranked')) return listing([123, 124, 125, 126, 127]);
+      const warId = Number(String(url).match(/faction\/(\d+)/)![1]);
+      return warId === 123 ? { error: { code: 17 } } : report(warId);
+    });
+    await runRankedResearchTick(env);
+    expect(row(id)).toMatchObject({ status: 'running', requests: 5, consecutive_failures: 1, retry_at: Math.floor(Date.now() / 1000) + 60 });
+    expect(db.prepare('SELECT COUNT(*) AS n FROM ranked_research_reports WHERE report_json IS NOT NULL').get()?.n).toBe(3);
+    await runRankedResearchTick(env);
+    expect(fetchTrackedTornJson).toHaveBeenCalledTimes(5);
+  });
+  it('rechecks revoked permission even with cached keys', async () => {
+    const id = await create(30); await call(`/${id}/resume`, {});
+    vi.mocked(fetchTrackedTornJson).mockImplementation(async () => {
+      db.exec("UPDATE torn_api_keys SET allowed_features_json = '[]'");
+      return listing([123, 124, 125, 126]);
+    });
+    await runRankedResearchTick(env);
+    expect(row(id)).toMatchObject({ status: 'running', requests: 1 });
+    expect(readAvailableTornApiKeys).toHaveBeenCalledTimes(1);
+    expect(fetchTrackedTornJson).toHaveBeenCalledTimes(1);
+  });
+  it('bounds a batch at 120 attempts while distributing requests across owners', async () => {
+    for (let i = 2; i <= 7; i++) addKey(`key${i}`, i);
+    vi.mocked(readAvailableTornApiKeys).mockResolvedValue(Array.from({ length: 7 }, (_, i) => candidate(`key${i + 1}`)));
+    const id = await create(200); await call(`/${id}/resume`, {});
+    for (let i = 1; i <= 160; i++) {
+      db.prepare('INSERT INTO ranked_research_reports(war_id, start, end) VALUES (?, ?, ?)').run(i, start, start + 3600);
+      db.prepare('INSERT INTO ranked_research_run_wars(run_id, war_id) VALUES (?, ?)').run(id, i);
+    }
+    db.prepare('UPDATE ranked_research_runs SET discovery_done = 1 WHERE id = ?').run(id);
+    vi.mocked(fetchTrackedTornJson).mockImplementation(async (_env, url) => report(Number(String(url).match(/faction\/(\d+)/)![1])));
+    await runRankedResearchTick(env);
+    expect(row(id).requests).toBe(120);
+    expect(db.prepare('SELECT MAX(n) AS n FROM (SELECT COUNT(*) AS n FROM ranked_research_attempts GROUP BY owner_id)').get()?.n).toBeLessThanOrEqual(20);
+    expect(readAvailableTornApiKeys).toHaveBeenCalledTimes(1);
   });
   it('honours a manual pause even when a temporary request failure arrives afterwards', async () => {
     const id = await create(); await call(`/${id}/resume`, {});
@@ -368,6 +456,16 @@ describe('finite ranked research', () => {
     expect(await reserveResearchAttempt(env, id, 'lease', candidate('key3'), now)).toBe(true);
     expect(await reserveResearchAttempt(env, id, 'wrong-lease', candidate('key3'), now)).toBe(false);
   });
+  it('counts in-flight reservations against owner-wide headroom before logs arrive', async () => {
+    const id = await create(100); await call(`/${id}/resume`, {});
+    const now = Math.floor(Date.now() / 1000);
+    db.prepare("UPDATE ranked_research_runs SET lease_token = 'lease', lease_until = ? WHERE id = ?").run(now + 100, id);
+    for (let i = 0; i < 49; i++) db.prepare(`INSERT INTO torn_api_call_log(requested_at, feature, key_source, method, endpoint, duration_ms)
+      VALUES (?, 'live', 'key_pool:key1', 'GET', 'faction', 1)`).run(now);
+    const results = await Promise.all(Array.from({ length: 4 }, () => reserveResearchAttempt(env, id, 'lease', candidate(), now)));
+    expect(results.filter(Boolean)).toHaveLength(1);
+    expect(row(id).requests).toBe(1);
+  });
   it('waits for opt-in keys and prevents overlapping collectors', async () => {
     const id = await create(); await call(`/${id}/resume`, {});
     vi.mocked(readAvailableTornApiKeys).mockResolvedValue([]);
@@ -465,6 +563,18 @@ describe('finite ranked research', () => {
     data.rankedwarreport.forfeit = false; data.rankedwarreport.factions[1].rank.before = 'Platinum V';
     expect(() => validateResearchReport(data)).toThrow();
   });
+  it('saves the unsuffixed Platinum base rank without rewriting it as Platinum I', async () => {
+    const id = await create(); await call(`/${id}/resume`, {});
+    const data = report(); data.rankedwarreport.factions[0].rank.before = 'Platinum';
+    vi.mocked(fetchTrackedTornJson).mockResolvedValueOnce(listing()).mockResolvedValueOnce(data);
+    await runRankedResearchTick(env);
+    expect(row(id).status).toBe('complete');
+    const saved = db.prepare('SELECT report_json, classification FROM ranked_research_reports WHERE war_id = 123').get()!;
+    expect(saved.classification).toBe('eligible');
+    expect(JSON.parse(String(saved.report_json))).toEqual(data);
+    expect(researchPlatinumLabel(0)).toBe('Platinum');
+    expect(researchPlatinumLabel(1)).toBe('Platinum 1');
+  });
   it('rejects noncalendar/future dates and analysis for a different snapshot', async () => {
     expect(() => researchDates('2026-02-30', '2026-03-01')).toThrow();
     expect(() => researchDates('2026-09-01', '2099-10-01')).toThrow();
@@ -490,12 +600,17 @@ describe('finite ranked research', () => {
     expect(fetchTrackedTornJson).not.toHaveBeenCalled();
     const whole = { eligible_wars: 0, valued_wars: 0, model_observations: 0, median_value: null, mean_value: null, summaries: [], model: { available: false, reason: 'More wars needed' } };
     expect(validateResearchAnalysis({ ...result, whole_war: whole }).whole_war).toEqual(whole);
+    expect(() => validateResearchAnalysis({ ...result,
+      summaries: [{ division: 0, won: 1, n: 1, median_value: 10, mean_value: 10 }],
+      whole_war: { ...whole, summaries: [{ winner_division: 0, loser_division: 1, n: 1, median_value: 10, mean_value: 10 }] },
+    })).not.toThrow();
     expect(() => validateResearchAnalysis({ ...result, whole_war: { ...whole, valued_wars: 1 } })).toThrow();
     expect(() => validateResearchAnalysis({ ...result, whole_war: { ...whole, model: { available: true, effects: [{}] } } })).toThrow();
     expect((await call(`/${id}/analysis`, { snapshot_token: row(id).snapshot_token, result: { ...result, whole_war: whole } })).status).toBe(200);
     expect(await (await call(`/${id}/analysis`)).json()).toMatchObject({ analysis: { whole_war: whole } });
     const coverage = { saved_reports: 0, eligible_wars: 0, valued_wars: 0, model_wars: 0, distinct_factions: 0,
       first_saved: null, last_saved: null, collection: null, weeks: [], division_pairs: [], rosters: [], top_factions: [], warnings: [] };
+    expect(() => validateResearchAnalysis({ ...result, coverage: { ...coverage, division_pairs: [{ winner_division: 0, loser_division: 1, wars: 1 }] } })).not.toThrow();
     const card = { field: 'attacks', question: 'Are more attacks associated with greater rewards?', unit: 'attacks',
       status: 'Insufficient data', explanation: 'No sample', observations: 0, wars: 0, factions: 0, groups: [],
       observed_difference: null, observed_percent: null, adjusted: null, cautions: [] };

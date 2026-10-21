@@ -69,3 +69,5 @@ export type ResearchGraphs = {
   points: { war_id: number; faction_id: number; value: number; values: number[] }[];
   distributions: { label: string; n: number; wars: number; five_number: number[] }[];
 };
+// Zero represents the API's unsuffixed base rank, not Platinum I.
+export const researchPlatinumLabel = (division: number) => division === 0 ? 'Platinum' : `Platinum ${division}`;

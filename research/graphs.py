@@ -42,7 +42,7 @@ def graph_data(rows, whole=False):
     distributions = []
     for (a, b, won), group in sorted(groups.items()):
         values = [r['gross_value'] for r in group]
-        distributions.append({'label': f'P{a} / P{b}' + ('' if whole else (' · Win' if won else ' · Loss')),
+        distributions.append({'label': f'{"P base" if a == 0 else f"P{a}"} / {"P base" if b == 0 else f"P{b}"}' + ('' if whole else (' · Win' if won else ' · Loss')),
                               'n': len(group), 'wars': len({r['war_id'] for r in group}),
                               'five_number': [quantile(values, q) for q in (0, .25, .5, .75, 1)]})
     return {'observations': len(sample), 'wars': len({r['war_id'] for r in sample}),

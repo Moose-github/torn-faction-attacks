@@ -1,5 +1,6 @@
 """Standalone, escaped HTML report: usable without a running application."""
 import html
+from extraction import platinum_label
 from evidence_report import comparison_html, coverage_html
 from graphs_report import graphs_html
 
@@ -45,7 +46,7 @@ def render(result):
     whole = result.get('whole_war')
     whole_section = ''
     if whole is not None:
-        whole_summaries = ''.join(f'<tr><td>Platinum {s["winner_division"]}</td><td>Platinum {s["loser_division"]}</td><td>{s["n"]}</td><td>{money(s["median_value"])}</td><td>{money(s["mean_value"])}</td></tr>' for s in whole['summaries'])
+        whole_summaries = ''.join(f'<tr><td>{platinum_label(s["winner_division"])}</td><td>{platinum_label(s["loser_division"])}</td><td>{s["n"]}</td><td>{money(s["median_value"])}</td><td>{money(s["mean_value"])}</td></tr>' for s in whole['summaries'])
         pot = whole['median_value']
         value_summary = ('No fully priced wars yet.' if pot is None else f'Median combined pot: {money(pot)}. Mean combined pot: {money(whole["mean_value"])}.')
         whole_section = f'''<section class="box"><h2>Whole-war rewards: both factions combined</h2>
@@ -55,7 +56,7 @@ def render(result):
           {comparison_html(whole['comparisons']) if 'comparisons' in whole else '<div class="grid">'+effect_cards(whole['model'])+'</div>'}
           <section class="box"><h2>Observed combined rewards</h2><table><tr><th>Winner starting division</th><th>Loser starting division</th><th>Wars</th><th>Median pot</th><th>Mean pot</th></tr>{whole_summaries}</table>
           <p>{esc(whole['model'].get('method', 'Adjusted whole-war estimates are withheld until data requirements are met.'))}</p></section>'''
-    summaries = ''.join(f'<tr><td>Platinum {s["division"]}</td><td>{"Win" if s["won"] else "Loss"}</td><td>{s["n"]}</td><td>{money(s["median_value"])}</td><td>{money(s["mean_value"])}</td></tr>' for s in result['summaries'])
+    summaries = ''.join(f'<tr><td>{platinum_label(s["division"])}</td><td>{"Win" if s["won"] else "Loss"}</td><td>{s["n"]}</td><td>{money(s["median_value"])}</td><td>{money(s["mean_value"])}</td></tr>' for s in result['summaries'])
     audit = ''.join(f'<tr><td>{a["war_id"]}</td><td>{esc(a["reason"] or "eligible")}</td><td>{esc(" ".join(a["warnings"]))}</td></tr>' for a in result['audit'])
     prices = ''.join(f'<tr><td>{esc(name)}</td><td>{"Not set" if value is None else money(value)}</td></tr>' for name, value in result['prices'].items())
     warnings = ''.join('<li>'+esc(w)+'</li>' for w in result['warnings'])

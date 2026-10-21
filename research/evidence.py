@@ -1,5 +1,6 @@
 """Coverage and transparent, descriptive comparisons of the saved sample."""
 import datetime as dt
+from extraction import platinum_label
 from collections import Counter
 from statistics import mean, median
 
@@ -91,7 +92,7 @@ def comparisons(rows, model, whole=False):
         if sample:
             values = [r[field] for r in sample]
             if categorical:
-                partitions = [(('Win' if v else 'Loss') if field == 'won' else f'Platinum {v}', [r for r in sample if r[field] == v]) for v in sorted(set(values))]
+                partitions = [(('Win' if v else 'Loss') if field == 'won' else platinum_label(v), [r for r in sample if r[field] == v]) for v in sorted(set(values))]
             else:
                 edges = sorted(set(quantile(values, q) for q in (0, .25, .5, .75, 1)))
                 partitions = [(f'{edges[0]:.2f}', sample)] if len(edges) == 1 else [

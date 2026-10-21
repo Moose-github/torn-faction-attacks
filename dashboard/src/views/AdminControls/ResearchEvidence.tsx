@@ -1,4 +1,5 @@
 import type { ResearchComparison, ResearchCoverage } from '../../../../shared/rankedResearch';
+import { researchPlatinumLabel } from '../../../../shared/rankedResearch';
 
 const money = (v: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(v);
 const percent = (v: number | null) => v === null ? 'not defined for a zero baseline' : `${v.toFixed(1)}%`;
@@ -23,7 +24,7 @@ export function ResearchCoveragePanel({ coverage: c }: { coverage: ResearchCover
         <tbody>{c.weeks.map(w => <tr key={w.start}><td>{w.start} – {w.end}</td><td>{w.saved}</td><td>{w.eligible}</td><td>{w.valued}</td><td>{w.factions}</td></tr>)}</tbody></table></div>
     </details>
     <div className="war-research-grid">
-      <details><summary>Starting division coverage</summary><div className="stock-status-table-wrap"><table className="stock-status-table"><thead><tr><th>Winner</th><th>Loser</th><th>Eligible wars</th></tr></thead><tbody>{c.division_pairs.map(p => <tr key={`${p.winner_division}-${p.loser_division}`}><td>Platinum {p.winner_division}</td><td>Platinum {p.loser_division}</td><td>{p.wars}</td></tr>)}</tbody></table></div></details>
+      <details><summary>Starting division coverage</summary><div className="stock-status-table-wrap"><table className="stock-status-table"><thead><tr><th>Winner</th><th>Loser</th><th>Eligible wars</th></tr></thead><tbody>{c.division_pairs.map(p => <tr key={`${p.winner_division}-${p.loser_division}`}><td>{researchPlatinumLabel(p.winner_division)}</td><td>{researchPlatinumLabel(p.loser_division)}</td><td>{p.wars}</td></tr>)}</tbody></table></div></details>
       <details><summary>Listed roster coverage</summary><div className="stock-status-table-wrap"><table className="stock-status-table"><caption>Each faction is counted once per eligible war; a war can appear in two size groups.</caption><thead><tr><th>Faction roster</th><th>Observations</th><th>Wars</th><th>Factions</th></tr></thead><tbody>{c.rosters.map(r => <tr key={r.label}><td>{r.label}</td><td>{r.observations}</td><td>{r.wars}</td><td>{r.factions}</td></tr>)}</tbody></table></div></details>
     </div>
     <details><summary>Most represented factions</summary><ul>{c.top_factions.map(f => <li key={f.id}>{f.name} [{f.id}]: {f.wars} eligible wars</li>)}</ul></details>

@@ -5,7 +5,7 @@ import random
 import unittest
 
 from analysis import analyse, dyadic_meat, fit_model, whole_war_rows
-from extraction import extract
+from extraction import extract, platinum_division, platinum_label
 from report import render
 
 
@@ -38,6 +38,27 @@ def synthetic_wars(n=600):
 
 
 class WholeWarTests(unittest.TestCase):
+    def test_unsuffixed_platinum_is_a_distinct_base_division_through_analysis(self):
+        payload = report()
+        payload['rankedwarreport']['factions'][0]['rank']['before'] = 'Platinum'
+        payload['rankedwarreport']['factions'][1]['rank']['before'] = 'Platinum I'
+        rows, audit = extract(payload, {'Melee Cache': 100})
+        self.assertIsNone(audit['reason'])
+        self.assertEqual([r['division'] for r in rows], [0, 1])
+        self.assertEqual(rows[0]['rank_before'], 'Platinum')
+        self.assertEqual(platinum_division(' Platinum '), 0)
+        self.assertIsNone(platinum_division('Platinum V'))
+        self.assertEqual(platinum_label(0), 'Platinum')
+        result = analyse(rows, [audit], {}, {'start': '2026-09-01', 'end': '2026-09-30'})
+        self.assertEqual(result['eligible_wars'], 1)
+        self.assertEqual(result['coverage']['division_pairs'], [{'winner_division': 0, 'loser_division': 1, 'wars': 1}])
+        divisions = next(c for c in result['comparisons'] if c['field'] == 'division')
+        self.assertEqual([g['label'] for g in divisions['groups']], ['Platinum', 'Platinum 1'])
+        self.assertEqual(result['whole_war']['graphs']['distributions'][0]['label'], 'P base / P1')
+        rendered = render(result)
+        self.assertIn('<td>Platinum</td>', rendered)
+        self.assertNotIn('Platinum 0', rendered)
+
     def test_combined_value_is_counted_once_and_participation_is_weighted(self):
         rows, _ = extract(report(), {'Melee Cache': 100e6})
         wars = whole_war_rows(rows)
