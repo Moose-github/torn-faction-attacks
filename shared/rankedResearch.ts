@@ -5,6 +5,17 @@ export type ResearchRun = {
   lease_until: number; lease_token: string | null; snapshot_token: string | null;
   message: string; created_at: number; reports?: number; eligible?: number; pending?: number;
   collection_json?: string | null;
+  retry_at: number; consecutive_failures: number;
+  last_success_at: number | null; last_saved_at: number | null; last_tick_at: number | null; last_error: string | null;
+  reused?: number; deferred?: number; exhausted?: number;
+};
+export type ResearchHealth = {
+  requests_last_minute: number; requests_last_five_minutes: number; failures_last_five_minutes: number;
+  remaining_budget: number; budget_minutes: number | null;
+  opted_in_owners: number; cooling_keys: number;
+  issues: { war_id: number; failures: number; next_attempt_at: number; last_error: string }[];
+  issue_count: number;
+  next_issue: number | null;
 };
 export type ResearchAnalysis = {
   generated_at: string; scope: string; eligible_wars: number; observations: number;
@@ -34,7 +45,7 @@ export const RESEARCH_CACHES = ['Melee Cache', 'Small Arms Cache', 'Medium Arms 
 export type ResearchCoverage = {
   saved_reports: number; eligible_wars: number; valued_wars: number; model_wars: number;
   distinct_factions: number; first_saved: string | null; last_saved: string | null;
-  collection: { discovery_done: boolean; discovered_wars: number; saved_reports: number; pending_reports: number } | null;
+  collection: { discovery_done: boolean; discovered_wars: number; saved_reports: number; pending_reports: number; deferred_reports?: number; failed_reports?: number } | null;
   weeks: { start: string; end: string; saved: number; eligible: number; valued: number; factions: number }[];
   division_pairs: { winner_division: number; loser_division: number; wars: number }[];
   rosters: { label: string; observations: number; wars: number; factions: number }[];

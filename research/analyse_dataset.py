@@ -22,6 +22,9 @@ def build(dataset, prices):
                 or collection['saved_reports'] + collection['pending_reports'] != collection['discovered_wars']
                 or collection['saved_reports'] != len(dataset['reports'])):
             raise ValueError('Collection manifest does not match the frozen export. Download all export pages again.')
+        if (any(type(collection.get(k, 0)) is not int or collection.get(k, 0) < 0 for k in ('deferred_reports', 'failed_reports'))
+                or collection.get('deferred_reports', 0) + collection.get('failed_reports', 0) > collection['pending_reports']):
+            raise ValueError('Invalid unresolved report counts in collection manifest.')
     for name, price in prices.items():
         if price is not None and (isinstance(price, bool) or not isinstance(price, (int, float)) or not 0 <= price < 1e15):
             raise ValueError(f'Invalid full-dollar cache price for {name}.')

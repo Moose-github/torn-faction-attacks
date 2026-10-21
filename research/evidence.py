@@ -40,6 +40,8 @@ def coverage(rows, wars, audits, date_range, collection=None):
             warnings.append('Discovery did not finish. Later dates may be underrepresented; the total available population is unknown.')
         if collection['pending_reports']:
             warnings.append(f"{collection['pending_reports']} discovered reports were still pending when this sample was frozen.")
+        if collection.get('deferred_reports', 0) or collection.get('failed_reports', 0):
+            warnings.append(f"At freeze, {collection.get('deferred_reports', 0)} reports were awaiting retry and {collection.get('failed_reports', 0)} had reached the retry limit. These unresolved wars are excluded; download their details from Collection health.")
     unknown_dates = sum(not a.get('date') for a in audits)
     if unknown_dates:
         warnings.append(f'{unknown_dates} saved reports have no usable start date and are absent from weekly counts.')

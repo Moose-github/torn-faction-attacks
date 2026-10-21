@@ -10,6 +10,10 @@
 .war-research-metrics strong { font-size: 1.4rem; }
 .war-research-metrics span { font-size: .8rem; opacity: .7; }
 .war-research-select { display: block; width: 100%; margin-top: 8px; }
+.research-collection-health { min-width: 0; border-top: 1px solid #71809655; margin: 20px 0; }
+.research-health-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 190px), 1fr)); gap: 16px; }
+.research-health-grid dt { font-size: .8rem; opacity: .75; }
+.research-health-grid dd { margin: 4px 0 0; overflow-wrap: anywhere; }
 .war-research-factor { padding: 20px; border: 1px solid #71809655; border-radius: 10px; }
 .war-research-effect { font-size: 1.8rem; font-weight: 650; }
 .war-research input[type=file] { max-width: 100%; }

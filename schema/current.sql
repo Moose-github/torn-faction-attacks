@@ -2355,6 +2355,12 @@ CREATE TABLE IF NOT EXISTS ranked_research_runs (
   message TEXT NOT NULL DEFAULT 'Ready to collect',
   snapshot_token TEXT,
   collection_json TEXT,
+  retry_at INTEGER NOT NULL DEFAULT 0,
+  consecutive_failures INTEGER NOT NULL DEFAULT 0,
+  last_success_at INTEGER,
+  last_saved_at INTEGER,
+  last_tick_at INTEGER,
+  last_error TEXT,
   created_at INTEGER NOT NULL
 );
 CREATE TABLE IF NOT EXISTS ranked_research_reports (
@@ -2368,6 +2374,7 @@ CREATE TABLE IF NOT EXISTS ranked_research_reports (
 CREATE TABLE IF NOT EXISTS ranked_research_run_wars (
   run_id TEXT NOT NULL REFERENCES ranked_research_runs(id),
   war_id INTEGER NOT NULL REFERENCES ranked_research_reports(war_id),
+  reused INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (run_id, war_id)
 );
 CREATE TABLE IF NOT EXISTS ranked_research_cursors (
@@ -2380,9 +2387,26 @@ CREATE TABLE IF NOT EXISTS ranked_research_attempts (
   run_id TEXT NOT NULL,
   key_id TEXT NOT NULL,
   owner_id INTEGER NOT NULL,
-  attempted_at INTEGER NOT NULL
+  attempted_at INTEGER NOT NULL,
+  war_id INTEGER,
+  outcome TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_ranked_research_attempt_owner ON ranked_research_attempts(owner_id, attempted_at);
+CREATE INDEX IF NOT EXISTS idx_ranked_research_attempt_run ON ranked_research_attempts(run_id, attempted_at);
+CREATE TABLE IF NOT EXISTS ranked_research_key_cooldowns (
+  key_id TEXT PRIMARY KEY REFERENCES torn_api_keys(id),
+  until_ts INTEGER NOT NULL,
+  last_error TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS ranked_research_report_retries (
+  run_id TEXT NOT NULL REFERENCES ranked_research_runs(id),
+  war_id INTEGER NOT NULL REFERENCES ranked_research_reports(war_id),
+  failures INTEGER NOT NULL DEFAULT 0,
+  next_attempt_at INTEGER NOT NULL DEFAULT 0,
+  last_error TEXT NOT NULL,
+  unresolved_at_freeze INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (run_id, war_id)
+);
 CREATE TABLE IF NOT EXISTS ranked_research_analyses (
   id TEXT PRIMARY KEY,
   run_id TEXT NOT NULL REFERENCES ranked_research_runs(id),

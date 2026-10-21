@@ -47,6 +47,16 @@ class EvidenceTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'manifest'):
             build(dataset([report()], {'discovery_done': True, 'discovered_wars': 2, 'saved_reports': 2, 'pending_reports': 0}), {})
 
+    def test_unresolved_reports_remain_visible_in_frozen_coverage(self):
+        manifest = {'discovery_done': True, 'discovered_wars': 4, 'saved_reports': 1, 'pending_reports': 3,
+                    'deferred_reports': 1, 'failed_reports': 2}
+        result = build(dataset([report()], manifest), {'Melee Cache': 100e6})
+        self.assertIn('1 reports were awaiting retry and 2 had reached', ' '.join(result['coverage']['warnings']))
+        self.assertEqual(result['coverage']['collection'], manifest)
+        manifest['failed_reports'] = 3
+        with self.assertRaisesRegex(ValueError, 'unresolved'):
+            build(dataset([report()], manifest), {})
+
     def test_missing_prices_and_bad_totals_are_excluded_from_comparisons(self):
         p = report(); p['rankedwarreport']['factions'][1]['rewards']['items'][0]['name'] = 'Armor Cache'
         result = build(dataset([p]), {'Melee Cache': 100e6})

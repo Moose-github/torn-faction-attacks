@@ -6,6 +6,8 @@ import { fetchTrackedTornJson } from '../src/external/torn';
 import { readAvailableTornApiKeys, type TornKeyPoolCandidate } from '../src/tornKeyPool';
 import type { Env } from '../src/types';
 import { routeAdminApi } from '../src/http/adminRoutes';
+import { ExternalApiError } from '../src/external/http';
+import type { ResearchHealth } from '../shared/rankedResearch';
 
 vi.mock('../src/external/torn', () => ({ fetchTrackedTornJson: vi.fn() }));
 vi.mock('../src/discordImageRenderer', () => ({}));
@@ -48,6 +50,8 @@ async function create(budget = 10) {
 function row(id: string) { return db.prepare('SELECT * FROM ranked_research_runs WHERE id = ?').get(id)!; }
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date('2026-10-21T12:00:00Z'));
   db = new DatabaseSync(':memory:');
   db.exec(readFileSync(new URL('../schema/current.sql', import.meta.url), 'utf8'));
   env = { DB: { prepare: statement, batch: async (statements: ReturnType<typeof statement>[]) => {
@@ -57,9 +61,210 @@ beforeEach(() => {
   } } } as unknown as Env;
   addKey(); vi.mocked(readAvailableTornApiKeys).mockResolvedValue([candidate()]);
 });
-afterEach(() => db.close());
+afterEach(() => { db.close(); vi.useRealTimers(); });
+function advance(seconds: number) { vi.setSystemTime(Date.now() + seconds * 1000); }
+const listing = (ids = [123]) => ({ warfareranked: ids.map(id => ({ id, start, end: start + 3600 })), _metadata: { links: { next: null as string | null } } });
 
 describe('finite ranked research', () => {
+  it('migrates legacy data to recovery defaults without modifying snapshots', () => {
+    const legacy = new DatabaseSync(':memory:');
+    try {
+      legacy.exec(readFileSync(new URL('../migrations/0176_ranked_war_research.sql', import.meta.url), 'utf8'));
+      legacy.exec(readFileSync(new URL('../migrations/0177_ranked_research_coverage.sql', import.meta.url), 'utf8'));
+      legacy.prepare(`INSERT INTO ranked_research_runs(id, name, start_date, end_date, from_ts, to_ts, request_limit, status, snapshot_token, collection_json, created_at)
+        VALUES ('old', 'Old', '2026-09-01', '2026-09-30', 1, 2, 100, 'frozen', 'snapshot', '{}', 1)`).run();
+      legacy.exec(readFileSync(new URL('../migrations/0178_ranked_research_recovery.sql', import.meta.url), 'utf8'));
+      expect(legacy.prepare('SELECT * FROM ranked_research_runs').get()).toMatchObject({ status: 'frozen', snapshot_token: 'snapshot', collection_json: '{}', retry_at: 0, consecutive_failures: 0, last_saved_at: null });
+    } finally { legacy.close(); }
+  });
+  it('persists increasing service backoff, stops after five failures and resumes explicitly', async () => {
+    const id = await create(20); await call(`/${id}/resume`, {});
+    vi.mocked(fetchTrackedTornJson).mockRejectedValue(new ExternalApiError('secret upstream URL', 'Torn', 503));
+    for (let attempt = 1; attempt <= 5; attempt++) {
+      const now = Math.floor(Date.now() / 1000);
+      await runRankedResearchTick(env);
+      expect(row(id)).toMatchObject({ requests: attempt, consecutive_failures: attempt, retry_at: now + Math.min(900, 60 * 2 ** (attempt - 1)) });
+      await runRankedResearchTick(env);
+      expect(fetchTrackedTornJson).toHaveBeenCalledTimes(attempt);
+      advance(Math.min(900, 60 * 2 ** (attempt - 1)));
+    }
+    expect(row(id).status).toBe('paused');
+    expect(db.prepare('SELECT failure_count FROM torn_api_keys').get()?.failure_count).toBe(0);
+    expect(JSON.stringify(await (await call(`/${id}/health`)).json())).not.toContain('secret');
+    await call(`/${id}/resume`, {});
+    vi.mocked(fetchTrackedTornJson).mockResolvedValueOnce(listing()).mockResolvedValueOnce(report());
+    await runRankedResearchTick(env);
+    expect(row(id)).toMatchObject({ status: 'complete', requests: 7, consecutive_failures: 0, retry_at: 0 });
+  });
+  it('handles temporary Torn error bodies without poisoning a healthy key', async () => {
+    const id = await create(); await call(`/${id}/resume`, {});
+    vi.mocked(fetchTrackedTornJson).mockResolvedValue({ error: { code: 17, error: 'secret' } });
+    await runRankedResearchTick(env);
+    expect(row(id)).toMatchObject({ status: 'running', requests: 1, consecutive_failures: 1 });
+    expect(row(id).last_error).toContain('code 17');
+    expect(db.prepare('SELECT paused_until FROM torn_api_keys').get()?.paused_until).toBeNull();
+  });
+  it('rotates away from an invalid key and continues with a healthy owner', async () => {
+    addKey('key2', 2);
+    vi.mocked(readAvailableTornApiKeys).mockResolvedValue([candidate(), candidate('key2')]);
+    const id = await create(); await call(`/${id}/resume`, {});
+    vi.mocked(fetchTrackedTornJson).mockResolvedValueOnce({ error: { code: 2, error: 'secret' } }).mockResolvedValueOnce(listing()).mockResolvedValueOnce(report());
+    await runRankedResearchTick(env);
+    expect(row(id)).toMatchObject({ status: 'complete', requests: 3 });
+    expect(db.prepare("SELECT until_ts FROM ranked_research_key_cooldowns WHERE key_id = 'key1'").get()?.until_ts).toBe(Math.floor(Date.now() / 1000) + 86400);
+    expect(db.prepare("SELECT paused_until FROM torn_api_keys WHERE id = 'key1'").get()?.paused_until).toBeNull();
+    expect(db.prepare("SELECT COUNT(*) AS n FROM ranked_research_attempts WHERE key_id = 'key1'").get()?.n).toBe(1);
+    expect(String(row(id).last_error)).not.toContain('secret');
+    expect(await (await call(`/${id}/health`)).json()).toMatchObject({ health: { cooling_keys: 1 } });
+  });
+  it('cools every key of a rate-limited owner while another owner continues', async () => {
+    addKey('key2'); addKey('key3', 2);
+    vi.mocked(readAvailableTornApiKeys).mockResolvedValue([candidate(), candidate('key2'), candidate('key3')]);
+    const id = await create(); await call(`/${id}/resume`, {});
+    vi.mocked(fetchTrackedTornJson).mockResolvedValueOnce({ error: { code: 5 } }).mockResolvedValueOnce(listing()).mockResolvedValueOnce(report());
+    await runRankedResearchTick(env);
+    expect(row(id)).toMatchObject({ status: 'complete', requests: 3 });
+    expect(db.prepare("SELECT COUNT(*) AS n FROM ranked_research_attempts WHERE key_id = 'key2'").get()?.n).toBe(0);
+    expect(db.prepare("SELECT paused_until FROM torn_api_keys WHERE id = 'key2'").get()?.paused_until).toBe(Math.floor(Date.now() / 1000) + 120);
+  });
+  it('waits when all research keys are blocked and only explicitly clears research cooldowns', async () => {
+    const id = await create(); await call(`/${id}/resume`, {});
+    vi.mocked(fetchTrackedTornJson).mockResolvedValueOnce({ error: { code: 16 } });
+    await runRankedResearchTick(env);
+    expect(row(id)).toMatchObject({ status: 'running', requests: 1 });
+    await runRankedResearchTick(env);
+    expect(fetchTrackedTornJson).toHaveBeenCalledTimes(1);
+    expect(db.prepare('SELECT paused_until FROM torn_api_keys').get()?.paused_until).toBeNull();
+    const until = Math.floor(Date.now() / 1000) + 120;
+    db.prepare('UPDATE torn_api_keys SET paused_until = ?').run(until);
+    await call(`/${id}/pause`, {}); await call(`/${id}/resume`, {});
+    expect(db.prepare('SELECT COUNT(*) AS n FROM ranked_research_key_cooldowns').get()?.n).toBe(0);
+    expect(db.prepare('SELECT paused_until FROM torn_api_keys').get()?.paused_until).toBe(until);
+    await runRankedResearchTick(env);
+    expect(fetchTrackedTornJson).toHaveBeenCalledTimes(1);
+    advance(120);
+    vi.mocked(fetchTrackedTornJson).mockResolvedValueOnce(listing()).mockResolvedValueOnce(report());
+    await runRankedResearchTick(env);
+    expect(row(id).status).toBe('complete');
+  });
+  it('saves other wars while a bad report waits, then stops retrying it after five failures', async () => {
+    const id = await create(20); await call(`/${id}/resume`, {});
+    const malformed = report(); malformed.rankedwarreport.factions[0].members = [];
+    vi.mocked(fetchTrackedTornJson).mockResolvedValueOnce(listing([123, 124])).mockResolvedValueOnce(malformed).mockResolvedValueOnce(report(124));
+    await runRankedResearchTick(env);
+    expect(row(id)).toMatchObject({ status: 'running', requests: 3 });
+    expect(db.prepare('SELECT classification FROM ranked_research_reports WHERE war_id = 124').get()?.classification).toBe('eligible');
+    vi.mocked(fetchTrackedTornJson).mockResolvedValue(malformed);
+    for (let attempt = 2; attempt <= 5; attempt++) {
+      advance(900); await runRankedResearchTick(env);
+    }
+    expect(row(id)).toMatchObject({ status: 'paused', requests: 7 });
+    const before = vi.mocked(fetchTrackedTornJson).mock.calls.length;
+    advance(3600); await runRankedResearchTick(env);
+    expect(fetchTrackedTornJson).toHaveBeenCalledTimes(before);
+    const health = (await (await call(`/${id}/health`)).json() as { health: ResearchHealth }).health;
+    expect(health).toMatchObject({ issue_count: 1, issues: [{ war_id: 123, failures: 5 }] });
+    await call(`/${id}/resume`, {});
+    vi.mocked(fetchTrackedTornJson).mockResolvedValue(report());
+    await runRankedResearchTick(env);
+    expect(row(id).status).toBe('complete');
+  });
+  it('continues discovery when every report on the current page is deferred', async () => {
+    const id = await create(); await call(`/${id}/resume`, {});
+    const malformed = report(); malformed.rankedwarreport.end = 0;
+    const first = listing(); first._metadata.links.next = `https://api.torn.com/v2/faction/warfareranked?from=${start}&to=${start + 86399}&sort=ASC&offset=100`;
+    vi.mocked(fetchTrackedTornJson).mockResolvedValueOnce(first).mockResolvedValueOnce(malformed).mockResolvedValueOnce(listing([124])).mockResolvedValueOnce(report(124));
+    await runRankedResearchTick(env);
+    expect(row(id)).toMatchObject({ requests: 4, discovery_done: 1, status: 'running' });
+  });
+  it('uses separate owners up to the batch ceiling and still enforces the rolling owner cap', async () => {
+    for (let i = 2; i <= 4; i++) addKey(`key${i}`, i);
+    vi.mocked(readAvailableTornApiKeys).mockResolvedValue([1, 2, 3, 4].map(i => candidate(`key${i}`)));
+    const id = await create(200); await call(`/${id}/resume`, {});
+    vi.mocked(fetchTrackedTornJson).mockImplementation(async (_env, url) => String(url).includes('warfareranked') ? listing(Array.from({ length: 100 }, (_, i) => 100 + i)) : report(Number(String(url).match(/faction\/(\d+)/)![1])));
+    await runRankedResearchTick(env);
+    expect(row(id).requests).toBe(60);
+    expect(db.prepare('SELECT MAX(n) AS n FROM (SELECT COUNT(*) AS n FROM ranked_research_attempts GROUP BY owner_id)').get()?.n).toBe(20);
+    await runRankedResearchTick(env); // Remaining fourth owner can contribute, but not already-spent owners.
+    expect(row(id).requests).toBe(80);
+    await runRankedResearchTick(env);
+    expect(row(id).requests).toBe(80);
+    advance(60); await runRankedResearchTick(env);
+    expect(row(id)).toMatchObject({ requests: 101, status: 'complete' });
+  });
+  it('stops starting requests when the elapsed batch deadline is reached', async () => {
+    const id = await create(); await call(`/${id}/resume`, {});
+    vi.mocked(fetchTrackedTornJson).mockImplementation(async () => { advance(45); return listing(); });
+    await runRankedResearchTick(env);
+    expect(row(id)).toMatchObject({ requests: 1, lease_until: 0 });
+  });
+  it('honours a manual pause even when a temporary request failure arrives afterwards', async () => {
+    const id = await create(); await call(`/${id}/resume`, {});
+    vi.mocked(fetchTrackedTornJson).mockImplementation(async () => { await call(`/${id}/pause`, {}); throw new Error('timeout'); });
+    await runRankedResearchTick(env);
+    expect(row(id)).toMatchObject({ status: 'paused', retry_at: 0 });
+    advance(120); await runRankedResearchTick(env);
+    expect(fetchTrackedTornJson).toHaveBeenCalledTimes(1);
+  });
+  it('preserves frozen unresolved details even when another run later caches the report', async () => {
+    const id = await create(); await call(`/${id}/resume`, {});
+    const malformed = report(); malformed.rankedwarreport.end = 0;
+    vi.mocked(fetchTrackedTornJson).mockResolvedValueOnce(listing()).mockResolvedValueOnce(malformed);
+    await runRankedResearchTick(env); await call(`/${id}/pause`, {}); await call(`/${id}/freeze`, {});
+    expect(await (await call(`/${id}/export`)).json()).toMatchObject({ dataset: { collection: { deferred_reports: 1, failed_reports: 0, pending_reports: 1 } }, reports: [] });
+    const other = await create(); await call(`/${other}/resume`, {});
+    vi.mocked(fetchTrackedTornJson).mockResolvedValueOnce(listing()).mockResolvedValueOnce(report());
+    await runRankedResearchTick(env);
+    expect(await (await call(`/${id}/health`)).json()).toMatchObject({ health: { issue_count: 1, issues: [{ war_id: 123 }] } });
+    expect(await (await call(`/${id}/export`)).json()).toMatchObject({ reports: [] });
+  });
+  it('reports recent call pace, remaining budget and report reuse without Torn reads', async () => {
+    const id = await create(100); await call(`/${id}/resume`, {});
+    vi.mocked(fetchTrackedTornJson).mockResolvedValueOnce(listing()).mockResolvedValueOnce(report());
+    await runRankedResearchTick(env);
+    const other = await create(100); await call(`/${other}/resume`, {});
+    vi.mocked(fetchTrackedTornJson).mockResolvedValueOnce(listing()); await runRankedResearchTick(env);
+    expect(await (await call()).json()).toMatchObject({ runs: expect.arrayContaining([expect.objectContaining({ id: other, reused: 1, reports: 1, eligible: 1 })]) });
+    expect(await (await call(`/${id}/health`)).json()).toMatchObject({ health: { requests_last_minute: 2, requests_last_five_minutes: 2, remaining_budget: 98, budget_minutes: null, opted_in_owners: 1 } });
+    expect(fetchTrackedTornJson).toHaveBeenCalledTimes(3);
+    advance(301);
+    expect(await (await call(`/${id}/health`)).json()).toMatchObject({ health: { requests_last_minute: 0, requests_last_five_minutes: 0, budget_minutes: null } });
+  });
+  it('paginates all unresolved issue details and rejects invalid health cursors', async () => {
+    const id = await create();
+    for (let i = 1; i <= 105; i++) {
+      db.prepare('INSERT INTO ranked_research_reports(war_id, start, end) VALUES (?, ?, ?)').run(i, start, start + 3600);
+      db.prepare('INSERT INTO ranked_research_report_retries(run_id, war_id, failures, next_attempt_at, last_error) VALUES (?, ?, 1, 0, ?)').run(id, i, 'Invalid totals');
+    }
+    const first = (await (await call(`/${id}/health`)).json() as { health: ResearchHealth }).health;
+    expect(first).toMatchObject({ issue_count: 105, next_issue: 100 });
+    expect(first.issues).toHaveLength(100);
+    const last = (await (await call(`/${id}/health?after=100`)).json() as { health: ResearchHealth }).health;
+    expect(last.issues.map(i => i.war_id)).toEqual([101, 102, 103, 104, 105]);
+    expect(last.next_issue).toBeNull();
+    expect((await call(`/${id}/health?after=-1`)).status).toBe(400);
+    expect((await call(`/${id}/health`, {})).status).toBe(405);
+    expect(fetchTrackedTornJson).not.toHaveBeenCalled();
+  });
+  it('pauses on an unexpected listing and counts the response as failed', async () => {
+    const id = await create(); await call(`/${id}/resume`, {});
+    vi.mocked(fetchTrackedTornJson).mockResolvedValue({ raw: 'unexpected HTML' });
+    const cursor = row(id).cursor;
+    await runRankedResearchTick(env);
+    expect(row(id)).toMatchObject({ status: 'paused', cursor, requests: 1 });
+    expect(await (await call(`/${id}/health`)).json()).toMatchObject({ health: { failures_last_five_minutes: 1 } });
+  });
+  it('rotates eligible runs and leaves a backed-off run waiting', async () => {
+    const a = await create(100); await call(`/${a}/resume`, {});
+    advance(1);
+    const b = await create(100); await call(`/${b}/resume`, {});
+    vi.mocked(fetchTrackedTornJson).mockResolvedValueOnce({ error: { code: 17 } }).mockResolvedValueOnce(listing([]));
+    await runRankedResearchTick(env);
+    expect(row(a).consecutive_failures).toBe(1);
+    await runRankedResearchTick(env);
+    expect(row(b).status).toBe('complete');
+    expect(row(a)).toMatchObject({ status: 'running', requests: 1 });
+  });
   it('adds coverage metadata without changing existing frozen runs', () => {
     const legacy = new DatabaseSync(':memory:');
     try {
@@ -90,7 +295,7 @@ describe('finite ranked research', () => {
     await call(`/${id}/freeze`, {});
     const exported = await (await call(`/${id}/export`)).json() as { reports: unknown[]; dataset: { collection: unknown } };
     expect(exported.reports).toHaveLength(2);
-    expect(exported.dataset.collection).toEqual({ discovery_done: true, discovered_wars: 2, saved_reports: 2, pending_reports: 0 });
+    expect(exported.dataset.collection).toEqual({ discovery_done: true, discovered_wars: 2, saved_reports: 2, pending_reports: 0, deferred_reports: 0, failed_reports: 0 });
     expect((await call(`/${id}/resume`, { budget: 10 })).status).toBe(400);
     expect((await call(`/${id}/import`, { reports: [report(125)] })).status).toBe(404);
   });
@@ -104,29 +309,31 @@ describe('finite ranked research', () => {
     expect(db.prepare('SELECT COUNT(*) AS n FROM ranked_research_run_wars').get()).toMatchObject({ n: 0 });
     expect(fetchTrackedTornJson).not.toHaveBeenCalled();
   });
-  it('leaves unfinished upstream reports pending and collects final results after resume', async () => {
+  it('automatically retries unfinished reports after a persisted delay', async () => {
     const id = await create(); await call(`/${id}/resume`, {});
     const unfinished = report(); unfinished.rankedwarreport.end = 0;
     vi.mocked(fetchTrackedTornJson)
       .mockResolvedValueOnce({ warfareranked: [{ id: 123, start, end: start + 3600 }], _metadata: { links: { next: null } } })
       .mockResolvedValueOnce(unfinished);
     await runRankedResearchTick(env);
-    expect(row(id)).toMatchObject({ status: 'paused', requests: 2 });
-    expect(String(row(id).message)).toContain('unfinished');
+    expect(row(id)).toMatchObject({ status: 'running', requests: 2 });
+    expect(db.prepare('SELECT last_error FROM ranked_research_report_retries WHERE run_id = ?').get(id)?.last_error).toContain('unfinished');
     expect(db.prepare('SELECT report_json, classification FROM ranked_research_reports WHERE war_id = 123').get())
       .toMatchObject({ report_json: null, classification: null });
-    await call(`/${id}/resume`, {});
+    await runRankedResearchTick(env);
+    expect(fetchTrackedTornJson).toHaveBeenCalledTimes(2);
+    advance(61);
     vi.mocked(fetchTrackedTornJson).mockResolvedValueOnce(report());
     await runRankedResearchTick(env);
     expect(row(id)).toMatchObject({ status: 'complete', requests: 3 });
     expect(db.prepare('SELECT classification FROM ranked_research_reports WHERE war_id = 123').get()).toMatchObject({ classification: 'eligible' });
     expect(fetchTrackedTornJson).toHaveBeenCalledTimes(3);
   });
-  it('counts failed attempts and pauses without leaking the upstream key/error', async () => {
+  it('counts failed attempts and backs off without leaking the upstream key/error', async () => {
     const id = await create(); await call(`/${id}/resume`, {});
     vi.mocked(fetchTrackedTornJson).mockRejectedValue(new Error('secret API key in upstream error'));
     await runRankedResearchTick(env);
-    expect(row(id)).toMatchObject({ requests: 1, status: 'paused', lease_until: 0 });
+    expect(row(id)).toMatchObject({ requests: 1, status: 'running', consecutive_failures: 1, lease_until: 0 });
     expect(String(row(id).message)).not.toContain('secret');
     expect(db.prepare('SELECT request_count FROM torn_api_key_usage_windows').get()).toMatchObject({ request_count: 1 });
   });
@@ -179,13 +386,13 @@ describe('finite ranked research', () => {
     expect(row(other)).toMatchObject({ status: 'complete', requests: 2 });
     const frozen = await (await call(`/${id}/export`)).json() as { reports: unknown[]; dataset: { collection: unknown } };
     expect(frozen.reports).toEqual([report()]);
-    expect(frozen.dataset.collection).toEqual({ discovery_done: true, discovered_wars: 2, saved_reports: 1, pending_reports: 1 });
+    expect(frozen.dataset.collection).toEqual({ discovery_done: true, discovered_wars: 2, saved_reports: 1, pending_reports: 1, deferred_reports: 0, failed_reports: 0 });
     expect(fetchTrackedTornJson).toHaveBeenCalledTimes(4);
   });
   it('records incomplete discovery and keeps legacy completeness unknown', async () => {
     const id = await create(); await call(`/${id}/freeze`, {});
     const empty = await (await call(`/${id}/export`)).json() as { dataset: { collection: unknown } };
-    expect(empty.dataset.collection).toEqual({ discovery_done: false, discovered_wars: 0, saved_reports: 0, pending_reports: 0 });
+    expect(empty.dataset.collection).toEqual({ discovery_done: false, discovered_wars: 0, saved_reports: 0, pending_reports: 0, deferred_reports: 0, failed_reports: 0 });
     db.prepare('UPDATE ranked_research_runs SET collection_json = NULL WHERE id = ?').run(id);
     expect(await (await call(`/${id}/export`)).json()).toMatchObject({ dataset: { collection: null } });
   });
@@ -216,7 +423,7 @@ describe('finite ranked research', () => {
     expect((await call(`/${id}/analysis`, { snapshot_token: 'wrong', result: {} })).status).toBe(400);
   });
   it('protects every collector/read/export action with existing admin authorization', async () => {
-    for (const suffix of ['', '/abc/export', '/abc/resume', '/abc/analysis', '/abc/import']) {
+    for (const suffix of ['', '/abc/export', '/abc/resume', '/abc/analysis', '/abc/import', '/abc/health']) {
       const request = new Request(base + suffix, suffix.endsWith('/resume') || suffix.endsWith('/import') ? { method: 'POST' } : {});
       const response = await routeAdminApi({ request, env, url: new URL(request.url), ctx: {} as ExecutionContext });
       expect([401, 403]).toContain(response!.status);

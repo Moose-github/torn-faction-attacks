@@ -69,6 +69,8 @@ export function validateResearchEvidence(value: Record<string, unknown>, assert:
     const m = c.collection;
     check(isRecord(m) && typeof m.discovery_done === 'boolean' && ['discovered_wars', 'saved_reports', 'pending_reports'].every(k => count(m[k]))
       && Number(m.saved_reports) + Number(m.pending_reports) === m.discovered_wars && m.saved_reports === c.saved_reports, 'Invalid collection completeness.');
+    check(['deferred_reports', 'failed_reports'].every(k => m[k] === undefined || count(m[k]))
+      && Number(m.deferred_reports ?? 0) + Number(m.failed_reports ?? 0) <= Number(m.pending_reports), 'Invalid unresolved report counts.');
   }
   check(Array.isArray(c.weeks) && c.weeks.length <= 10000, 'Invalid weekly coverage.');
   for (const w of c.weeks) check(isRecord(w) && date(w.start) && date(w.end) && w.start <= w.end

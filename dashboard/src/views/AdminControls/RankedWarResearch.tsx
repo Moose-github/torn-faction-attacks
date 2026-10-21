@@ -1,9 +1,10 @@
 import React from 'react';
 import { getJson, postJson } from '../../api/client';
-import type { ResearchAnalysis, ResearchRun } from '../../../../shared/rankedResearch';
+import type { ResearchAnalysis, ResearchRun, ResearchHealth } from '../../../../shared/rankedResearch';
 import './rankedWarResearch.css';
 import { ResearchCoveragePanel, ResearchEvidenceCards } from './ResearchEvidence';
 import { ResearchGraphPanel } from './ResearchGraphs';
+import { ResearchCollectionHealth } from './ResearchCollectionHealth';
 
 const API = '/api/admin/ranked-research';
 type ExportPage = { dataset: { id: string; name: string; start: string; end: string; snapshot_token: string }; reports: unknown[]; next: number | null };
@@ -18,10 +19,11 @@ export function RankedWarResearch() {
   const [runs, setRuns] = React.useState<ResearchRun[]>([]);
   const [selected, setSelected] = React.useState('');
   const [analysis, setAnalysis] = React.useState<ResearchAnalysis | null>(null);
+  const [health, setHealth] = React.useState<ResearchHealth | null>(null);
   const [error, setError] = React.useState('');
   const [notice, setNotice] = React.useState('');
   const [busy, setBusy] = React.useState(false);
-  const [form, setForm] = React.useState({ name: 'Platinum reward study', start: '2026-09-01', end: new Date(Date.now() - 86400000).toISOString().slice(0, 10), budget: 1000 });
+  const [form, setForm] = React.useState({ name: 'Platinum reward study', start: '2026-09-01', end: new Date(Date.now() - 86400000).toISOString().slice(0, 10), budget: 5000 });
   const [resumeBudget, setResumeBudget] = React.useState(1000);
   const run = runs.find(r => r.id === selected);
   const load = React.useCallback(async () => {
@@ -42,6 +44,16 @@ export function RankedWarResearch() {
     return () => controller.abort();
   }, [selected]);
   React.useEffect(() => { if (run) setResumeBudget(run.request_limit); }, [run?.id, run?.request_limit]);
+  React.useEffect(() => {
+    setHealth(null);
+    if (!selected) return;
+    const controller = new AbortController();
+    const refresh = () => void getJson<{ health: ResearchHealth }>(`${API}/${selected}/health`, true, controller.signal)
+      .then(data => setHealth(data.health)).catch(e => { if (e.name !== 'AbortError') setHealth(null); });
+    refresh();
+    const timer = setInterval(refresh, 10000);
+    return () => { clearInterval(timer); controller.abort(); };
+  }, [selected]);
 
   async function act(work: () => Promise<void>) {
     setBusy(true); setError(''); setNotice('');
@@ -66,6 +78,16 @@ export function RankedWarResearch() {
     const data = await getJson<{ analysis: ResearchAnalysis }>(`${API}/${selected}/analysis`);
     setAnalysis(data.analysis); setNotice('Analysis saved in this dataset.');
   }
+  async function exportIssues() {
+    let after = 0;
+    let page: ResearchHealth;
+    const issues: ResearchHealth['issues'] = [];
+    do {
+      page = (await getJson<{ health: ResearchHealth }>(`${API}/${selected}/health?after=${after}`)).health;
+      issues.push(...page.issues); after = page.next_issue ?? 0;
+    } while (page.next_issue !== null);
+    download(`war-research-${selected}-issues.json`, { run_id: selected, snapshot_token: run?.snapshot_token ?? null, issues });
+  }
   return <div className="war-research">
     <section className="panel">
       <p className="war-research-eyebrow">Admin research workspace</p>
@@ -87,6 +109,7 @@ export function RankedWarResearch() {
           <label>Through (UTC)<input type="date" required max={new Date(Date.now() - 86400000).toISOString().slice(0, 10)} value={form.end} onChange={e => setForm({ ...form, end: e.target.value })}/></label>
           <label className="admin-form-wide">Total request budget<input type="number" min={1} max={50000} required value={form.budget} onChange={e => setForm({ ...form, budget: Number(e.target.value) })}/></label>
           <p className="panel-description admin-form-wide">The budget includes discovery pages and failed requests. Starting ranks are only available in detailed reports, so some calls will find wars outside Platinum.</p>
+          <p className="panel-description admin-form-wide">5,000 calls cover roughly four hours at one owner’s maximum pace. Actual collection can be slower, or faster with multiple owners. This is a call budget, not a target number of eligible wars.</p>
           <button className="admin-button primary" disabled={busy}>Create dataset</button>
         </form>
       </section>
@@ -105,6 +128,7 @@ export function RankedWarResearch() {
           </div>
           <p role="status">{run.message}</p>
           <p className="panel-description">{run.pending ?? 0} discovered reports still to collect.</p>
+          <ResearchCollectionHealth run={run} health={health} busy={busy} onDownload={() => void act(exportIssues)}/>
           {run.status !== 'frozen' && <div className="admin-form">
             <label className="admin-form-wide">Total budget for this run<input type="number" min={run.request_limit} max={50000} value={resumeBudget} onChange={e => setResumeBudget(Number(e.target.value))}/></label>
             <button className="admin-button primary" disabled={busy || run.status === 'running' || run.status === 'complete'} onClick={() => void act(async () => { await postJson(`${API}/${selected}/resume`, { budget: resumeBudget }); })}>Start / resume collection</button>
