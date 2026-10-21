@@ -365,7 +365,8 @@ async function saveInventory(env: Env, token: string, payload: unknown, previous
     ON d.uid = json_extract(j.value, '$.uid') WHERE d.model_id != json_extract(j.value, '$.id') LIMIT 1`)
     .bind(copyJson).first();
   if (conflict) throw new Error("An inventory UID changed model ID");
-  const otherCategory = await env.DB.prepare(`SELECT i.uid FROM faction_armory_inventory i JOIN json_each(?) j
+  // Keep JSON first so each UID uses the (faction_id, uid) index instead of rescanning the JSON for every inventory row.
+  const otherCategory = await env.DB.prepare(`SELECT i.uid FROM json_each(?) j CROSS JOIN faction_armory_inventory i
     ON i.uid = json_extract(j.value, '$.uid') WHERE i.faction_id = ? AND i.category != ? LIMIT 1`)
     .bind(copyJson, HOME_FACTION_ID, category).first();
   if (otherCategory) throw new Error("An inventory UID changed category");
