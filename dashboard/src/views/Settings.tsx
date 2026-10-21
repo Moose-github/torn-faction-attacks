@@ -320,6 +320,7 @@ export function Settings({
           icon={<KeyRound size={18} />}
         />
         {keyPoolError ? <p className="form-error">{keyPoolError}</p> : null}
+        <p className="panel-description">Optional War research permission allows finite historical ranked-war collection to study rewards and help plan more profitable wars. Raw reports and findings are retained until an administrator removes them and are available to administrators only. Your key stays encrypted on the server. This permission is off by default and requires public API access.</p>
 
         <form className="torn-key-pool-form" onSubmit={submitKey}>
           <label>

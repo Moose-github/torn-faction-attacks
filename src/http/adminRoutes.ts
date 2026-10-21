@@ -1,4 +1,5 @@
 import { positiveIntegerOrNull, readJsonObject } from "../backend/request";
+import { handleRankedResearch } from "../rankedResearch";
 import { routeArmoryApi } from "./armoryRoutes";
 import { sendAdminDiscordMessageFromRequest } from "../discordMessageSend";
 import { getAdminDiscordSubscriptionSettings, updateAdminDiscordSubscriptionSettingFromRequest } from "../discordSubscriptionSettings";
@@ -88,6 +89,10 @@ import { getAdminDiscordRouteDestinations, updateAdminDiscordRouteFromRequest } 
 
 export async function routeAdminApi(routeContext: RouteContext): Promise<RouteResult> {
   const { request, env, ctx, url } = routeContext;
+
+  if (url.pathname === '/api/admin/ranked-research' || url.pathname.startsWith('/api/admin/ranked-research/')) {
+    return withAdmin(routeContext, () => handleRankedResearch(request, env, url));
+  }
 
   const armoryResponse = await routeArmoryApi(routeContext);
   if (armoryResponse) return armoryResponse;

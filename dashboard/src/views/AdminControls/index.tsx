@@ -52,11 +52,12 @@ import {
 import { PanelHeader } from "../../components/Common";
 import { formatLongDateTime, formatNumber } from "../../utils/format";
 import { DiscordAdminControls, DiscordTravelTargetForm } from "./DiscordAdminControls";
+import { RankedWarResearch } from "./RankedWarResearch";
 
 import type { DiscordAlertSettingsMap } from "../../../../shared/discordAlertSettings";
 import { discordAlertSettingsFromResponse } from "../../../../shared/discordAlertSettingsCompatibility";
 
-type AdminTabKey = "operations" | "discord" | "wars" | "reporting" | "maintenance";
+type AdminTabKey = "operations" | "discord" | "wars" | "reporting" | "maintenance" | "research";
 
 const ADMIN_TABS: Array<{ key: AdminTabKey; label: string }> = [
   { key: "operations", label: "Access management" },
@@ -64,6 +65,7 @@ const ADMIN_TABS: Array<{ key: AdminTabKey; label: string }> = [
   { key: "wars", label: "Wars & Events" },
   { key: "reporting", label: "Reporting" },
   { key: "maintenance", label: "Maintenance" },
+  { key: "research", label: "War research" },
 ];
 
 export function AdminControls() {
@@ -605,6 +607,7 @@ export function AdminControls() {
         role="tabpanel"
         aria-labelledby={`admin-tab-${activeAdminTab}`}
       >
+        {activeAdminTab === "research" ? <RankedWarResearch /> : null}
         {activeAdminTab === "operations" ? (
         <>
         <section className="panel admin-panel-access">

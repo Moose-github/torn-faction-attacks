@@ -1,4 +1,5 @@
 import { runChainWatchCron } from "../chainWatch";
+import { runRankedResearchTick } from "../rankedResearch";
 import { runArmoryCron, runMedicalStockAlertsCron } from "../armory";
 import { runWatchScheduleCron } from "../chainWatchScheduleDiscord";
 import { runEventCompetitionCron } from "../eventCompetition";
@@ -33,6 +34,14 @@ import { runMonthlyXanaxCompetitionDiscordReminder } from "../xanaxCompetition";
 import type { CronJobDefinition } from "./model";
 
 export const CRON_JOB_DEFINITIONS: CronJobDefinition[] = [
+  {
+    label: "Finite ranked war research batch",
+    cadence: "1m (only while a manually started run is active)",
+    category: "maintenance",
+    purpose: "Advance a bounded admin research collection; idle runs make no Torn requests.",
+    shouldRun: () => true,
+    run: runRankedResearchTick,
+  },
   {
     label: "Cron faction armory inventory",
     cadence: "15m",
