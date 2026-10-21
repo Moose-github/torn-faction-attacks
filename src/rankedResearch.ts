@@ -100,7 +100,9 @@ export function researchNextCursor(value: unknown, run: Pick<ResearchRun, 'from_
   const from = Number(url.searchParams.get('from'));
   const to = Number(url.searchParams.get('to'));
   check(url.searchParams.has('from') && url.searchParams.has('to') && integer(from) && integer(to) && from >= run.from_ts - 1 && to <= run.to_ts && from <= to, 'Pagination left the selected date range.');
-  check(url.searchParams.get('sort') === 'ASC', 'Unexpected pagination order.');
+  // Torn's generated links can lowercase ASC. Keep the stored cursor canonical
+  // so casing changes cannot bypass repeated-page detection.
+  check(url.searchParams.get('sort')?.toUpperCase() === 'ASC', 'Unexpected pagination order.');
   const clean = new URL(ROOT + 'warfareranked');
   clean.search = new URLSearchParams({ from: String(from), to: String(to), sort: 'ASC', limit: '100' }).toString();
   if (url.searchParams.has('offset')) {

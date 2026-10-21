@@ -53,6 +53,8 @@ Unfinished, missing or malformed individual reports are deferred independently, 
 
 Collection health shows last response/save/check timestamps, report reuse, eligible reports, pending retries, exhausted reports, calls in the last minute, five-minute pace/failures, owner/key availability and remaining budget. The time estimate concerns budget exhaustion at the recent pace, not dataset completion. Earlier runs have unknown timestamps/reuse history rather than reconstructed estimates. Unresolved report details can be downloaded in full without Torn calls. Freeze preserves their reasons and retry counts even if another dataset later saves those wars; coverage also records deferred/exhausted counts and warns about the resulting omissions.
 
+Pagination accepts both `ASC` and `asc` in Torn's next-page links and stores a canonical `ASC` cursor. It still rejects descending or missing sort orders, external URLs, out-of-range dates and repeated pages, and strips credentials before storing links. Runs paused by the former case-sensitive check can use Start / resume after deploying the fix; their cursor and request budget are retained.
+
 ## Deployment and validation
 
 Apply migrations through `0178_ranked_research_recovery.sql` to the Worker D1 database, deploy the Worker and build/deploy the dashboard together. Migration 0178 adds recovery counters, health timestamps, an attempt index, research key cooldowns and a per-run report retry table. It does not rewrite existing reports or frozen snapshots. Collection remains inactive until an administrator opts in a key and starts a run. Unfinished reports are never cached as final results.

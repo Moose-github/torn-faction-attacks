@@ -417,15 +417,43 @@ describe('finite ranked research', () => {
     db.prepare('UPDATE ranked_research_runs SET collection_json = NULL WHERE id = ?').run(id);
     expect(await (await call(`/${id}/export`)).json()).toMatchObject({ dataset: { collection: null } });
   });
+  it('collects subsequent pages when Torn lowercases the pagination sort', async () => {
+    const id = await create(); await call(`/${id}/resume`, {});
+    const first = listing();
+    first._metadata.links.next = `https://api.torn.com/v2/faction/warfareranked?from=${start}&to=${row(id).to_ts}&sort=asc&limit=100&offset=100&key=secret`;
+    vi.mocked(fetchTrackedTornJson)
+      .mockResolvedValueOnce(first).mockResolvedValueOnce(report())
+      .mockResolvedValueOnce(listing([124])).mockResolvedValueOnce(report(124));
+    await runRankedResearchTick(env);
+    expect(row(id)).toMatchObject({ status: 'complete', requests: 4, discovery_done: 1, cursor: null });
+    expect(db.prepare('SELECT war_id FROM ranked_research_reports WHERE report_json IS NOT NULL ORDER BY war_id').all())
+      .toEqual([{ war_id: 123 }, { war_id: 124 }]);
+    const nextRequest = String(vi.mocked(fetchTrackedTornJson).mock.calls[2][1]);
+    expect(nextRequest).toContain('sort=ASC');
+    expect(nextRequest).toContain('offset=100');
+    expect(nextRequest).not.toContain('secret');
+    expect(JSON.stringify(db.prepare('SELECT cursor FROM ranked_research_cursors').all())).not.toContain('secret');
+  });
+  it.each(['ASC', 'asc', 'Asc'])('normalizes %s pagination without changing its bounds or offset', sort => {
+    const bounds = { from_ts: start, to_ts: start + 86400 };
+    const url = `https://api.torn.com/v2/faction/warfareranked?from=${start}&to=${bounds.to_ts}&sort=${sort}&offset=100`;
+    expect(researchNextCursor(url, bounds)).toBe(`https://api.torn.com/v2/faction/warfareranked?from=${start}&to=${bounds.to_ts}&sort=ASC&limit=100&offset=100`);
+  });
+  it.each(['DESC', 'desc', '', 'unexpected'])('still rejects unsafe pagination order %s', sort => {
+    const bounds = { from_ts: start, to_ts: start + 86400 };
+    const url = `https://api.torn.com/v2/faction/warfareranked?from=${start}&to=${bounds.to_ts}${sort ? `&sort=${sort}` : ''}`;
+    expect(() => researchNextCursor(url, bounds)).toThrow('Unexpected pagination order.');
+  });
   it('preserves tie offsets, strips credentials, rejects external/repeated/missing cursors', async () => {
     const bounds = { from_ts: start, to_ts: start + 86400 };
     const url = `https://api.torn.com/v2/faction/warfareranked?from=${start}&to=${start + 86400}&sort=ASC&offset=100&key=secret`;
     expect(researchNextCursor(url, bounds)).toContain('offset=100');
     expect(researchNextCursor(url, bounds)).not.toContain('secret');
     expect(() => researchNextCursor(url.replace('api.torn.com', 'evil.test'), bounds)).toThrow();
+    expect(() => researchNextCursor(url.replace(`to=${bounds.to_ts}`, `to=${bounds.to_ts + 1}`), bounds)).toThrow('Pagination left the selected date range.');
     expect(() => researchNextCursor(undefined, bounds)).toThrow();
     const id = await create(); await call(`/${id}/resume`, {});
-    vi.mocked(fetchTrackedTornJson).mockResolvedValue({ warfareranked: [], _metadata: { links: { next: row(id).cursor } } });
+    vi.mocked(fetchTrackedTornJson).mockResolvedValue({ warfareranked: [], _metadata: { links: { next: String(row(id).cursor).replace('sort=ASC', 'sort=asc') + '&key=secret' } } });
     await runRankedResearchTick(env);
     expect(row(id).status).toBe('paused'); expect(String(row(id).message)).toContain('repeated');
   });
