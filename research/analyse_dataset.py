@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 
 from analysis import analyse
-from extraction import CACHES, extract
+from extraction import CACHES, extract, date_bounds
 from report import render
 
 
@@ -14,6 +14,14 @@ def build(dataset, prices):
     meta = dataset['dataset']
     if not meta.get('snapshot_token'):
         raise ValueError('Dataset has no frozen snapshot identifier.')
+    lower, upper = date_bounds(meta['start'], meta['end'])
+    collection = meta.get('collection')
+    if collection is not None:
+        if (not isinstance(collection, dict) or type(collection.get('discovery_done')) is not bool
+                or any(type(collection.get(k)) is not int or collection[k] < 0 for k in ('discovered_wars', 'saved_reports', 'pending_reports'))
+                or collection['saved_reports'] + collection['pending_reports'] != collection['discovered_wars']
+                or collection['saved_reports'] != len(dataset['reports'])):
+            raise ValueError('Collection manifest does not match the frozen export. Download all export pages again.')
     for name, price in prices.items():
         if price is not None and (isinstance(price, bool) or not isinstance(price, (int, float)) or not 0 <= price < 1e15):
             raise ValueError(f'Invalid full-dollar cache price for {name}.')
@@ -24,12 +32,14 @@ def build(dataset, prices):
             raise ValueError(f'Duplicate war {war_id} in frozen dataset.')
         seen.add(war_id)
         try:
+            if not lower <= payload['rankedwarreport']['start'] <= upper:
+                raise ValueError('Report is outside the selected date range.')
             extracted, audit = extract(payload, prices)
             rows.extend(extracted)
             audits.append(audit)
         except (ValueError, TypeError, KeyError, AttributeError) as error:
             audits.append({'war_id': war_id, 'reason': 'invalid_report', 'warnings': [str(error)]})
-    result = analyse(rows, audits, prices, {'start': meta['start'], 'end': meta['end']})
+    result = analyse(rows, audits, prices, {'start': meta['start'], 'end': meta['end']}, collection)
     result['warnings'].append('This is a finite historical sample. A budget-limited collection can overrepresent the beginning of its date range; check coverage before generalising.')
     return result
 

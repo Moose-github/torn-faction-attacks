@@ -2354,6 +2354,7 @@ CREATE TABLE IF NOT EXISTS ranked_research_runs (
   lease_token TEXT,
   message TEXT NOT NULL DEFAULT 'Ready to collect',
   snapshot_token TEXT,
+  collection_json TEXT,
   created_at INTEGER NOT NULL
 );
 CREATE TABLE IF NOT EXISTS ranked_research_reports (

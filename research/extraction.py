@@ -48,7 +48,7 @@ def extract(payload, prices=None):
     end = number(report.get('end'), 'end', True)
     if type(report.get('forfeit')) is not bool:
         raise ValueError('Missing or invalid forfeit flag.')
-    audit = {'war_id': war_id, 'reason': None, 'warnings': []}
+    audit = {'war_id': war_id, 'date': dt.datetime.fromtimestamp(start, UTC).date().isoformat(), 'reason': None, 'warnings': []}
     if not end or end <= start:
         audit['reason'] = 'unfinished'
         return [], audit

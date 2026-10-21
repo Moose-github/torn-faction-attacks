@@ -1,5 +1,7 @@
 """Standalone, escaped HTML report: usable without a running application."""
 import html
+from evidence_report import comparison_html, coverage_html
+from graphs_report import graphs_html
 
 
 def esc(value):
@@ -39,7 +41,7 @@ def effect_cards(model):
 
 def render(result):
     model = result['model']
-    cards = effect_cards(model)
+    cards = comparison_html(result['comparisons']) if 'comparisons' in result else effect_cards(model)
     whole = result.get('whole_war')
     whole_section = ''
     if whole is not None:
@@ -49,7 +51,8 @@ def render(result):
         whole_section = f'''<section class="box"><h2>Whole-war rewards: both factions combined</h2>
           <p>{whole['eligible_wars']} eligible wars · {whole['valued_wars']} fully priced wars · {whole['model_observations']} wars usable for adjusted analysis. Each war is counted once.</p>
           <p>{value_summary} This is a historical sample summary, not a future payout forecast. No expenses are deducted.</p></section>
-          <div class="grid">{effect_cards(whole['model'])}</div>
+          {graphs_html(whole.get('graphs'), whole.get('comparisons', []), whole=True)}
+          {comparison_html(whole['comparisons']) if 'comparisons' in whole else '<div class="grid">'+effect_cards(whole['model'])+'</div>'}
           <section class="box"><h2>Observed combined rewards</h2><table><tr><th>Winner starting division</th><th>Loser starting division</th><th>Wars</th><th>Median pot</th><th>Mean pot</th></tr>{whole_summaries}</table>
           <p>{esc(whole['model'].get('method', 'Adjusted whole-war estimates are withheld until data requirements are met.'))}</p></section>'''
     summaries = ''.join(f'<tr><td>Platinum {s["division"]}</td><td>{"Win" if s["won"] else "Loss"}</td><td>{s["n"]}</td><td>{money(s["median_value"])}</td><td>{money(s["mean_value"])}</td></tr>' for s in result['summaries'])
@@ -63,7 +66,7 @@ def render(result):
       <div class="eyebrow">Platinum War Lab / Evidence report</div><h1>What is associated with<br>greater war rewards?</h1>
       <p>{esc(result['range']['start'])} to {esc(result['range']['end'])} · Generated {esc(result['generated_at'])}</p>
       <p>{esc(result['scope'])}</p><div class="box"><b>{result['eligible_wars']} eligible wars</b> · {result['observations']} faction observations · {result['distinct_factions']} factions · {result['model_observations']} observations usable for adjusted analysis</div>
-      {whole_section}<h2>Individual faction rewards</h2><div class="grid">{cards}</div><section class="box"><h2>Observed faction rewards</h2><p>Descriptive comparisons; these do not isolate the effect of any one factor.</p>
+      {coverage_html(result.get('coverage'))}{whole_section}<h2>Individual faction rewards</h2>{graphs_html(result.get('graphs'), result.get('comparisons', []))}{cards}<section class="box"><h2>Observed faction rewards</h2><p>Descriptive comparisons; these do not isolate the effect of any one factor.</p>
       <table><tr><th>Starting division</th><th>Outcome</th><th>Observations</th><th>Median gross value</th><th>Mean gross value</th></tr>{summaries}</table></section>
       <section class="box"><h2>Interpretation and method</h2><p>{method}</p><ul>{warnings}</ul>
       <p>All values use the same price table. They represent the estimated sale value of awarded caches, not historic sale proceeds or the value of opening caches. Respect is retained in raw reports but is not assigned a cash value.</p>

@@ -13,4 +13,32 @@
 .war-research-factor { padding: 20px; border: 1px solid #71809655; border-radius: 10px; }
 .war-research-effect { font-size: 1.8rem; font-weight: 650; }
 .war-research input[type=file] { max-width: 100%; }
+.war-research-factor h4 { font-size: 1.15rem; line-height: 1.5; margin: 10px 0; }
+.war-research-evidence-status { font-weight: 700; border-bottom: 2px solid #71809655; padding-bottom: 8px; }
+.war-research-checks { font-size: .9rem; }
+.war-research-checks dt { opacity: .75; margin-top: 10px; }
+.war-research-checks dd { margin: 4px 0; font-weight: 600; }
+.war-research details { margin: 12px 0; }
+.war-research summary { cursor: pointer; }
+.war-research caption { text-align: left; padding: 10px 0; font-size: .85rem; }
+.war-research-graphs { border-block: 1px solid #71809655; padding: 20px 0; margin: 24px 0; min-width: 0; }
+.research-plot-scroll { overflow-x: auto; max-width: 100%; margin: 20px 0; }
+.research-plot-scroll svg { width: 100%; min-width: 760px; display: block; font: 12px system-ui, sans-serif; }
+.war-research-graphs button[aria-pressed=true] { background: #3b82f622; border-color: #3b82f6; }
+.research-scroll-hint { display: none; }
+.research-plot-scroll text { fill: currentColor; }
+.research-gridline { stroke: currentColor; opacity: .15; }
+.research-dot { fill: #3b82f6; opacity: .4; }
+.research-dot:hover { opacity: 1; stroke: currentColor; }
+.research-dot-key { color: #3b82f6; }
+.research-median, .research-median-key { fill: #d97706; color: #d97706; }
+.research-median { stroke: currentColor; stroke-width: .7; }
+.research-whisker { stroke: currentColor; stroke-width: 1.5; }
+.research-box { fill: #3b82f6; fill-opacity: .3; stroke: #3b82f6; }
+.research-estimate { fill: #3b82f6; stroke: currentColor; stroke-width: .7; }
+.research-zero { stroke: currentColor; stroke-dasharray: 5 4; }
+.research-plot-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 20px; }
+.research-plot-controls label { display: flex; align-items: center; gap: 10px; }
+.research-plot-controls select { max-width: 100%; }
 @media (max-width: 800px) { .war-research-grid { grid-template-columns: 1fr; } }
+@media (max-width: 800px) { .research-scroll-hint { display: block; font-size: .85rem; } }

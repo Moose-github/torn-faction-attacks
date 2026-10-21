@@ -4,6 +4,7 @@ import { markTornKeyFailure, readAvailableTornApiKeys, type TornKeyPoolCandidate
 import type { Env } from './types';
 import { json, nowSeconds } from './utils';
 import type { ResearchRun } from '../shared/rankedResearch';
+import { validateResearchEvidence } from './rankedResearchEvidence';
 
 const ROOT = 'https://api.torn.com/v2/faction/';
 const FEATURE = 'ranked_war_research' as const;
@@ -43,6 +44,7 @@ export function validateResearchAnalysis(value: unknown) {
     check(Array.isArray(whole.summaries) && whole.summaries.every(s => isRecord(s) && [s.winner_division, s.loser_division].every(v => integer(v) && v >= 1 && v <= 4) && integer(s.n) && finite(s.median_value) && finite(s.mean_value)), 'Invalid whole-war reward summaries.');
     validateModel(whole.model);
   }
+  validateResearchEvidence(value, check);
   return value;
 }
 export function researchDates(start: unknown, end: unknown) {
@@ -65,8 +67,8 @@ export function validateResearchReport(payload: unknown) {
   check(factions.every(f => integer(f.id) && isRecord(f.rank) && typeof f.rank.before === 'string'), 'Missing starting ranks.');
   check(factions[0].id !== factions[1].id, 'Duplicate factions.');
   let classification = 'eligible';
-  if (r.end <= r.start) classification = 'unfinished';
-  else if (r.forfeit) classification = 'forfeit';
+  check(r.end > r.start, 'Torn returned an unfinished report. Collection paused; resume once the final report is available.');
+  if (r.forfeit) classification = 'forfeit';
   else if (factions.some(f => !String((f.rank as Record<string, unknown>).before).trim().toLowerCase().startsWith('platinum'))) classification = 'not_platinum_vs_platinum';
   else {
     check(factions.some(f => f.id === r.winner), 'Invalid winner.');
@@ -113,7 +115,7 @@ export async function reserveResearchAttempt(env: Env, runId: string, lease: str
       AND k.id = ? AND k.owner_torn_user_id IS NOT NULL AND k.status = 'active'
       AND (k.paused_until IS NULL OR k.paused_until <= ?)
       AND EXISTS (SELECT 1 FROM json_each(k.allowed_features_json) WHERE value = 'ranked_war_research')
-      AND (SELECT COUNT(*) FROM ranked_research_attempts a WHERE a.owner_id = k.owner_torn_user_id AND a.attempted_at > ?) < 10
+      AND (SELECT COUNT(*) FROM ranked_research_attempts a WHERE a.owner_id = k.owner_torn_user_id AND a.attempted_at > ?) < 20
       AND (SELECT COUNT(*) FROM torn_api_call_log l JOIN torn_api_keys owner_key ON l.key_source = 'key_pool:' || owner_key.id
         WHERE owner_key.owner_torn_user_id = k.owner_torn_user_id AND l.requested_at > ?) < 50
       AND COALESCE((SELECT request_count FROM torn_api_key_usage_windows WHERE key_id = k.id AND window_start = ?), 0) < COALESCE(k.max_requests_per_minute, 35) - 5`)
@@ -234,7 +236,7 @@ export async function handleRankedResearch(request: Request, env: Env, url: URL)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(id, body.name.trim(), dates.start, dates.end, dates.from, dates.to, body.budget, cursor, nowSeconds()).run();
       return json({ ok: true, id });
     }
-    const match = url.pathname.match(/^\/api\/admin\/ranked-research\/([a-f0-9-]+)\/(resume|pause|freeze|export|import|analysis)$/);
+    const match = url.pathname.match(/^\/api\/admin\/ranked-research\/([a-f0-9-]+)\/(resume|pause|freeze|export|analysis)$/);
     if (!match) return json({ error: 'Not found' }, 404);
     const [, id, action] = match;
     const run = await readRun(env, id);
@@ -249,7 +251,8 @@ export async function handleRankedResearch(request: Request, env: Env, url: URL)
       check(integer(after), 'Invalid export cursor.');
       const rows = await env.DB.prepare(`SELECT p.war_id, p.report_json FROM ranked_research_run_wars w JOIN ranked_research_reports p USING(war_id)
         WHERE w.run_id = ? AND p.report_json IS NOT NULL AND p.war_id > ? ORDER BY p.war_id LIMIT 100`).bind(id, after).all<{ war_id: number; report_json: string }>();
-      return json({ ok: true, dataset: { id, name: run.name, start: run.start_date, end: run.end_date, snapshot_token: run.snapshot_token, requests: run.requests, budget: run.request_limit },
+      return json({ ok: true, dataset: { id, name: run.name, start: run.start_date, end: run.end_date, snapshot_token: run.snapshot_token, requests: run.requests, budget: run.request_limit,
+        collection: run.collection_json ? JSON.parse(run.collection_json) : null },
         reports: rows.results.map(r => JSON.parse(r.report_json)), next: rows.results.length === 100 ? rows.results[99].war_id : null });
     }
     if (request.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
@@ -276,29 +279,18 @@ export async function handleRankedResearch(request: Request, env: Env, url: URL)
         check(run.status !== 'running', 'Pause collection before freezing the dataset.');
         const snapshot = crypto.randomUUID();
         const changed = await env.DB.batch([
-          env.DB.prepare("UPDATE ranked_research_runs SET status = 'frozen', snapshot_token = ?, message = 'Frozen saved reports. Uncollected reports excluded. Analysis and viewing use no Torn requests.' WHERE id = ? AND status NOT IN ('running', 'frozen') AND lease_until <= ?").bind(snapshot, id, nowSeconds()),
+          env.DB.prepare(`UPDATE ranked_research_runs SET status = 'frozen', snapshot_token = ?, collection_json = (
+            SELECT json_object('discovery_done', json(CASE WHEN discovery_done = 1 THEN 'true' ELSE 'false' END),
+              'discovered_wars', COUNT(*), 'saved_reports', COUNT(p.report_json),
+              'pending_reports', COUNT(*) - COUNT(p.report_json))
+            FROM ranked_research_run_wars w JOIN ranked_research_reports p USING(war_id) WHERE w.run_id = ranked_research_runs.id),
+            message = 'Frozen saved reports. Uncollected reports excluded. Analysis and viewing use no Torn requests.'
+            WHERE id = ? AND status NOT IN ('running', 'frozen') AND lease_until <= ?`).bind(snapshot, id, nowSeconds()),
           env.DB.prepare(`DELETE FROM ranked_research_run_wars WHERE run_id = ? AND war_id IN
             (SELECT war_id FROM ranked_research_reports WHERE report_json IS NULL)
             AND EXISTS (SELECT 1 FROM ranked_research_runs WHERE id = ? AND snapshot_token = ?)`).bind(id, id, snapshot),
         ]);
         check(changed[0].meta.changes, 'Collection state changed. Refresh and try again.');
-      } else if (action === 'import') {
-        check(run.status === 'paused' && Array.isArray(body.reports) && body.reports.length > 0 && body.reports.length <= 20, 'Pause collection and import up to 20 reports per batch.');
-        const reports = body.reports.map(validateResearchReport);
-        check(reports.every(r => r.start >= run.from_ts && r.start <= run.to_ts), 'Imported reports must fall within the dataset dates.');
-        // A conditional lease also serialises imports against resume/freeze and scheduled ticks.
-        const lease = crypto.randomUUID();
-        const locked = await env.DB.prepare("UPDATE ranked_research_runs SET lease_token = ?, lease_until = ? WHERE id = ? AND status = 'paused' AND lease_until <= ?").bind(lease, nowSeconds() + 180, id, nowSeconds()).run();
-        check(locked.meta.changes, 'Dataset is busy. Try again shortly.');
-        try {
-          await env.DB.batch(reports.flatMap(r => [
-            env.DB.prepare(`INSERT INTO ranked_research_reports(war_id, start, end, report_json, classification, fetched_at) VALUES (?, ?, ?, ?, ?, ?)
-              ON CONFLICT(war_id) DO UPDATE SET report_json = excluded.report_json, classification = excluded.classification, fetched_at = excluded.fetched_at WHERE ranked_research_reports.report_json IS NULL`).bind(r.id, r.start, r.end, r.raw, r.classification, nowSeconds()),
-            env.DB.prepare('INSERT OR IGNORE INTO ranked_research_run_wars(run_id, war_id) VALUES (?, ?)').bind(id, r.id),
-          ]));
-        } finally {
-          await env.DB.prepare('UPDATE ranked_research_runs SET lease_until = 0, lease_token = NULL WHERE id = ? AND lease_token = ?').bind(id, lease).run();
-        }
       }
     }
     return json({ ok: true });

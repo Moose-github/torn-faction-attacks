@@ -2,6 +2,8 @@ import React from 'react';
 import { getJson, postJson } from '../../api/client';
 import type { ResearchAnalysis, ResearchRun } from '../../../../shared/rankedResearch';
 import './rankedWarResearch.css';
+import { ResearchCoveragePanel, ResearchEvidenceCards } from './ResearchEvidence';
+import { ResearchGraphPanel } from './ResearchGraphs';
 
 const API = '/api/admin/ranked-research';
 type ExportPage = { dataset: { id: string; name: string; start: string; end: string; snapshot_token: string }; reports: unknown[]; next: number | null };
@@ -57,14 +59,6 @@ export function RankedWarResearch() {
     download(`war-research-${selected}.json`, { format: 'ranked-research-dataset-v1', dataset: page.dataset, reports });
     setNotice(`Downloaded ${reports.length.toLocaleString()} saved reports. This used no Torn requests.`);
   }
-  async function importReports(file: File) {
-    if (file.size > 50000000) throw new Error('Choose a report file under 50 MB.');
-    const data = JSON.parse(await file.text());
-    const reports = Array.isArray(data) ? data : data.reports ?? [data];
-    if (!Array.isArray(reports)) throw new Error('Choose a saved report file.');
-    for (let i = 0; i < reports.length; i += 20) await postJson(`${API}/${selected}/import`, { reports: reports.slice(i, i + 20) });
-    setNotice(`Imported ${reports.length.toLocaleString()} reports; existing copies were reused.`);
-  }
   async function importAnalysis(file: File) {
     if (file.size > 1500000) throw new Error('Choose the compact analysis file, under 1.5 MB.');
     const body = JSON.parse(await file.text());
@@ -86,7 +80,7 @@ export function RankedWarResearch() {
       <section className="panel">
         <h3>New dataset</h3>
         <form className="admin-form" onSubmit={event => { event.preventDefault(); void act(async () => {
-          const data = await postJson<{ id: string }>(API, form); setSelected(data.id); setNotice('Dataset created. Start collection when ready, or import saved reports.');
+          const data = await postJson<{ id: string }>(API, form); setSelected(data.id); setNotice('Dataset created. Start collection when ready.');
         }); }}>
           <label className="admin-form-wide">Name<input required maxLength={100} value={form.name} onChange={e => setForm({ ...form, name: e.target.value })}/></label>
           <label>From (UTC)<input type="date" required min="2025-05-21" value={form.start} onChange={e => setForm({ ...form, start: e.target.value })}/></label>
@@ -117,7 +111,6 @@ export function RankedWarResearch() {
             <button className="admin-button" disabled={busy || run.status !== 'running'} onClick={() => void act(async () => { await postJson(`${API}/${selected}/pause`); })}>Pause</button>
             <button className="admin-button" disabled={busy || run.status === 'running'} onClick={() => void act(async () => { await postJson(`${API}/${selected}/freeze`); })}>Freeze saved dataset</button>
             <p className="panel-description admin-form-wide">Freezing keeps the reports already saved and excludes any still pending. It is permanent; future collections use a new dataset.</p>
-            <label className="admin-form-wide">Import existing reports<input type="file" accept=".json" disabled={busy || run.status !== 'paused'} onChange={e => { const file = e.target.files?.[0]; e.target.value = ''; if (file) void act(() => importReports(file)); }}/></label>
           </div>}
           {run.status === 'frozen' && <div className="admin-form">
             <button className="admin-button primary" disabled={busy} onClick={() => void act(exportDataset)}>Download dataset for analysis</button>
@@ -129,9 +122,10 @@ export function RankedWarResearch() {
     </div>
     <section className="panel">
       <h3>API pool use</h3>
-      <p>Keys must explicitly allow <strong>War research</strong> in Settings. Collection uses up to 10 requests per minute per known key owner, shares that allowance across their keys, and waits when this dashboard is already using their capacity. Failed requests count too.</p>
+      <p>Keys must explicitly allow <strong>War research</strong> in Settings. Collection uses up to 20 requests per rolling minute per known key owner, shares that allowance across their keys, and waits when this dashboard is already using their capacity. Failed requests count too.</p>
       <p className="panel-description">Other apps also share Torn’s account limit and are not visible here. Research keeps spare capacity for them and for live dashboard features. No keys are sent to your browser.</p>
     </section>
+    {analysis?.coverage ? <ResearchCoveragePanel coverage={analysis.coverage}/> : analysis && <section className="panel"><h3>Sample coverage</h3><p>Rerun the saved export to add coverage and evidence cards. Older exports may not contain collection completeness information.</p></section>}
     {analysis ? <ResearchResults result={analysis}/> : <section className="panel"><h3>Findings</h3><p>No analysis saved for this dataset yet. Freeze and download a sample, then upload its analysis.</p></section>}
   </div>;
 }
@@ -140,6 +134,7 @@ function ResearchResults({ result: r }: { result: ResearchAnalysis }) {
   const [view, setView] = React.useState<'whole' | 'faction'>('whole');
   const whole = view === 'whole' ? r.whole_war : undefined;
   const model = whole?.model ?? r.model;
+  const comparisons = whole ? whole.comparisons : r.comparisons;
   return <section className="panel">
     <p className="war-research-eyebrow">Saved findings · {r.generated_at.slice(0, 10)}</p>
     <div className="war-research-steps" role="group" aria-label="Reward view">
@@ -158,7 +153,8 @@ function ResearchResults({ result: r }: { result: ResearchAnalysis }) {
         <div><strong>{whole.mean_value === null ? 'Not available' : dollars(whole.mean_value)}</strong><span>mean combined pot</span></div>
       </div>
     </>}
-    {!model.available ? <p>{model.reason}</p> : <div className="war-research-grid">{model.effects?.map(e => <article className="war-research-factor" key={e.field}>
+    <ResearchGraphPanel key={whole ? 'whole' : 'faction'} data={whole ? whole.graphs : r.graphs} cards={comparisons} whole={!!whole}/>
+    {comparisons ? <ResearchEvidenceCards cards={comparisons} whole={!!whole}/> : !model.available ? <p>{model.reason}</p> : <div className="war-research-grid">{model.effects?.map(e => <article className="war-research-factor" key={e.field}>
       <h3>{e.label}</h3>{!e.available ? <p>{e.reason}</p> : <>
         <p><strong>{e.status}</strong></p><div className="war-research-effect">{dollars((e.effect_m ?? 0) * 1e6)}</div>
         <p>Adjusted difference comparing {e.range?.[0].toFixed(2)} with {e.range?.[1].toFixed(2)}.</p>

@@ -4,6 +4,7 @@ export type ResearchRun = {
   status: string; cursor: string | null; discovery_done: number;
   lease_until: number; lease_token: string | null; snapshot_token: string | null;
   message: string; created_at: number; reports?: number; eligible?: number; pending?: number;
+  collection_json?: string | null;
 };
 export type ResearchAnalysis = {
   generated_at: string; scope: string; eligible_wars: number; observations: number;
@@ -12,11 +13,16 @@ export type ResearchAnalysis = {
   warnings: string[]; counts: Record<string, number>;
   summaries: { division: number; won: number; n: number; median_value: number; mean_value: number }[];
   model: ResearchModel;
+  coverage?: ResearchCoverage;
+  comparisons?: ResearchComparison[];
+  graphs?: ResearchGraphs;
   whole_war?: {
     eligible_wars: number; valued_wars: number; model_observations: number;
     mean_value: number | null; median_value: number | null;
     summaries: { winner_division: number; loser_division: number; n: number; median_value: number; mean_value: number }[];
     model: ResearchModel;
+    comparisons?: ResearchComparison[];
+    graphs?: ResearchGraphs;
   };
 };
 export type ResearchModel = { available: boolean; reason?: string; method?: string; effects?: {
@@ -24,3 +30,31 @@ export type ResearchModel = { available: boolean; reason?: string; method?: stri
     range?: number[]; effect_m?: number; interval_m?: number[] | null; cautions?: string[];
   }[] };
 export const RESEARCH_CACHES = ['Melee Cache', 'Small Arms Cache', 'Medium Arms Cache', 'Heavy Arms Cache', 'Armor Cache'];
+
+export type ResearchCoverage = {
+  saved_reports: number; eligible_wars: number; valued_wars: number; model_wars: number;
+  distinct_factions: number; first_saved: string | null; last_saved: string | null;
+  collection: { discovery_done: boolean; discovered_wars: number; saved_reports: number; pending_reports: number } | null;
+  weeks: { start: string; end: string; saved: number; eligible: number; valued: number; factions: number }[];
+  division_pairs: { winner_division: number; loser_division: number; wars: number }[];
+  rosters: { label: string; observations: number; wars: number; factions: number }[];
+  top_factions: { id: number; name: string; wars: number }[];
+  warnings: string[];
+};
+export type ResearchComparison = {
+  field: string; question: string; unit: string; status: string; explanation: string;
+  observations: number; wars: number; factions: number;
+  groups: { label: string; n: number; wars: number; factions: number; mean_value: number; median_value: number }[];
+  observed_difference: number | null; observed_percent: number | null;
+  adjusted: { range: number[]; difference: number; percent_of_mean: number | null;
+    interval: number[] | null; stable_halves: boolean | null; sensitive_to_top_faction: boolean | null } | null;
+  cautions: string[];
+};
+
+export type ResearchGraphs = {
+  observations: number; wars: number; value_range: number[];
+  factors: { field: string; label: string; unit: string; range: number[];
+    medians: { x: number; y: number; n: number }[] }[];
+  points: { war_id: number; faction_id: number; value: number; values: number[] }[];
+  distributions: { label: string; n: number; wars: number; five_number: number[] }[];
+};

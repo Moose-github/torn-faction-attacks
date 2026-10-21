@@ -165,7 +165,7 @@ def fit_model(rows, whole_war=False):
     if ix.sum() >= 5*p and np.linalg.matrix_rank(X[ix]) == p:
         sensitivity = np.linalg.lstsq(X[ix], y[ix], rcond=None)[0]
     effects = []
-    for field, label, log in factors:
+    for field, label, log in factors + controls:
         if field not in names:
             effects.append({'field': field, 'label': label, 'available': False, 'reason': 'No variation in this sample.'})
             continue
@@ -190,9 +190,9 @@ def fit_model(rows, whole_war=False):
         stable = None
         if all(b is not None and j in b for b in half_betas):
             stable = all(float(b[j])*float(beta[j]) > 0 for b in half_betas)
-        sensitive = sensitivity is not None and float(sensitivity[j])*float(beta[j]) <= 0
+        sensitive = float(sensitivity[j])*float(beta[j]) <= 0 if sensitivity is not None else None
         separated = interval is not None and (interval[0] > 0 or interval[1] < 0)
-        status = 'Tentative association' if separated and stable is True and not sensitive and vif < 10 else 'Uncertain'
+        status = 'Tentative association' if separated and stable is True and sensitive is False and vif < 10 else 'Uncertain'
         cautions = []
         if vif >= 10:
             cautions.append('Strong overlap with other factors; its separate effect is unreliable.')
@@ -204,6 +204,8 @@ def fit_model(rows, whole_war=False):
             cautions.append('Direction is not established in both chronological halves.')
         if sensitive:
             cautions.append('Direction changes when the most represented faction and its opponents are removed.')
+        if sensitive is None:
+            cautions.append('The most represented faction sensitivity check could not be estimated.')
         partial = residual + beta[j]*X[:, j] + y.mean()
         edges = np.unique(np.quantile(raw, [0, .25, .5, .75, 1]))
         bins = []
@@ -238,8 +240,10 @@ def analyse_whole_wars(rows):
             'summaries': summaries, 'model': fit_model(model_rows, whole_war=True), 'rows': wars}
 
 
-def analyse(rows, audits, prices, date_range):
+def analyse(rows, audits, prices, date_range, collection=None):
     from statistics import mean, median
+    from evidence import comparisons, coverage
+    from graphs import graph_data
     counts = Counter(a['reason'] or 'eligible' for a in audits)
     valued = [r for r in rows if r['gross_value'] is not None]
     model_rows = [r for r in valued if not r['audit_warnings']]
@@ -267,10 +271,16 @@ def analyse(rows, audits, prices, date_range):
         warnings.append(f'{mismatch} observations have inconsistent member totals and are excluded from adjusted analysis.')
     if rows and all(r['zero_attack_members'] == 0 for r in rows):
         warnings.append('Every listed member has attacks in every report. Check whether inactive members are missing before interpreting participation.')
+    model = fit_model(model_rows)
+    whole = analyse_whole_wars(rows)
+    whole['comparisons'] = comparisons(whole['rows'], whole['model'], whole=True)
+    whole['graphs'] = graph_data(whole['rows'], whole=True)
     return {'generated_at': dt.datetime.now(dt.timezone.utc).isoformat(), 'range': date_range,
             'scope': 'Both starting ranks Platinum; completed wars; no forfeits; gross cache value; no expense deductions.',
             'counts': dict(counts), 'eligible_wars': len({r['war_id'] for r in rows}),
             'observations': len(rows), 'valued_observations': len(valued), 'model_observations': len(model_rows),
             'distinct_factions': len({r['faction_id'] for r in rows}), 'prices': prices,
             'summaries': summaries, 'missing_prices': missing, 'warnings': warnings,
-            'audit': audits, 'model': fit_model(model_rows), 'rows': rows, 'whole_war': analyse_whole_wars(rows)}
+            'audit': audits, 'model': model, 'rows': rows, 'whole_war': whole,
+            'coverage': coverage(rows, whole['rows'], audits, date_range, collection),
+            'comparisons': comparisons(rows, model), 'graphs': graph_data(rows)}
