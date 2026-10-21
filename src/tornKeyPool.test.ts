@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { ExternalApiError } from "./external/http";
 import {
   allowedFeaturesFromJson,
+  keyPoolFeatureOptions,
   decryptTornApiKey,
   encryptTornApiKey,
   featureAccessRequirement,
@@ -20,6 +21,14 @@ import {
 } from "./tornKeyPool";
 
 describe("torn key pool", () => {
+  it("removes the research option without granting defaults to retired or empty permission lists", () => {
+    expect(keyPoolFeatureOptions().map(option => option.key)).not.toContain("ranked_war_research");
+    expect(keyPoolFeatureOptions().map(option => option.key)).toContain("enemy_scouting");
+    expect(allowedFeaturesFromJson('["ranked_war_research"]')).toEqual([]);
+    expect(allowedFeaturesFromJson('[]')).toEqual([]);
+    expect(allowedFeaturesFromJson('["ranked_war_research","stock_tools"]')).toEqual(["stock_tools"]);
+    expect(allowedFeaturesFromJson('["ranked_war_research","enemy_scouting"]')).toEqual(["enemy_scouting"]);
+  });
   it("encrypts and decrypts Torn keys without preserving plaintext", async () => {
     const encrypted = await encryptTornApiKey("abc123-secret-key", "storage-secret");
 

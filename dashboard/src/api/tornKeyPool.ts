@@ -1,7 +1,6 @@
 import { deleteJson, getJson, postJson, putJson } from "./client";
 
 export type TornKeyPoolFeature =
-  | "ranked_war_research"
   | "arrest_scout"
   | "hospital_monitor"
   | "enemy_scouting"

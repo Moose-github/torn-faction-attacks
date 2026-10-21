@@ -9,6 +9,7 @@ import { ExternalApiError } from './external/http';
 
 const ROOT = 'https://api.torn.com/v2/faction/';
 const FEATURE = 'ranked_war_research' as const;
+const KEY_PERMISSION = 'enemy_scouting' as const;
 const MAX_FAILURES = 5;
 const retryDelay = (failures: number) => Math.min(900, 60 * 2 ** Math.min(failures - 1, 4));
 class ResearchRequestError extends Error {
@@ -121,7 +122,7 @@ export async function reserveResearchAttempt(env: Env, runId: string, lease: str
       AND k.id = ? AND k.owner_torn_user_id IS NOT NULL AND k.status = 'active'
       AND (k.paused_until IS NULL OR k.paused_until <= ?)
       AND NOT EXISTS (SELECT 1 FROM ranked_research_key_cooldowns h WHERE h.key_id = k.id AND h.until_ts > ?)
-      AND EXISTS (SELECT 1 FROM json_each(k.allowed_features_json) WHERE value = 'ranked_war_research')
+      AND EXISTS (SELECT 1 FROM json_each(k.allowed_features_json) WHERE value = 'enemy_scouting')
       AND (SELECT COUNT(*) FROM ranked_research_attempts a WHERE a.owner_id = k.owner_torn_user_id AND a.attempted_at > ?) < 20
       AND (SELECT COUNT(*) FROM torn_api_call_log l JOIN torn_api_keys owner_key ON l.key_source = 'key_pool:' || owner_key.id
         WHERE owner_key.owner_torn_user_id = k.owner_torn_user_id AND l.requested_at > ?) < 50
@@ -149,7 +150,7 @@ function apiFailure(data: Record<string, unknown>): ResearchRequestError | null 
 }
 
 async function requestTorn(env: Env, run: ResearchRun, url: string, warId: number | null, deadline: number) {
-  const candidates = await readAvailableTornApiKeys(env, FEATURE, nowSeconds(), { includeFallback: false });
+  const candidates = await readAvailableTornApiKeys(env, KEY_PERMISSION, nowSeconds(), { includeFallback: false });
   for (const candidate of candidates) {
     if (Date.now() >= deadline) return null;
     const attemptId = crypto.randomUUID();
@@ -264,7 +265,7 @@ export async function runRankedResearchTick(env: Env) {
         throw error;
       }
       if (!response) {
-        await env.DB.prepare("UPDATE ranked_research_runs SET message = 'Waiting for spare capacity or healthy keys opted into War research.' WHERE id = ? AND status = 'running'").bind(run.id).run();
+        await env.DB.prepare("UPDATE ranked_research_runs SET message = 'Waiting for spare capacity or healthy keys opted into Enemy scouting.' WHERE id = ? AND status = 'running'").bind(run.id).run();
         break;
       }
       if (response.keyFailure) continue;
@@ -361,7 +362,7 @@ export async function handleRankedResearch(request: Request, env: Env, url: URL)
         COALESCE(SUM(COALESCE(paused_until, 0) > ? OR COALESCE(h.until_ts, 0) > ?), 0) AS cooling_keys
         FROM torn_api_keys k LEFT JOIN ranked_research_key_cooldowns h ON h.key_id = k.id
         WHERE status = 'active' AND owner_torn_user_id IS NOT NULL
-        AND EXISTS (SELECT 1 FROM json_each(allowed_features_json) WHERE value = 'ranked_war_research')`).bind(now, now)
+        AND EXISTS (SELECT 1 FROM json_each(allowed_features_json) WHERE value = 'enemy_scouting')`).bind(now, now)
         .first<{ opted_in_owners: number; cooling_keys: number }>();
       const issueFilter = run.status === 'frozen' ? 't.unresolved_at_freeze = 1' : 'p.report_json IS NULL';
       const issues = await env.DB.prepare(`SELECT t.war_id, t.failures, t.next_attempt_at, t.last_error

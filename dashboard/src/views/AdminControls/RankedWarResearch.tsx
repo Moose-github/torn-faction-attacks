@@ -146,7 +146,7 @@ export function RankedWarResearch() {
     </div>
     <section className="panel">
       <h3>API pool use</h3>
-      <p>Keys must explicitly allow <strong>War research</strong> in Settings. Collection uses up to 20 requests per rolling minute per known key owner, shares that allowance across their keys, and waits when this dashboard is already using their capacity. Failed requests count too.</p>
+      <p>Collection uses keys opted into <strong>Enemy scouting</strong> in Settings. Research uses up to 20 requests per rolling minute per known key owner, shares that allowance across their keys, and waits when this dashboard is already using their capacity. Failed requests count too.</p>
       <p className="panel-description">Other apps also share Torn’s account limit and are not visible here. Research keeps spare capacity for them and for live dashboard features. No keys are sent to your browser.</p>
     </section>
     {analysis?.coverage ? <ResearchCoveragePanel coverage={analysis.coverage}/> : analysis && <section className="panel"><h3>Sample coverage</h3><p>Rerun the saved export to add coverage and evidence cards. Older exports may not contain collection completeness information.</p></section>}

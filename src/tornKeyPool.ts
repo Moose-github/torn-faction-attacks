@@ -6,7 +6,6 @@ import type { Env } from "./types";
 import { json, nowSeconds } from "./utils";
 
 export type TornKeyPoolFeature =
-  | "ranked_war_research"
   | "arrest_scout"
   | "hospital_monitor"
   | "enemy_scouting"
@@ -106,7 +105,6 @@ export type TornKeyPreviewMetadata = ValidatedTornKeyInfo & {
 };
 
 const FEATURE_LABELS: Record<TornKeyPoolFeature, string> = {
-  ranked_war_research: "War research (finite historical collection for reward analysis; admin access)",
   arrest_scout: "Arrest Scout",
   hospital_monitor: "Hospital Monitor",
   enemy_scouting: "Enemy scouting",
@@ -120,7 +118,6 @@ const FEATURE_LABELS: Record<TornKeyPoolFeature, string> = {
 };
 
 const ALLOWED_FEATURES = new Set<TornKeyPoolFeature>([
-  "ranked_war_research",
   "arrest_scout",
   "hospital_monitor",
   "enemy_scouting",
@@ -663,7 +660,6 @@ export function isTornKeyCapableForFeature(
     case "stock_tools":
     case "misc_utilities":
     case "experimental_features":
-    case "ranked_war_research":
       return hasPublicCapability(key);
   }
 }
@@ -681,7 +677,6 @@ export function featureAccessRequirement(feature: TornKeyPoolFeature): TornKeyPo
     case "stock_tools":
     case "misc_utilities":
     case "experimental_features":
-    case "ranked_war_research":
       return "public";
   }
 }
@@ -976,7 +971,9 @@ function normalizeAllowedFeatures(value: unknown, fallback: TornKeyPoolFeature[]
       ? [item as TornKeyPoolFeature]
       : [];
   })));
-  return normalized.length > 0 ? normalized : [...fallback];
+  // An explicit list is authoritative, even if all entries are retired or
+  // unchecked. Removing an option must not grant unrelated default permissions.
+  return Array.isArray(value) ? normalized : [...fallback];
 }
 
 function normalizeMaxRequestsPerMinute(value: unknown): number | null {

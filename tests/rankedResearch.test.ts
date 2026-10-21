@@ -30,7 +30,7 @@ function candidate(id = 'key1'): TornKeyPoolCandidate {
 }
 function addKey(id = 'key1', owner = 1) {
   db.prepare(`INSERT INTO torn_api_keys(id, encrypted_key, key_fingerprint, owner_torn_user_id, status, allowed_features_json, max_requests_per_minute, created_at, updated_at)
-    VALUES (?, 'encrypted', ?, ?, 'active', '["ranked_war_research"]', 35, 1, 1)`).run(id, id, owner);
+    VALUES (?, 'encrypted', ?, ?, 'active', '["enemy_scouting"]', 35, 1, 1)`).run(id, id, owner);
 }
 function report(id = 123) {
   return { rankedwarreport: { id, start, end: start + 3600, winner: 1, forfeit: false, factions: [1, 2].map(n => ({
@@ -66,6 +66,27 @@ function advance(seconds: number) { vi.setSystemTime(Date.now() + seconds * 1000
 const listing = (ids = [123]) => ({ warfareranked: ids.map(id => ({ id, start, end: start + 3600 })), _metadata: { links: { next: null as string | null } } });
 
 describe('finite ranked research', () => {
+  it('uses only enemy-scouting opt-ins while keeping research usage attribution', async () => {
+    db.prepare('UPDATE torn_api_keys SET allowed_features_json = ? WHERE id = ?').run('["ranked_war_research"]', 'key1');
+    addKey('key2', 2);
+    // Simulate a stale candidate list; the atomic reservation must recheck consent.
+    vi.mocked(readAvailableTornApiKeys).mockResolvedValue([candidate(), candidate('key2')]);
+    const id = await create(); await call(`/${id}/resume`, {});
+    vi.mocked(fetchTrackedTornJson).mockResolvedValueOnce(listing()).mockResolvedValueOnce(report());
+    await runRankedResearchTick(env);
+    expect(row(id)).toMatchObject({ status: 'complete', requests: 2 });
+    expect(readAvailableTornApiKeys).toHaveBeenCalledWith(env, 'enemy_scouting', expect.any(Number), { includeFallback: false });
+    expect(db.prepare('SELECT DISTINCT key_id FROM ranked_research_attempts').all()).toEqual([{ key_id: 'key2' }]);
+    expect(vi.mocked(fetchTrackedTornJson).mock.calls[0][3]).toMatchObject({ feature: 'ranked_war_research', keySource: 'key_pool:key2' });
+    expect(await (await call(`/${id}/health`)).json()).toMatchObject({ health: { opted_in_owners: 1 } });
+    db.prepare('UPDATE torn_api_keys SET allowed_features_json = ? WHERE id = ?').run('["stock_tools"]', 'key2');
+    const other = await create(); await call(`/${other}/resume`, {});
+    await runRankedResearchTick(env);
+    expect(row(other)).toMatchObject({ requests: 0, status: 'running' });
+    expect(String(row(other).message)).toContain('Enemy scouting');
+    expect(await (await call(`/${other}/health`)).json()).toMatchObject({ health: { opted_in_owners: 0 } });
+    expect(fetchTrackedTornJson).toHaveBeenCalledTimes(2);
+  });
   it('migrates legacy data to recovery defaults without modifying snapshots', () => {
     const legacy = new DatabaseSync(':memory:');
     try {

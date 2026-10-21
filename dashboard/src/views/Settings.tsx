@@ -320,7 +320,7 @@ export function Settings({
           icon={<KeyRound size={18} />}
         />
         {keyPoolError ? <p className="form-error">{keyPoolError}</p> : null}
-        <p className="panel-description">Optional War research permission allows finite historical ranked-war collection to study rewards and help plan more profitable wars. Raw reports and findings are retained until an administrator removes them and are available to administrators only. Your key stays encrypted on the server. This permission is off by default and requires public API access.</p>
+        <p className="panel-description">Enemy scouting also allows finite historical ranked-war collection for War research. Research runs only when an administrator starts a dataset. Raw reports and findings are retained until an administrator removes them and are available to administrators only. Your key stays encrypted on the server.</p>
 
         <form className="torn-key-pool-form" onSubmit={submitKey}>
           <label>
@@ -522,7 +522,7 @@ function featureDescription(feature: TornKeyPoolFeature, isNewKey: boolean): str
     return "Allows Arrest Scout scans to check candidate targets.";
   }
   if (feature === "enemy_scouting") {
-    return "Allows enemy faction scouting, member checks, and related scouting stats.";
+    return "Allows enemy faction scouting, member checks, related scouting stats, and historical ranked-war research.";
   }
   if (feature === "faction_lifestyle_stats") {
     return "Allows lifestyle personalstats imports and repair jobs.";

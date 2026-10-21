@@ -4,7 +4,7 @@ The collector and saved findings live in **Admin → War research**. Collection 
 
 ## Use
 
-1. Opt a submitted pool key into **War research** in Settings. It is disabled by default and does not use fallback keys or keys without a known owner.
+1. Opt a submitted pool key into **Enemy scouting** in Settings. War research uses that same permission; there is no separate research key option. Keys with only the retired War research permission are not used unless Enemy scouting is enabled. Research does not use fallback keys or keys without a known owner, and collection starts only when an administrator starts a dataset.
 2. Create a named dataset with completed UTC days and a total request budget. The default 5,000 calls cover roughly four hours at one owner's theoretical maximum pace; other feature use and retries can make collection slower, while multiple owners can make it faster. Start collection to fetch reports from Torn. Raw report uploads are not supported. Requests include listing pages, reports and failures. All starting ranks must be inspected because the listing has no rank fields. Both starting ranks must be Platinum for inclusion; forfeits are excluded.
 3. Pause whenever needed. Resume keeps the cursor and reuses already saved reports. An explicit larger total budget is required after exhaustion. Temporary failures retry automatically; exhausted retries and issues requiring review pause without discarding progress.
 4. Freeze the reports already saved. Pending reports are removed from that sample. The snapshot cannot resume or change; create a new dataset for a new era or larger sample. Shared raw reports are immutable and deduplicated by war ID.
