@@ -1,5 +1,5 @@
 import React from "react";
-import { Ghost, CalendarClock, ChevronDown, ChevronRight, TrendingUp, Swords } from "lucide-react";
+import { Ghost, CalendarClock, ChevronDown, ChevronRight, TrendingUp, Swords, Beaker } from "lucide-react";
 import { WarSummary, WarType } from "../api";
 import { useChainWatchLive } from "../hooks/ChainWatchLiveProvider";
 import { EmptyState } from "./Common";
@@ -195,7 +195,7 @@ export function Sidebar({
         />
         <SidebarLink
           active={view === "warResearchResults"}
-          icon={<TrendingUp size={18} />}
+          icon={<Beaker size={18} />}
           label="War research results"
           onClick={() => onViewChange("warResearchResults")}
         />
