@@ -5,11 +5,11 @@ import { researchPlatinumLabel } from '../../../../shared/rankedResearch';
 const money = (v: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(v);
 const percent = (v: number | null) => v === null ? 'not defined for a zero baseline' : `${v.toFixed(1)}%`;
 
-function CoverageDetail({ title, displayOnly, children }: { title: string; displayOnly: boolean; children: ReactNode }) {
-  return displayOnly ? <section><h4>{title}</h4>{children}</section> : <details><summary>{title}</summary>{children}</details>;
+function CoverageDetail({ title, children }: { title: string; children: ReactNode }) {
+  return <details><summary>{title}</summary>{children}</details>;
 }
 
-export function ResearchCoveragePanel({ coverage: c, displayOnly = false }: { coverage: ResearchCoverage; displayOnly?: boolean }) {
+export function ResearchCoveragePanel({ coverage: c, showTopFactions = true }: { coverage: ResearchCoverage; showTopFactions?: boolean }) {
   const m = c.collection;
   const complete = m?.discovery_done && m.pending_reports === 0;
   return <section className="panel">
@@ -24,15 +24,15 @@ export function ResearchCoveragePanel({ coverage: c, displayOnly = false }: { co
     </div>
     <p>{c.distinct_factions.toLocaleString()} distinct eligible factions. Saved war start dates: {c.first_saved ?? 'none'} to {c.last_saved ?? 'none'}.</p>
     <ul>{c.warnings.map((w, i) => <li key={i}>{w}</li>)}</ul>
-    <CoverageDetail title="Weekly coverage" displayOnly={displayOnly}>
+    <CoverageDetail title="Weekly coverage">
       <div className="stock-status-table-wrap"><table className="stock-status-table"><caption>Counts by war start date; partial boundary weeks are included.</caption><thead><tr><th>UTC dates</th><th>Saved</th><th>Eligible</th><th>Fully priced</th><th>Eligible factions</th></tr></thead>
         <tbody>{c.weeks.map(w => <tr key={w.start}><td>{w.start} – {w.end}</td><td>{w.saved}</td><td>{w.eligible}</td><td>{w.valued}</td><td>{w.factions}</td></tr>)}</tbody></table></div>
     </CoverageDetail>
     <div className="war-research-grid">
-      <CoverageDetail title="Starting division coverage" displayOnly={displayOnly}><div className="stock-status-table-wrap"><table className="stock-status-table"><thead><tr><th>Winner</th><th>Loser</th><th>Eligible wars</th></tr></thead><tbody>{c.division_pairs.map(p => <tr key={`${p.winner_division}-${p.loser_division}`}><td>{researchPlatinumLabel(p.winner_division)}</td><td>{researchPlatinumLabel(p.loser_division)}</td><td>{p.wars}</td></tr>)}</tbody></table></div></CoverageDetail>
-      <CoverageDetail title="Listed roster coverage" displayOnly={displayOnly}><div className="stock-status-table-wrap"><table className="stock-status-table"><caption>Each faction is counted once per eligible war; a war can appear in two size groups.</caption><thead><tr><th>Faction roster</th><th>Observations</th><th>Wars</th><th>Factions</th></tr></thead><tbody>{c.rosters.map(r => <tr key={r.label}><td>{r.label}</td><td>{r.observations}</td><td>{r.wars}</td><td>{r.factions}</td></tr>)}</tbody></table></div></CoverageDetail>
+      <CoverageDetail title="Starting division coverage"><div className="stock-status-table-wrap"><table className="stock-status-table"><thead><tr><th>Winner</th><th>Loser</th><th>Eligible wars</th></tr></thead><tbody>{c.division_pairs.map(p => <tr key={`${p.winner_division}-${p.loser_division}`}><td>{researchPlatinumLabel(p.winner_division)}</td><td>{researchPlatinumLabel(p.loser_division)}</td><td>{p.wars}</td></tr>)}</tbody></table></div></CoverageDetail>
+      <CoverageDetail title="Listed roster coverage"><div className="stock-status-table-wrap"><table className="stock-status-table"><caption>Each faction is counted once per eligible war; a war can appear in two size groups.</caption><thead><tr><th>Faction roster</th><th>Observations</th><th>Wars</th><th>Factions</th></tr></thead><tbody>{c.rosters.map(r => <tr key={r.label}><td>{r.label}</td><td>{r.observations}</td><td>{r.wars}</td><td>{r.factions}</td></tr>)}</tbody></table></div></CoverageDetail>
     </div>
-    <CoverageDetail title="Most represented factions" displayOnly={displayOnly}><ul>{c.top_factions.map(f => <li key={f.id}>{f.name} [{f.id}]: {f.wars} eligible wars</li>)}</ul></CoverageDetail>
+    {showTopFactions && <CoverageDetail title="Most represented factions"><ul>{c.top_factions.map(f => <li key={f.id}>{f.name} [{f.id}]: {f.wars} eligible wars</li>)}</ul></CoverageDetail>}
   </section>;
 }
 

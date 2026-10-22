@@ -32,7 +32,7 @@ export function WarResearchResultsPage() {
     {error && <p className="error-panel" role="alert">{error}{result ? ' Showing the previously loaded results.' : ''}</p>}
     {loading ? <p role="status">Loading saved research results…</p> : !result && !error ? <section className="panel"><h3>No saved results yet</h3><p>Results will appear here once an administrator saves an analysis.</p></section> : null}
     {result && <>
-      {result.coverage ? <ResearchCoveragePanel coverage={result.coverage} displayOnly/> : <section className="panel"><h3>Sample coverage</h3><p>This older analysis does not contain coverage information.</p></section>}
+      {result.coverage ? <ResearchCoveragePanel coverage={result.coverage} showTopFactions={false}/> : <section className="panel"><h3>Sample coverage</h3><p>This older analysis does not contain coverage information.</p></section>}
       <section className="panel"><h3>Reward values</h3><p>Gross cache values use the saved prices below. Expenses are not deducted. Rewards needing an unknown price are excluded from value comparisons.</p>
         <dl className="research-health-grid">{Object.entries(result.prices).map(([name, value]) => <div key={name}><dt>{name}</dt><dd>{value === null ? 'Unknown' : money(value)}</dd></div>)}</dl>
       </section>

@@ -28,7 +28,7 @@ export function ResearchFactorPlots({ data, whole }: { data?: ResearchFactorGrap
   const descriptions: Record<string, string> = {
     participation_rate: 'Share of listed members who made at least one reported attack.',
     top20_attack_share: whole ? 'Share of all attacks made by each faction’s busiest 20% of listed members, combined.' : 'Share of attacks made by the busiest 20% of listed members.',
-    attack_balance: 'The smaller faction attack total divided by both totals combined. 0.5 means evenly shared attacks.',
+    attack_balance: 'Balance of reported attacks between the two factions: the lower faction attack total divided by both factions’ combined total. 0.5 means both factions made the same number of attacks; values closer to 0 mean one faction made most of the attacks.',
     score_balance: 'The smaller faction score divided by both scores combined. 0.5 means evenly shared score.',
   };
   return <section className="panel research-results-plots">
@@ -40,7 +40,7 @@ export function ResearchFactorPlots({ data, whole }: { data?: ResearchFactorGrap
       <p>Observed patterns can reflect several factors together. They do not establish a causal effect or a reward target.</p>
       <p className="research-scroll-hint">Scroll graphs horizontally to see all values.</p>
       {data.factors.map((factor, index) => <article key={factor.field}>
-        <h4>{factor.label}</h4>
+        <h4>{factor.field === 'attack_balance' ? 'Attack balance between the two factions' : factor.label}</h4>
         {descriptions[factor.field] && <p>{descriptions[factor.field]}</p>}
         <Scatter data={data} index={index} medians={true} whole={whole}/>
       </article>)}
