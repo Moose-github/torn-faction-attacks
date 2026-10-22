@@ -551,9 +551,51 @@ describe('finite ranked research', () => {
     expect(() => researchNextCursor(url.replace(`to=${bounds.to_ts}`, `to=${bounds.to_ts + 1}`), bounds)).toThrow('Pagination left the selected date range.');
     expect(() => researchNextCursor(undefined, bounds)).toThrow();
     const id = await create(); await call(`/${id}/resume`, {});
-    vi.mocked(fetchTrackedTornJson).mockResolvedValue({ warfareranked: [], _metadata: { links: { next: String(row(id).cursor).replace('sort=ASC', 'sort=asc') + '&key=secret' } } });
+    vi.mocked(fetchTrackedTornJson).mockResolvedValue({ ...listing(), _metadata: { links: { next: String(row(id).cursor).replace('sort=ASC', 'sort=asc') + '&key=secret' } } });
     await runRankedResearchTick(env);
     expect(row(id).status).toBe('paused'); expect(String(row(id).message)).toContain('repeated');
+  });
+  it('completes an empty final page whose next link points to itself', async () => {
+    const id = await create(); await call(`/${id}/resume`, {});
+    vi.mocked(fetchTrackedTornJson).mockResolvedValue({ ...listing([]), _metadata: { links: { next: String(row(id).cursor).replace('sort=ASC', 'sort=asc') } } });
+    await runRankedResearchTick(env);
+    expect(row(id)).toMatchObject({ status: 'complete', requests: 1, discovery_done: 1, cursor: null });
+    expect(fetchTrackedTornJson).toHaveBeenCalledTimes(1);
+  });
+  it('finishes a short boundary-only final page, deduplicating old wars and saving new ones', async () => {
+    const id = await create(); await call(`/${id}/resume`, {});
+    const cursor = `https://api.torn.com/v2/faction/warfareranked?from=${start}&to=${row(id).to_ts}&sort=ASC&limit=100`;
+    const first = listing(); first._metadata.links.next = cursor;
+    const last = listing([123, 124]); last._metadata.links.next = cursor.replace('sort=ASC', 'sort=asc') + '&key=secret';
+    vi.mocked(fetchTrackedTornJson).mockResolvedValueOnce(first).mockResolvedValueOnce(report())
+      .mockResolvedValueOnce(last).mockResolvedValueOnce(report(124));
+    await runRankedResearchTick(env);
+    expect(row(id)).toMatchObject({ status: 'complete', requests: 4, discovery_done: 1, cursor: null });
+    expect(db.prepare('SELECT war_id FROM ranked_research_run_wars ORDER BY war_id').all()).toEqual([{ war_id: 123 }, { war_id: 124 }]);
+    expect(db.prepare('SELECT COUNT(*) AS n FROM ranked_research_reports WHERE report_json IS NOT NULL').get()?.n).toBe(2);
+    expect(fetchTrackedTornJson).toHaveBeenCalledTimes(4);
+  });
+  it.each(['full', 'earlier cursor', 'offset', 'shortened range', 'later starts', 'duplicate IDs', 'malformed entry'])('keeps unsafe repeated pagination paused: %s', async mode => {
+    const id = await create(200); await call(`/${id}/resume`, {});
+    const original = String(row(id).cursor);
+    let cursor = original.replace(`from=${start - 1}`, `from=${start}`);
+    if (mode === 'offset') cursor += '&offset=100';
+    if (mode === 'shortened range') cursor = cursor.replace(`to=${row(id).to_ts}`, `to=${start + 86400}`);
+    db.prepare('UPDATE ranked_research_runs SET cursor = ? WHERE id = ?').run(cursor, id);
+    const page = listing(mode === 'full' ? Array.from({ length: 100 }, (_, i) => i + 1) : mode === 'duplicate IDs' ? [123, 123] : [123]);
+    page._metadata.links.next = cursor;
+    if (mode === 'earlier cursor') {
+      db.prepare('INSERT INTO ranked_research_cursors(run_id, cursor) VALUES (?, ?)').run(id, original);
+      page.warfareranked = [];
+      page._metadata.links.next = original;
+    }
+    if (mode === 'later starts') page.warfareranked[0].start++;
+    if (mode === 'malformed entry') page.warfareranked[0].id = -1;
+    vi.mocked(fetchTrackedTornJson).mockResolvedValue(page);
+    await runRankedResearchTick(env);
+    expect(row(id)).toMatchObject({ status: 'paused', discovery_done: 0, cursor, requests: 1 });
+    expect(db.prepare('SELECT COUNT(*) AS n FROM ranked_research_run_wars').get()?.n).toBe(0);
+    expect(fetchTrackedTornJson).toHaveBeenCalledTimes(1);
   });
   it('filters using both pre-war ranks and forfeits; rejects malformed Platinum reports', () => {
     const data = report(); expect(validateResearchReport(data).classification).toBe('eligible');

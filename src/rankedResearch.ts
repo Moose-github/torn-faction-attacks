@@ -245,17 +245,34 @@ async function saveResearchResponse(env: Env, run: ResearchRun, url: string, war
   } else {
     check(Array.isArray(data.warfareranked), 'Torn returned an unexpected war listing.');
     const metadata = isRecord(data._metadata) && isRecord(data._metadata.links) ? data._metadata.links : {};
-    const next = researchNextCursor(metadata.next, run);
+    let next = researchNextCursor(metadata.next, run);
     const seen = next && await env.DB.prepare('SELECT 1 FROM ranked_research_cursors WHERE run_id = ? AND cursor = ?').bind(run.id, next).first();
-    check(next !== url && !seen, 'Torn repeated a pagination cursor. Collection paused without skipping wars.');
+    check(data.warfareranked.length <= 100, 'Torn returned an oversized war listing.');
+    const current = new URL(url);
+    const from = Number(current.searchParams.get('from'));
+    let onlyBoundaryWars = true;
+    const ids = new Set<number>();
     for (const entry of data.warfareranked) {
       check(isRecord(entry) && integer(entry.id) && entry.id > 0 && integer(entry.start) && integer(entry.end), 'Invalid war listing entry.');
       check(entry.start >= run.from_ts && entry.start <= run.to_ts, 'Listing left the selected date range.');
+      check(!ids.has(entry.id), 'Torn returned duplicate wars in one listing page.');
+      ids.add(entry.id);
+      onlyBoundaryWars &&= entry.start === from;
       if (entry.end <= entry.start) continue;
       statements.push(env.DB.prepare('INSERT OR IGNORE INTO ranked_research_reports(war_id, start, end) VALUES (?, ?, ?)').bind(entry.id, entry.start, entry.end));
       statements.push(env.DB.prepare(`INSERT OR IGNORE INTO ranked_research_run_wars(run_id, war_id, reused)
         SELECT ?, war_id, report_json IS NOT NULL FROM ranked_research_reports WHERE war_id = ?`).bind(run.id, entry.id));
     }
+    // Some final responses point back to themselves instead of returning null.
+    // An unsaturated page covering the remaining date range, with no records
+    // beyond its lower boundary, is exhausted. Save any boundary wars first.
+    // Never infer completion from a full page (there may be more tied starts),
+    // an offset page, a shortened upper range, or a link to an older cursor.
+    const exhaustedSelfLink = next === url && data.warfareranked.length < 100 && onlyBoundaryWars
+      && current.searchParams.get('limit') === '100' && !current.searchParams.has('offset')
+      && Number(current.searchParams.get('to')) === run.to_ts;
+    if (exhaustedSelfLink) next = null;
+    else check(next !== url && !seen, `Torn repeated a pagination cursor (${data.warfareranked.length} wars on this page). Collection paused without skipping wars.`);
     statements.push(env.DB.prepare('INSERT OR IGNORE INTO ranked_research_cursors(run_id, cursor) VALUES (?, ?)').bind(run.id, url));
     statements.push(env.DB.prepare('UPDATE ranked_research_runs SET cursor = ?, discovery_done = ? WHERE id = ?').bind(next, next === null ? 1 : 0, run.id));
   }
