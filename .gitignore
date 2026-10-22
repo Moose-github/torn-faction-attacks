@@ -199,5 +199,6 @@ dist
 .dev.vars*
 !.dev.vars.example
 dashboard/dist/
+dashboard/public/research-runtime/
 dashboard-vite*.log
 .tmp/

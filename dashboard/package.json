@@ -4,12 +4,15 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "predev": "node scripts/prepare-research-runtime.mjs",
     "dev": "vite",
+    "prebuild": "node scripts/prepare-research-runtime.mjs",
     "build": "tsc && vite build",
     "preview": "vite preview"
   },
   "dependencies": {
     "lucide-react": "^0.475.0",
+    "pyodide": "0.27.7",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "recharts": "^2.15.1"

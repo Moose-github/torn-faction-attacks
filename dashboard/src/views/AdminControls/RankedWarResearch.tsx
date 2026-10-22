@@ -6,6 +6,7 @@ import './rankedWarResearch.css';
 import { ResearchCoveragePanel, ResearchEvidenceCards } from './ResearchEvidence';
 import { ResearchGraphPanel } from './ResearchGraphs';
 import { ResearchCollectionHealth } from './ResearchCollectionHealth';
+import { analyseSavedResearch, parseResearchPrices, RESEARCH_CACHES } from '../../utils/researchAnalysis';
 
 const API = '/api/admin/ranked-research';
 type ExportPage = { dataset: { id: string; name: string; start: string; end: string; snapshot_token: string }; reports: unknown[]; next: number | null };
@@ -24,6 +25,10 @@ export function RankedWarResearch() {
   const [error, setError] = React.useState('');
   const [notice, setNotice] = React.useState('');
   const [busy, setBusy] = React.useState(false);
+  const [prices, setPrices] = React.useState<Record<string, string>>({});
+  const [analysisProgress, setAnalysisProgress] = React.useState('');
+  const analysisController = React.useRef<AbortController | null>(null);
+  React.useEffect(() => () => analysisController.current?.abort(), []);
   const [form, setForm] = React.useState({ name: 'Platinum reward study', start: '2026-09-01', end: new Date(Date.now() - 86400000).toISOString().slice(0, 10), budget: 5000 });
   const [resumeBudget, setResumeBudget] = React.useState(1000);
   const run = runs.find(r => r.id === selected);
@@ -46,6 +51,9 @@ export function RankedWarResearch() {
   }, [selected]);
   React.useEffect(() => { if (run) setResumeBudget(run.request_limit); }, [run?.id, run?.request_limit]);
   React.useEffect(() => {
+    setPrices(Object.fromEntries(RESEARCH_CACHES.map(name => [name, analysis?.prices[name] == null ? '' : String(analysis.prices[name])])));
+  }, [selected, analysis]);
+  React.useEffect(() => {
     setHealth(null);
     if (!selected) return;
     const controller = new AbortController();
@@ -58,7 +66,10 @@ export function RankedWarResearch() {
 
   async function act(work: () => Promise<void>) {
     setBusy(true); setError(''); setNotice('');
-    try { await work(); await load(); } catch (e) { setError(e instanceof Error ? e.message : 'The operation could not finish.'); }
+    try { await work(); await load(); } catch (e) {
+      if (e instanceof Error && e.name === 'AbortError') setNotice('Analysis cancelled. Your saved collection is unchanged.');
+      else setError(e instanceof Error ? e.message : 'The operation could not finish.');
+    }
     finally { setBusy(false); }
   }
   async function exportDataset() {
@@ -73,11 +84,27 @@ export function RankedWarResearch() {
     setNotice(`Downloaded ${reports.length.toLocaleString()} saved reports. This used no Torn requests.`);
   }
   async function importAnalysis(file: File) {
-    if (file.size > 1500000) throw new Error('Choose the compact analysis file, under 1.5 MB.');
+    if (file.size > 1500000) throw new Error('This upload accepts compact findings under 1.5 MB, not the raw collection export. Use Analyse collection below, or choose upload-analysis.json from the optional offline analyser.');
     const body = JSON.parse(await file.text());
+    if (body.format === 'ranked-research-dataset-v1') throw new Error('This is the raw collection export. Use Analyse collection, or choose upload-analysis.json from the optional offline analyser.');
     await postJson(`${API}/${selected}/analysis`, body);
     const data = await getJson<{ analysis: ResearchAnalysis }>(`${API}/${selected}/analysis`);
     setAnalysis(data.analysis); setNotice('Analysis saved in this dataset.');
+  }
+  async function analyseCollection() {
+    if (!run) return;
+    const values = parseResearchPrices(prices);
+    if (Object.values(values).every(value => value === null)) throw new Error('Enter at least one cache price to compare gross rewards.');
+    const controller = new AbortController();
+    analysisController.current = controller;
+    try {
+      const result = await analyseSavedResearch(run, values, controller.signal, setAnalysisProgress);
+      setAnalysis(result);
+      setNotice('Analysis saved. The findings below use your saved collection and cache prices; no Torn requests were made.');
+    } finally {
+      analysisController.current = null;
+      setAnalysisProgress('');
+    }
   }
   async function exportIssues() {
     let after = 0;
@@ -137,11 +164,21 @@ export function RankedWarResearch() {
             <button className="admin-button" disabled={busy || run.status === 'running'} onClick={() => void act(async () => { await postJson(`${API}/${selected}/freeze`); })}>Freeze saved dataset</button>
             <p className="panel-description admin-form-wide">Freezing keeps the reports already saved and excludes any still pending. It is permanent; future collections use a new dataset.</p>
           </div>}
-          {run.status === 'frozen' && <div className="admin-form">
-            <button className="admin-button primary" disabled={busy} onClick={() => void act(exportDataset)}>Download dataset for analysis</button>
-            <label className="admin-form-wide">Upload finished analysis<input type="file" accept=".json" disabled={busy} onChange={e => { const file = e.target.files?.[0]; e.target.value = ''; if (file) void act(() => importAnalysis(file)); }}/></label>
-            <p className="panel-description admin-form-wide">The analysis runs separately on the saved dataset. Upload its result here to keep the findings with their original sample. Repeating it uses no Torn requests.</p>
-          </div>}
+          {run.status === 'frozen' && <>
+            <form className="admin-form" onSubmit={e => { e.preventDefault(); void act(analyseCollection); }}>
+              <h4 className="admin-form-wide">Analyse collection</h4>
+              <p className="panel-description admin-form-wide">Enter each cache’s gross value in dollars, for example 144000000 for $144 million. Leave unknown prices blank; wars needing those prices are excluded from value comparisons. Zero means a known value of $0.</p>
+              {RESEARCH_CACHES.map(name => <label key={name}>{name} ($)<input type="text" inputMode="decimal" value={prices[name] ?? ''} disabled={busy} onChange={e => setPrices(current => ({ ...current, [name]: e.target.value }))}/></label>)}
+              <button className="admin-button primary" disabled={busy} type="submit">{analysis ? 'Reanalyse collection' : 'Analyse collection'}</button>
+              <p className="panel-description admin-form-wide">Uses the saved reports directly and saves the findings automatically. No files or new Torn requests are needed. Keep this tab open while analysis runs; the first run also loads the analysis engine.</p>
+              {analysisProgress && <><p className="admin-form-wide" role="status" aria-live="polite">{analysisProgress}</p><button type="button" className="admin-button" onClick={() => analysisController.current?.abort()}>Cancel analysis</button></>}
+            </form>
+            <details><summary>Optional backup and offline analysis</summary><div className="admin-form">
+              <button className="admin-button" disabled={busy} onClick={() => void act(exportDataset)}>Download raw dataset backup</button>
+              <label className="admin-form-wide">Upload offline findings (upload-analysis.json)<input type="file" accept=".json" disabled={busy} onChange={e => { const file = e.target.files?.[0]; e.target.value = ''; if (file) void act(() => importAnalysis(file)); }}/></label>
+              <p className="panel-description admin-form-wide">The raw backup can be large and is not an analysis upload. This optional upload accepts only the compact findings generated by the offline Python analyser.</p>
+            </div></details>
+          </>}
         </>}
       </section>
     </div>
@@ -150,8 +187,8 @@ export function RankedWarResearch() {
       <p>Collection uses keys opted into <strong>Enemy scouting</strong> in Settings. Research uses up to 20 requests per rolling minute per known key owner, shares that allowance across their keys, and waits when this dashboard is already using their capacity. Failed requests count too.</p>
       <p className="panel-description">Other apps also share Torn’s account limit and are not visible here. Research keeps spare capacity for them and for live dashboard features. No keys are sent to your browser.</p>
     </section>
-    {analysis?.coverage ? <ResearchCoveragePanel coverage={analysis.coverage}/> : analysis && <section className="panel"><h3>Sample coverage</h3><p>Rerun the saved export to add coverage and evidence cards. Older exports may not contain collection completeness information.</p></section>}
-    {analysis ? <ResearchResults result={analysis}/> : <section className="panel"><h3>Findings</h3><p>No analysis saved for this dataset yet. Freeze and download a sample, then upload its analysis.</p></section>}
+    {analysis?.coverage ? <ResearchCoveragePanel coverage={analysis.coverage}/> : analysis && <section className="panel"><h3>Sample coverage</h3><p>Reanalyse the saved collection to add coverage and evidence cards. Older collections may not contain collection completeness information.</p></section>}
+    {analysis ? <ResearchResults result={analysis}/> : <section className="panel"><h3>Findings</h3><p>No analysis saved for this dataset yet. Freeze the saved dataset, enter cache prices and choose Analyse collection.</p></section>}
   </div>;
 }
 
