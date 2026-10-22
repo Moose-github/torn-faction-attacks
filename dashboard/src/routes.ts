@@ -8,6 +8,7 @@ export type AppView =
   | "members"
   | "lifestyle"
   | "miscellaneous"
+  | "warResearchResults"
   | "tradeScout"
   | "arrestScout"
   | "halloweenProfit"
@@ -35,6 +36,7 @@ export const PAGE_PATHS: Record<Exclude<AppView, "war">, string> = {
   members: "/members",
   lifestyle: "/daily-averages",
   miscellaneous: "/miscellaneous",
+  warResearchResults: "/war-research",
   tradeScout: "/trade-scout",
   arrestScout: "/arrest-scout",
   halloweenProfit: "/halloween",

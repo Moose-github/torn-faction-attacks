@@ -9,6 +9,7 @@ import { routeAdminApi } from '../src/http/adminRoutes';
 import { ExternalApiError } from '../src/external/http';
 import type { ResearchHealth } from '../shared/rankedResearch';
 import { researchPlatinumLabel } from '../shared/rankedResearch';
+import { getWarResearchResults } from '../src/warResearchResults';
 
 vi.mock('../src/external/torn', () => ({ fetchTrackedTornJson: vi.fn() }));
 vi.mock('../src/discordImageRenderer', () => ({}));
@@ -74,6 +75,30 @@ function advance(seconds: number) { vi.setSystemTime(Date.now() + seconds * 1000
 const listing = (ids = [123]) => ({ warfareranked: ids.map(id => ({ id, start, end: start + 3600 })), _metadata: { links: { next: null as string | null } } });
 
 describe('finite ranked research', () => {
+  it('returns only display data from the latest matching frozen analysis, without Torn calls', async () => {
+    expect(await (await getWarResearchResults(env)).json()).toEqual({ ok: true, result: null });
+    const id = await create(); await call(`/${id}/freeze`, {});
+    const token = String(row(id).snapshot_token);
+    const graph = { observations: 0, wars: 0, value_range: [0, 0], factors: [], points: [], distributions: [{ privateFixture: true }] };
+    const saved = { generated_at: '2026-10-22', range: { start: '2026-09-01', end: '2026-09-30' }, prices: { 'Melee Cache': 100 },
+      coverage: { saved_reports: 10 }, graphs: graph, whole_war: { graphs: graph, model: 'excluded' }, model: 'excluded', comparisons: ['excluded'], rows: ['raw report excluded'] };
+    const insert = (analysisId: string, runId: string, snapshot: string, created: number, content: unknown) => db.prepare(
+      'INSERT INTO ranked_research_analyses(id, run_id, snapshot_token, result_json, created_at) VALUES (?, ?, ?, ?, ?)'
+    ).run(analysisId, runId, snapshot, JSON.stringify(content), created);
+    insert('old', id, token, 1, { ...saved, generated_at: 'old' });
+    insert('latest', id, token, 1, saved);
+    insert('wrong-snapshot', id, 'wrong', 99, { ...saved, generated_at: 'wrong' });
+    const pending = await create();
+    insert('unfrozen', pending, 'pending', 100, { ...saved, generated_at: 'unfrozen' });
+    const expectedGraph = { observations: 0, wars: 0, value_range: [0, 0], factors: [], points: [] };
+    expect(await (await getWarResearchResults(env)).json()).toEqual({ ok: true, result: { name: 'Test sample', generated_at: saved.generated_at,
+      range: saved.range, prices: saved.prices, coverage: saved.coverage, combined: expectedGraph, faction: expectedGraph } });
+    const other = await create(); await call(`/${other}/freeze`, {});
+    db.prepare('UPDATE ranked_research_runs SET name = ? WHERE id = ?').run('Newer sample', other);
+    insert('other', other, String(row(other).snapshot_token), 101, saved);
+    expect(await (await getWarResearchResults(env)).json()).toMatchObject({ result: { name: 'Newer sample' } });
+    expect(fetchTrackedTornJson).not.toHaveBeenCalled();
+  });
   it('uses only enemy-scouting opt-ins while keeping research usage attribution', async () => {
     db.prepare('UPDATE torn_api_keys SET allowed_features_json = ? WHERE id = ?').run('["ranked_war_research"]', 'key1');
     addKey('key2', 2);

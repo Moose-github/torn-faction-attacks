@@ -13,6 +13,7 @@ import {
 } from "../lifestyleStats/reports";
 import { listMemberAchievementSummaries } from "../memberAchievements";
 import { getMiscellaneousData } from "../miscellaneous";
+import { getWarResearchResults } from "../warResearchResults";
 import { createMonitorTicket } from "../monitorTickets";
 import { OFFICIAL_END_CACHE_TTL_SECONDS } from "../responseCache";
 import {
@@ -76,6 +77,10 @@ export async function routeMemberUtilityApi(routeContext: RouteContext): Promise
 
   if (matchesExactRoute(url, request, "/api/miscellaneous", "GET")) {
     return cachedMemberGet(routeContext, 55, () => getMiscellaneousData(env));
+  }
+
+  if (matchesExactRoute(url, request, "/api/war-research/results", "GET")) {
+    return cachedMemberGet(routeContext, 55, () => getWarResearchResults(env));
   }
 
   if (matchesExactRoute(url, request, "/api/home-faction-members/summary", "GET")) {

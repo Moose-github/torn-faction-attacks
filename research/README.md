@@ -2,6 +2,8 @@
 
 The collector and saved findings live in **Admin → War research**. Collection is a finite, explicitly started job. The existing minute scheduler advances active jobs; paused, complete and frozen jobs make no Torn requests. Each tick has a single database lease and a bounded batch. No new Cloudflare service or recurring user automation is required.
 
+Members can view **Miscellaneous → War research results** (`/war-research`). This display-only page automatically loads the most recently saved analysis of a matching frozen dataset. It shows the complete sample coverage, saved cache prices, and every factor-versus-reward scatter plot with grouped medians, separately for combined-war and individual-faction rewards. It has no collection, analysis, price, dataset or graph controls, no expandable panels, no division-distribution or adjusted-association graphs, and no evidence cards. The authenticated `GET /api/war-research/results` endpoint returns only display data; it never fetches Torn reports or returns raw reports or collector controls. Results refresh once a minute while visible, with a 55-second server cache. New datasets without saved analysis do not replace the displayed results. Older analyses missing coverage or graphs show explanatory empty states. Deploy the Worker and dashboard together; no migration is required for this page.
+
 ## Use
 
 1. Opt a submitted pool key into **Enemy scouting** in Settings. War research uses that same permission; there is no separate research key option. Keys with only the retired War research permission are not used unless Enemy scouting is enabled. Research does not use fallback keys or keys without a known owner, and collection starts only when an administrator starts a dataset.

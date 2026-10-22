@@ -69,7 +69,7 @@ export function Sidebar({
   });
   const membersActive = view === "members" || view === "lifestyle";
   const recordedWarsActive = view === "war";
-  const miscellaneousActive = view === "miscellaneous" || (view === "chainWatchSchedule" && chainWatchInMiscellaneous) || view === "tradeScout" || view === "arrestScout" || view === "halloweenProfit" || view === "bookStrategy" || view === "statEnhancerRange" || view === "stockInvestments";
+  const miscellaneousActive = view === "miscellaneous" || view === "warResearchResults" || (view === "chainWatchSchedule" && chainWatchInMiscellaneous) || view === "tradeScout" || view === "arrestScout" || view === "halloweenProfit" || view === "bookStrategy" || view === "statEnhancerRange" || view === "stockInvestments";
   const adminActive = view === "warPayouts" || view === "stockMarketStatus" || view === "factionArmory" || view === "admin";
   const recordedWarsOpen = !(collapsedGroups.recordedWars ?? false);
 
@@ -192,6 +192,12 @@ export function Sidebar({
           icon={miscIcon}
           label="Miscellaneous"
           onClick={() => onViewChange("miscellaneous")}
+        />
+        <SidebarLink
+          active={view === "warResearchResults"}
+          icon={<TrendingUp size={18} />}
+          label="War research results"
+          onClick={() => onViewChange("warResearchResults")}
         />
         {chainWatchInMiscellaneous ? (
           <SidebarLink

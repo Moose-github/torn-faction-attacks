@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { ResearchComparison, ResearchGraphs } from '../../../../shared/rankedResearch';
+import type { ResearchComparison, ResearchGraphs, ResearchFactorGraphs } from '../../../../shared/rankedResearch';
 
 const compact = (v: number) => new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 1 }).format(v);
 const dollars = (v: number) => `$${compact(v)}`;
@@ -8,7 +8,7 @@ const ticks = (lo: number, hi: number) => Array.from({ length: 5 }, (_, i) => lo
 const scale = (lo: number, hi: number, start: number, end: number) => (v: number) => start + (v - lo) / (hi - lo || 1) * (end - start);
 const names: Record<string, string> = { attacks: 'Reported attacks', score: 'War score', participation_rate: 'Participation', top20_attack_share: 'Attack concentration', duration_hours: 'Duration', listed_members: 'Roster size', opponent_listed_members: 'Opponent roster', opponent_score: 'Opponent score', attack_balance: 'Attack balance', score_balance: 'Score balance', roster_balance: 'Roster balance' };
 
-function Scatter({ data, index, medians, whole }: { data: ResearchGraphs; index: number; medians: boolean; whole: boolean }) {
+function Scatter({ data, index, medians, whole }: { data: ResearchFactorGraphs; index: number; medians: boolean; whole: boolean }) {
   const f = data.factors[index];
   const lo = f.range[0], hi = f.range[1] === lo ? lo + 1 : f.range[1];
   const ymax = data.value_range[1] || 1;
@@ -22,6 +22,30 @@ function Scatter({ data, index, medians, whole }: { data: ResearchGraphs; index:
     {medians && f.medians.map((m, i) => <rect className="research-median" key={i} x={x(m.x)-5} y={y(m.y)-5} width={10} height={10}><title>{`Group median: ${m.x} ${f.unit}, ${fullMoney(m.y)} · n=${m.n}`}</title></rect>)}
     <text x={377} y={396} textAnchor="middle">{f.label} ({f.unit})</text>
   </svg></div>;
+}
+
+export function ResearchFactorPlots({ data, whole }: { data?: ResearchFactorGraphs; whole: boolean }) {
+  const descriptions: Record<string, string> = {
+    participation_rate: 'Share of listed members who made at least one reported attack.',
+    top20_attack_share: whole ? 'Share of all attacks made by each faction’s busiest 20% of listed members, combined.' : 'Share of attacks made by the busiest 20% of listed members.',
+    attack_balance: 'The smaller faction attack total divided by both totals combined. 0.5 means evenly shared attacks.',
+    score_balance: 'The smaller faction score divided by both scores combined. 0.5 means evenly shared score.',
+  };
+  return <section className="panel research-results-plots">
+    <h3>{whole ? 'Combined war rewards' : 'Individual faction rewards'}</h3>
+    <p>{whole ? 'Gross rewards gained by both factions, counted once per war.' : 'Gross rewards gained by each faction, with each faction shown separately.'}</p>
+    {!data ? <p>No saved factor graphs are available for this view yet.</p> : !data.observations ? <p>No fully priced observations pass the member-total checks for this view.</p> : <>
+      <p>{data.observations.toLocaleString()} fully priced observations from {data.wars.toLocaleString()} wars. <span className="research-dot-key">●</span> {data.points.length.toLocaleString()} {data.points.length < data.observations ? 'repeatably sampled' : 'individual'} observations per graph. <span className="research-median-key">■</span> Grouped medians use every usable observation.</p>
+      {data.points.length < data.observations && <p>The dot sample may omit extremes; axis ranges include the full sample.</p>}
+      <p>Observed patterns can reflect several factors together. They do not establish a causal effect or a reward target.</p>
+      <p className="research-scroll-hint">Scroll graphs horizontally to see all values.</p>
+      {data.factors.map((factor, index) => <article key={factor.field}>
+        <h4>{factor.label}</h4>
+        {descriptions[factor.field] && <p>{descriptions[factor.field]}</p>}
+        <Scatter data={data} index={index} medians={true} whole={whole}/>
+      </article>)}
+    </>}
+  </section>;
 }
 
 function Distributions({ data, whole }: { data: ResearchGraphs; whole: boolean }) {

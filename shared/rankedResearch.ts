@@ -74,3 +74,11 @@ export type ResearchGraphs = {
 };
 // Zero represents the API's unsuffixed base rank, not Platinum I.
 export const researchPlatinumLabel = (division: number) => division === 0 ? 'Platinum' : `Platinum ${division}`;
+
+export type ResearchFactorGraphs = Omit<ResearchGraphs, 'distributions'>;
+export type WarResearchResults = {
+  name: string; generated_at: string; range: { start: string; end: string };
+  prices: Record<string, number | null>; coverage?: ResearchCoverage;
+  combined?: ResearchFactorGraphs; faction?: ResearchFactorGraphs;
+};
+export type WarResearchResultsResponse = { ok: true; result: WarResearchResults | null };

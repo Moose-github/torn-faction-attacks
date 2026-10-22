@@ -26,6 +26,7 @@ import {
   updateMyTornApiKey,
 } from "../tornKeyPool";
 import { getGlobalWarState } from "../wars";
+import { getWarResearchResults } from "../warResearchResults";
 import { routeMemberUtilityApi } from "./memberRoutes";
 
 vi.mock("../auth", () => ({
@@ -64,6 +65,7 @@ vi.mock("../memberAchievements", () => ({
 vi.mock("../miscellaneous", () => ({
   getMiscellaneousData: vi.fn(),
 }));
+vi.mock("../warResearchResults", () => ({ getWarResearchResults: vi.fn() }));
 vi.mock("../monitorTickets", () => ({
   createMonitorTicket: vi.fn(),
 }));
@@ -100,6 +102,23 @@ vi.mock("../xanaxCompetition", () => ({
 }));
 
 describe("member utility routes", () => {
+  it('serves saved research results only after member authentication', async () => {
+    vi.mocked(getWarResearchResults).mockResolvedValue(jsonResponse({ ok: true, result: null }));
+    const response = await routeMemberUtilityApi(routeContext('https://worker.test/api/war-research/results'));
+    expect(requireMember).toHaveBeenCalled();
+    expect(await response?.json()).toEqual({ ok: true, result: null });
+    expect(getWarResearchResults).toHaveBeenCalledTimes(1);
+    vi.mocked(requireMember).mockResolvedValue(jsonResponse({ error: 'Sign in required' }, 401));
+    const denied = await routeMemberUtilityApi(routeContext('https://worker.test/api/war-research/results'));
+    expect(denied?.status).toBe(401);
+    expect(getWarResearchResults).toHaveBeenCalledTimes(1);
+  });
+  it('does not register mutations on the results endpoint', async () => {
+    for (const method of ['POST', 'PUT', 'DELETE']) {
+      expect(await routeMemberUtilityApi(routeContext('https://worker.test/api/war-research/results', { method }))).toBeNull();
+    }
+    expect(getWarResearchResults).not.toHaveBeenCalled();
+  });
   it.each([
     ["/api/dice-game", "GET"],
     ["/api/dice-game/roll", "POST"],
