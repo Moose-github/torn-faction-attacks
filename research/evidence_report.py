@@ -53,9 +53,23 @@ def comparison_html(cards):
             observed = f"<p>Observed last-group minus first-group mean: {money(c['observed_difference'])} ({pct}).</p>"
         groups = table(['Group', 'Observations', 'Wars', 'Factions', 'Mean', 'Median'],
                        [[g['label'], g['n'], g['wars'], g['factions'], money(g['mean_value']), money(g['median_value'])] for g in c['groups']])
+        trend = c.get('observed')
+        trend_html = (f'<p><b>Observed: {escape(trend["status"])}</b></p><details><summary>How the observed trend is described</summary><p>{escape(trend["explanation"])}</p></details>'
+                      if trend else '<p>Rerun the analysis to add the observed-trend assessment.</p>')
+        bands_html = ''
+        if c.get('score_bands'):
+            bands = table(['War score', 'Observations', 'Distinct wars', 'Median reward', 'Mean reward', 'Middle 50% of rewards', 'Coverage'],
+                          [[f'{b["low"]:,}'+('+' if b['high'] is None else f' to < {b["high"]:,}'), b['n'], b['wars'],
+                            '—' if b['median_value'] is None else money(b['median_value']),
+                            '—' if b['mean_value'] is None else money(b['mean_value']),
+                            '—' if b['middle_half'] is None else ' – '.join(money(v) for v in b['middle_half']),
+                            'No observations' if b['wars'] == 0 else 'Sparse' if b['wars'] < 20 else '20+ wars'] for b in c['score_bands']])
+            bands_html = '<details><summary>Rewards by score range</summary><p>Fixed ranges use all usable observations. Fewer than 20 distinct wars is marked sparse. The middle 50% describes reward spread, not uncertainty about the median. These unadjusted summaries do not establish a plateau or score target.</p>'+bands+'</details>'
+        overlap = '' if a is None or 'overlap_vif' not in a else f'<p>Factor overlap (VIF): {a["overlap_vif"]:.2f}; flagged at 10. This concerns how well the model separates this factor’s contribution.</p>'
         cautions = ''.join(f'<li>{escape(s)}</li>' for s in c['cautions'])
-        output += f'''<article class="box"><div class="tag">{escape(c['status'])}</div><h3>{escape(c['question'])}</h3>
-          <p>{c['observations']} observations · {c['wars']} wars · {c['factions']} factions</p>{adjusted}<p>{escape(c['explanation'])}</p>{observed}
-          <details><summary>Inspect observed groups</summary><p>{escape(c['unit'])}; ties stay together, so group sizes may differ.</p>{groups}</details>
+        output += f'''<article class="box"><h3>{escape(c['question'])}</h3>
+          <p>{c['observations']} observations · {c['wars']} wars · {c['factions']} factions</p>{trend_html}{observed}
+          <details><summary>Inspect observed groups</summary><p>{escape(c['unit'])}; ties stay together, so group sizes may differ.</p>{groups}</details>{bands_html}
+          <p><b>Adjusted: {escape(c['status'])}</b></p>{adjusted}{overlap}<p>{escape(c['explanation'])}</p>
           <details><summary>Evidence limitations</summary><ul>{cautions}</ul></details></article>'''
     return output + '</div>'

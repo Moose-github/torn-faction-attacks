@@ -63,6 +63,38 @@ def quantile(values, fraction):
     return values[low] + (values[min(low+1, len(values)-1)]-values[low])*(index-low)
 
 
+def observed_trend(groups, categorical=False):
+    """A transparent description of grouped values, not a significance test."""
+    rule = ('This describes the saved sample, without adjustment or a significance test. '
+            'Directional labels require at least three groups, at least 20 distinct wars in every group, '
+            'and both means and medians moving consistently in the same direction with a different first and last value.')
+    if categorical:
+        return {'status': 'Category comparison', 'explanation': 'Compare the displayed categories; no numerical trend is assigned. ' + rule}
+    if len(groups) < 3 or any(g['wars'] < 20 for g in groups):
+        return {'status': 'Limited observations', 'explanation': 'There are too few populated groups or distinct wars per group to summarise a consistent observed direction. ' + rule}
+    series = [[g[key] for g in groups] for key in ('mean_value', 'median_value')]
+    rising = all(v[-1] > v[0] and all(a <= b for a, b in zip(v, v[1:])) for v in series)
+    falling = all(v[-1] < v[0] and all(a >= b for a, b in zip(v, v[1:])) for v in series)
+    status = 'Positive observed trend' if rising else 'Negative observed trend' if falling else 'No consistent observed trend'
+    description = ('Mean and median rewards rise across the displayed groups.' if rising else
+                   'Mean and median rewards fall across the displayed groups.' if falling else
+                   'Group means and medians do not show one consistent direction. Local patterns may still exist.')
+    return {'status': status, 'explanation': description + ' ' + rule}
+
+
+def score_bands(sample):
+    # Fixed round boundaries across datasets and reward views, not a fitted cutoff.
+    edges = [0, 5000, 10000, 15000, 20000, 25000, 30000, 40000, 50000, None]
+    groups = []
+    for low, high in zip(edges, edges[1:]):
+        group = [r for r in sample if r['score'] >= low and (high is None or r['score'] < high)]
+        values = [r['gross_value'] for r in group]
+        groups.append({'low': low, 'high': high, 'n': len(group), 'wars': len({r['war_id'] for r in group}),
+                       'mean_value': mean(values) if values else None, 'median_value': median(values) if values else None,
+                       'middle_half': [quantile(values, .25), quantile(values, .75)] if values else None})
+    return groups
+
+
 def comparisons(rows, model, whole=False):
     # Use exactly the priced, audited sample used by the adjusted model.
     sample = [r for r in rows if r['gross_value'] is not None and not r['audit_warnings']]
@@ -119,12 +151,18 @@ def comparisons(rows, model, whole=False):
             adjusted = {'range': effect['range'], 'difference': effect['effect_m']*1e6,
                         'percent_of_mean': effect['effect_m']*1e6/average*100 if average else None,
                         'interval': [v*1e6 for v in effect['interval_m']] if effect['interval_m'] is not None else None,
-                        'stable_halves': effect['stable_halves'], 'sensitive_to_top_faction': effect['sensitive_to_top_faction']}
+                        'stable_halves': effect['stable_halves'], 'sensitive_to_top_faction': effect['sensitive_to_top_faction'],
+                        'overlap_vif': effect['vif']}
             status = 'Promising association' if effect['status'] == 'Tentative association' else 'Uncertain'
+            if effect['status'] == 'Association with overlapping factors':
+                status = ('Positive' if effect['effect_m'] > 0 else 'Negative') + ' association; overlapping factors'
             if effect['stable_halves'] is False or effect['sensitive_to_top_faction'] is True:
                 status = 'Mixed evidence'
             if status == 'Promising association':
                 reason = 'The interval excludes zero, the direction is consistent across chronological halves, and it survives removing the most represented faction without strong factor overlap.'
+            elif status.endswith('; overlapping factors'):
+                direction = 'positive' if effect['effect_m'] > 0 else 'negative'
+                reason = f'The adjusted association is {direction}, its interval excludes zero, and both direction checks pass. Strong overlap with other inputs makes the separate contribution hard to isolate (VIF {effect["vif"]:.2f}; overlap flag starts at 10).'
             elif status == 'Mixed evidence':
                 reason = 'The direction is not consistent across chronological halves or changes when the most represented faction is removed.'
             else:
@@ -138,5 +176,7 @@ def comparisons(rows, model, whole=False):
         cards.append({'field': field, 'question': question, 'unit': unit, 'status': status, 'explanation': explanation,
                       'observations': len(sample), 'wars': len({r['war_id'] for r in sample}), 'factions': len(identities(sample, whole)),
                       'groups': groups, 'observed_difference': difference, 'observed_percent': percent,
-                      'adjusted': adjusted, 'cautions': cautions})
+                      'observed': observed_trend(groups, categorical),
+                      'adjusted': adjusted, 'cautions': cautions,
+                      **({'score_bands': score_bands(sample)} if field == 'score' else {})})
     return cards

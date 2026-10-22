@@ -192,10 +192,12 @@ def fit_model(rows, whole_war=False):
             stable = all(float(b[j])*float(beta[j]) > 0 for b in half_betas)
         sensitive = float(sensitivity[j])*float(beta[j]) <= 0 if sensitivity is not None else None
         separated = interval is not None and (interval[0] > 0 or interval[1] < 0)
-        status = 'Tentative association' if separated and stable is True and sensitive is False and vif < 10 else 'Uncertain'
+        status = 'Uncertain'
+        if separated and stable is True and sensitive is False:
+            status = 'Tentative association' if vif < 10 else 'Association with overlapping factors'
         cautions = []
         if vif >= 10:
-            cautions.append('Strong overlap with other factors; its separate effect is unreliable.')
+            cautions.append('Strong overlap with other factors; the separate contribution is hard to isolate even when the estimated direction is consistent.')
         if interval is None:
             cautions.append('The clustered uncertainty estimate was unstable.')
         elif not separated:

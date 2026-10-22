@@ -69,6 +69,18 @@ function Adjusted({ cards }: { cards: ResearchComparison[] }) {
   </>;
 }
 
+function ScoreBands({ card }: { card?: ResearchComparison }) {
+  if (!card?.score_bands) return <p>Reanalyse this collection to add comparisons across fixed score ranges.</p>;
+  const money = (value: number | null) => value === null ? '—' : dollars(value);
+  return <section>
+    <h4>Rewards by score range</h4>
+    <p>Fixed ranges help inspect where observed rewards rise or flatten. All usable observations are included. Ranges with fewer than 20 distinct wars are marked sparse. The middle 50% shows reward spread within a range, rather than uncertainty about its median.</p>
+    <div className="stock-status-table-wrap"><table className="stock-status-table"><caption>These are unadjusted summaries. Ranges were not fitted to find a cutoff; differences can reflect other factors. They do not establish a plateau or score target.</caption><thead><tr><th>War score</th><th>Observations</th><th>Distinct wars</th><th>Median reward</th><th>Mean reward</th><th>Middle 50% of rewards</th><th>Coverage</th></tr></thead><tbody>{card.score_bands.map(b => <tr key={b.low}>
+      <td>{b.low.toLocaleString()}{b.high === null ? '+' : ` to < ${b.high.toLocaleString()}`}</td><td>{b.n}</td><td>{b.wars}</td><td>{money(b.median_value)}</td><td>{money(b.mean_value)}</td><td>{b.middle_half?.map(dollars).join(' – ') ?? '—'}</td><td>{b.wars === 0 ? 'No observations' : b.wars < 20 ? 'Sparse' : '20+ wars'}</td>
+    </tr>)}</tbody></table></div>
+  </section>;
+}
+
 export function ResearchGraphPanel({ data, cards = [], whole }: { data?: ResearchGraphs; cards?: ResearchComparison[]; whole: boolean }) {
   const [view, setView] = useState<'factors'|'divisions'|'adjusted'>('factors');
   const [field, setField] = useState('attacks');
@@ -77,13 +89,14 @@ export function ResearchGraphPanel({ data, cards = [], whole }: { data?: Researc
   return <section className="war-research-graphs">
     <h3>Reward graphs</h3>
     <div className="war-research-steps" role="group" aria-label="Graph type">{(['factors','divisions','adjusted'] as const).map(v => <button key={v} className="admin-button" aria-pressed={view===v} onClick={()=>setView(v)}>{v==='factors' ? 'Factors vs rewards' : v==='divisions' ? 'Division distributions' : 'Adjusted associations'}</button>)}</div>
-    <p>Gross {whole ? 'combined pot' : 'individual faction reward'} value. {data ? `${data.observations.toLocaleString()} fully priced, audited observations from ${data.wars.toLocaleString()} wars.` : 'Rerun the saved export and upload its analysis to add observed plots.'} Observed plots do not isolate causal effects.</p>
+    <p>Gross {whole ? 'combined pot' : 'individual faction reward'} value. {data ? `${data.observations.toLocaleString()} fully priced, audited observations from ${data.wars.toLocaleString()} wars.` : 'Reanalyse the saved collection to add observed plots.'} Observed plots do not isolate causal effects.</p>
     <p className="research-scroll-hint">Scroll charts horizontally to see all values. Expand the values below a chart for its numerical summary.</p>
     {view==='adjusted' ? <Adjusted cards={cards}/> : !data ? null : !data.observations ? <p>No fully priced observations pass the member-total checks. Graphs will appear when usable data is available.</p> : view==='divisions' ? <Distributions data={data} whole={whole}/> : <>
       <div className="research-plot-controls"><label>Factor<select value={data.factors[index].field} onChange={e=>setField(e.target.value)}>{data.factors.map(f=><option key={f.field} value={f.field}>{f.label}</option>)}</select></label><label><input type="checkbox" checked={medians} onChange={e=>setMedians(e.target.checked)}/> Show grouped medians</label></div>
       <p><span className="research-dot-key">●</span> {data.points.length.toLocaleString()} {data.points.length<data.observations ? 'repeatably sampled' : 'individual'} observations shown. {data.points.length<data.observations && 'This dot sample may omit extremes; axis ranges include the full sample. '}<span className="research-median-key">■</span> Grouped medians use all {data.observations.toLocaleString()} observations. Hover over a mark for its values.</p>
       <Scatter data={data} index={index} medians={medians} whole={whole}/>
       <details><summary>Grouped median values</summary><div className="stock-status-table-wrap"><table className="stock-status-table"><caption>Quartile groups keep tied values together. Markers describe observations, not a fitted trend or payout forecast.</caption><thead><tr><th>Median {data.factors[index].label.toLowerCase()}</th><th>Median gross reward</th><th>Observations</th></tr></thead><tbody>{data.factors[index].medians.map((m,i)=><tr key={i}><td>{m.x.toFixed(2)} {data.factors[index].unit}</td><td>{fullMoney(m.y)}</td><td>{m.n}</td></tr>)}</tbody></table></div></details>
+      {data.factors[index].field === 'score' && <ScoreBands card={cards.find(c => c.field === 'score')}/>}
     </>}
   </section>;
 }

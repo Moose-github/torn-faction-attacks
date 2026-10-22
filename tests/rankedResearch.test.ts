@@ -631,6 +631,25 @@ describe('finite ranked research', () => {
     }
     expect(fetchTrackedTornJson).not.toHaveBeenCalled();
   });
+  it('validates separate observed trends, adjusted overlap and fixed score bands', () => {
+    const bounds = [0, 5000, 10000, 15000, 20000, 25000, 30000, 40000, 50000, null];
+    const card = { field: 'score', question: 'Score and rewards?', unit: 'score', status: 'Positive association; overlapping factors', explanation: 'Direction retained, overlapping factors.',
+      observations: 80, wars: 80, factions: 40, cautions: [], observed_difference: 300, observed_percent: 300,
+      observed: { status: 'Positive observed trend', explanation: 'Means and medians rise across four groups.' },
+      groups: [100, 200, 300, 400].map(v => ({ label: String(v), n: 20, wars: 20, factions: 10, mean_value: v, median_value: v })),
+      adjusted: { range: [100, 400], difference: 10, percent_of_mean: 4, interval: [5, 15], stable_halves: true, sensitive_to_top_faction: false, overlap_vif: 22.36 },
+      score_bands: bounds.slice(0, -1).map((low, i) => ({ low, high: bounds[i+1], n: i === 0 ? 80 : 0, wars: i === 0 ? 80 : 0,
+        mean_value: i === 0 ? 250 : null, median_value: i === 0 ? 250 : null, middle_half: i === 0 ? [150, 350] : null })) };
+    const result = { generated_at: '2026-10-22', scope: 'Platinum', eligible_wars: 80, observations: 80, distinct_factions: 40, model_observations: 80,
+      range: { start: '2026-09-01', end: '2026-09-30' }, warnings: [], prices: {}, summaries: [], model: { available: false, reason: 'Fixture' }, comparisons: [card] };
+    expect(() => validateResearchAnalysis(result)).not.toThrow();
+    expect(() => validateResearchAnalysis({ ...result, comparisons: [{ ...card, observed: { ...card.observed, status: 'Proven causal effect' } }] })).toThrow('observed trend');
+    expect(() => validateResearchAnalysis({ ...result, comparisons: [{ ...card, adjusted: { ...card.adjusted, overlap_vif: -1 } }] })).toThrow('factor overlap');
+    expect(() => validateResearchAnalysis({ ...result, comparisons: [{ ...card, score_bands: card.score_bands.slice(1) }] })).toThrow('score bands');
+    expect(() => validateResearchAnalysis({ ...result, comparisons: [{ ...card, score_bands: card.score_bands.map((b, i) => i === 0 ? { ...b, n: 81 } : b) }] })).toThrow('band counts');
+    expect(() => validateResearchAnalysis({ ...result, comparisons: [{ ...card, score_bands: card.score_bands.map((b, i) => i === 0 ? { ...b, high: 6000 } : b) }] })).toThrow('band sample');
+    expect(() => validateResearchAnalysis({ ...result, comparisons: [{ ...card, score_bands: card.score_bands.map((b, i) => i === 1 ? { ...b, median_value: 0 } : b) }] })).toThrow('band rewards');
+  });
   it('validates display fields and saves a matching analysis without Torn calls', async () => {
     const id = await create(); await call(`/${id}/freeze`, {});
     const result = { generated_at: '2026-10-21T00:00:00Z', scope: 'Platinum', eligible_wars: 0, observations: 0, distinct_factions: 0, model_observations: 0,

@@ -39,7 +39,8 @@ export function validateResearchEvidence(value: Record<string, unknown>, assert:
     check(Array.isArray(cards) && cards.length <= 20, 'Invalid factor comparisons.');
     for (const c of cards) {
       check(isRecord(c) && ['field', 'question', 'unit', 'explanation'].every(k => typeof c[k] === 'string'), 'Invalid comparison labels.');
-      check(['Promising association', 'Uncertain', 'Mixed evidence', 'Insufficient data', 'Descriptive comparison'].includes(String(c.status)), 'Invalid evidence status.');
+      check(['Promising association', 'Uncertain', 'Mixed evidence', 'Insufficient data', 'Descriptive comparison',
+        'Positive association; overlapping factors', 'Negative association; overlapping factors'].includes(String(c.status)), 'Invalid evidence status.');
       check(['observations', 'wars', 'factions'].every(k => count(c[k])) && strings(c.cautions), 'Invalid evidence sample.');
       check(optionalNumber(c.observed_difference) && optionalNumber(c.observed_percent), 'Invalid observed comparison.');
       check(Array.isArray(c.groups) && c.groups.length <= 10, 'Invalid comparison groups.');
@@ -48,10 +49,28 @@ export function validateResearchEvidence(value: Record<string, unknown>, assert:
           && finite(g.mean_value) && g.mean_value >= 0 && finite(g.median_value) && g.median_value >= 0, 'Invalid group summary.');
       }
       check(c.groups.reduce((n, g) => n + Number((g as Record<string, unknown>).n), 0) === c.observations, 'Comparison group counts do not match.');
+      if (c.observed !== undefined) {
+        check(isRecord(c.observed) && ['Positive observed trend', 'Negative observed trend', 'No consistent observed trend', 'Limited observations', 'Category comparison'].includes(String(c.observed.status))
+          && typeof c.observed.explanation === 'string', 'Invalid observed trend.');
+      }
+      if (c.score_bands !== undefined) {
+        check(c.field === 'score' && Array.isArray(c.score_bands) && c.score_bands.length === 9, 'Invalid score bands.');
+        const bounds = [0, 5000, 10000, 15000, 20000, 25000, 30000, 40000, 50000, null];
+        for (const [i, b] of c.score_bands.entries()) {
+          check(isRecord(b) && b.low === bounds[i] && b.high === bounds[i+1] && count(b.n) && count(b.wars)
+            && b.wars <= b.n && b.wars <= Number(c.wars) && (b.n === 0 || b.wars > 0), 'Invalid score band sample.');
+          check(b.n === 0 ? b.mean_value === null && b.median_value === null && b.middle_half === null :
+            finite(b.mean_value) && b.mean_value >= 0 && finite(b.median_value) && b.median_value >= 0
+            && pair(b.middle_half) && (b.middle_half as number[])[0] >= 0
+            && b.median_value >= (b.middle_half as number[])[0] && b.median_value <= (b.middle_half as number[])[1], 'Invalid score band rewards.');
+        }
+        check(c.score_bands.reduce((n, b) => n + Number((b as Record<string, unknown>).n), 0) === c.observations, 'Score band counts do not match.');
+      }
       if (c.adjusted !== null) {
         const a = c.adjusted;
         check(isRecord(a) && pair(a.range) && finite(a.difference) && optionalNumber(a.percent_of_mean)
           && (a.interval === null || pair(a.interval)) && tri(a.stable_halves) && tri(a.sensitive_to_top_faction), 'Invalid adjusted evidence.');
+        check(a.overlap_vif === undefined || finite(a.overlap_vif) && a.overlap_vif >= 0, 'Invalid factor overlap.');
       }
     }
   }

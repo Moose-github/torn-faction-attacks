@@ -57,8 +57,11 @@ export type ResearchComparison = {
   observations: number; wars: number; factions: number;
   groups: { label: string; n: number; wars: number; factions: number; mean_value: number; median_value: number }[];
   observed_difference: number | null; observed_percent: number | null;
+  observed?: { status: string; explanation: string };
+  score_bands?: { low: number; high: number | null; n: number; wars: number;
+    mean_value: number | null; median_value: number | null; middle_half: number[] | null }[];
   adjusted: { range: number[]; difference: number; percent_of_mean: number | null;
-    interval: number[] | null; stable_halves: boolean | null; sensitive_to_top_faction: boolean | null } | null;
+    interval: number[] | null; stable_halves: boolean | null; sensitive_to_top_faction: boolean | null; overlap_vif?: number } | null;
   cautions: string[];
 };
 
