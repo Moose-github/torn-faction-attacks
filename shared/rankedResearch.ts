@@ -76,9 +76,22 @@ export type ResearchGraphs = {
 export const researchPlatinumLabel = (division: number) => division === 0 ? 'Platinum' : `Platinum ${division}`;
 
 export type ResearchFactorGraphs = Omit<ResearchGraphs, 'distributions'>;
+export type ResearchTopFaction = {
+  id: number; name: string; rank_before: string; gross_value: number;
+  attacks: number; score: number; listed_members: number;
+  participation_rate: number; top20_attack_share: number;
+  warnings: string[];
+};
+export type ResearchTopWar = {
+  war_id: number; gross_value: number; duration_hours: number;
+  combined_score: number; attack_balance: number;
+  winner: ResearchTopFaction; loser: ResearchTopFaction;
+};
+export type ResearchTopWars = { valued_wars: number; wars: ResearchTopWar[] };
 export type WarResearchResults = {
   name: string; generated_at: string; range: { start: string; end: string };
   prices: Record<string, number | null>; coverage?: ResearchCoverage;
   combined?: ResearchFactorGraphs; faction?: ResearchFactorGraphs;
+  top_wars?: ResearchTopWars;
 };
 export type WarResearchResultsResponse = { ok: true; result: WarResearchResults | null };

@@ -4,6 +4,7 @@ import type { WarResearchResults, WarResearchResultsResponse } from '../../../sh
 import { startPolling } from '../utils/polling';
 import { ResearchCoveragePanel } from './AdminControls/ResearchEvidence';
 import { ResearchFactorPlots } from './AdminControls/ResearchGraphs';
+import { ResearchTopWarsPanel } from './ResearchTopWars';
 import './AdminControls/rankedWarResearch.css';
 
 const money = (value: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(value);
@@ -36,6 +37,7 @@ export function WarResearchResultsPage() {
       <section className="panel"><h3>Reward values</h3><p>Gross cache values use the saved prices below. Expenses are not deducted. Rewards needing an unknown price are excluded from value comparisons.</p>
         <dl className="research-health-grid">{Object.entries(result.prices).map(([name, value]) => <div key={name}><dt>{name}</dt><dd>{value === null ? 'Unknown' : money(value)}</dd></div>)}</dl>
       </section>
+      <ResearchTopWarsPanel data={result.top_wars}/>
       <ResearchFactorPlots data={result.combined} whole={true}/>
       <ResearchFactorPlots data={result.faction} whole={false}/>
     </>}

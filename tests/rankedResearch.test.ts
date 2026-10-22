@@ -10,6 +10,7 @@ import { ExternalApiError } from '../src/external/http';
 import type { ResearchHealth } from '../shared/rankedResearch';
 import { researchPlatinumLabel } from '../shared/rankedResearch';
 import { getWarResearchResults } from '../src/warResearchResults';
+import { getResearchTopWars } from '../src/warResearchTopWars';
 
 vi.mock('../src/external/torn', () => ({ fetchTrackedTornJson: vi.fn() }));
 vi.mock('../src/discordImageRenderer', () => ({}));
@@ -92,12 +93,80 @@ describe('finite ranked research', () => {
     insert('unfrozen', pending, 'pending', 100, { ...saved, generated_at: 'unfrozen' });
     const expectedGraph = { observations: 0, wars: 0, value_range: [0, 0], factors: [], points: [] };
     expect(await (await getWarResearchResults(env)).json()).toEqual({ ok: true, result: { name: 'Test sample', generated_at: saved.generated_at,
-      range: saved.range, prices: saved.prices, coverage: saved.coverage, combined: expectedGraph, faction: expectedGraph } });
+      range: saved.range, prices: saved.prices, coverage: saved.coverage, combined: expectedGraph, faction: expectedGraph,
+      top_wars: { valued_wars: 0, wars: [] } } });
     const other = await create(); await call(`/${other}/freeze`, {});
     db.prepare('UPDATE ranked_research_runs SET name = ? WHERE id = ?').run('Newer sample', other);
     insert('other', other, String(row(other).snapshot_token), 101, saved);
     expect(await (await getWarResearchResults(env)).json()).toMatchObject({ result: { name: 'Newer sample' } });
     expect(fetchTrackedTornJson).not.toHaveBeenCalled();
+  });
+  it('ranks all fully priced eligible reports in the selected dataset and returns only the top five summaries', async () => {
+    const id = await create();
+    const other = await create();
+    const saved = { range: { start: '2026-09-01', end: '2026-09-30' }, prices: { 'Melee Cache': 100, 'Armor Cache': null } };
+    function add(warId: number, quantity: number, change?: (r: ReturnType<typeof report>['rankedwarreport']) => void, runId = id) {
+      const payload = report(warId);
+      for (const f of payload.rankedwarreport.factions) f.rewards.items[0].quantity = quantity;
+      change?.(payload.rankedwarreport);
+      const validated = validateResearchReport(payload);
+      db.prepare('INSERT INTO ranked_research_reports(war_id, start, end, report_json, classification) VALUES (?, ?, ?, ?, ?)')
+        .run(warId, validated.start, validated.end, validated.raw, validated.classification);
+      db.prepare('INSERT INTO ranked_research_run_wars(run_id, war_id) VALUES (?, ?)').run(runId, warId);
+    }
+    for (let n = 1; n <= 6; n++) add(10 + n, n);
+    add(17, 7, r => {
+      r.winner = 2; r.end = r.start + 5400;
+      r.factions[0].attacks = 2; r.factions[0].score = 2;
+      r.factions[0].members = [1, 1].map((hits, i) => ({ id: 100 + i, name: 'Private member', attacks: hits, score: hits }));
+      r.factions[1].members = [6, 4, 0, 0, 0, 0].map((hits, i) => ({ id: 200 + i, name: 'Private member', attacks: hits, score: hits }));
+    });
+    add(18, 7, r => { r.factions[0].attacks = 11; r.factions[0].score = 15; });
+    add(20, 1000, r => { r.forfeit = true; });
+    add(21, 1000, r => { r.factions[0].rank.before = 'Gold III'; });
+    add(22, 1000, r => { r.factions[0].rewards.points = 1; });
+    add(23, 1000, r => { r.factions[1].rewards.items[0].name = 'Armor Cache'; });
+    add(24, 1000, r => { r.factions[1].rewards.items[0].name = 'Unknown item'; });
+    add(25, 1000, r => { r.start -= 1; });
+    add(26, 1000, r => { r.start += 31 * 86400; r.end = r.start + 3600; });
+    add(27, 1000, undefined, other);
+    const result = await getResearchTopWars(env, id, saved);
+    expect(result.valued_wars).toBe(8);
+    expect(result.wars.map(w => w.war_id)).toEqual([17, 18, 16, 15, 14]);
+    expect(result.wars[0]).toMatchObject({ gross_value: 1400, duration_hours: 1.5, combined_score: 12, attack_balance: 2 / 12,
+      winner: { id: 2, gross_value: 700, attacks: 10, score: 10, listed_members: 6, participation_rate: 2 / 6, top20_attack_share: 1, warnings: [] },
+      loser: { id: 1, gross_value: 700, attacks: 2, listed_members: 2, participation_rate: 1, top20_attack_share: 0.5, warnings: [] } });
+    expect(result.wars[1].winner.warnings).toEqual(['Member attack sum differs from faction attack total.', 'Member score sum differs from faction score total.']);
+    expect(JSON.stringify(result)).not.toContain('Private member');
+    expect(JSON.stringify(result)).not.toContain('report_json');
+    // The member endpoint uses the same full-dataset ranking even with no graph dots.
+    await call(`/${id}/freeze`, {});
+    db.prepare('INSERT INTO ranked_research_analyses(id, run_id, snapshot_token, result_json, created_at) VALUES (?, ?, ?, ?, ?)')
+      .run('top-wars', id, String(row(id).snapshot_token), JSON.stringify({ ...saved, generated_at: '2026-10-22', graphs: { observations: 0, points: [] } }), 1);
+    expect(await (await getWarResearchResults(env)).json()).toMatchObject({ result: { top_wars: result } });
+    expect(fetchTrackedTornJson).not.toHaveBeenCalled();
+  });
+  it('keeps zero-priced and empty rewards, ignores zero-quantity unpriced items, and recalculates using saved prices', async () => {
+    const id = await create();
+    for (const warId of [1, 2, 3]) {
+      const payload = report(warId);
+      for (const f of payload.rankedwarreport.factions) {
+        f.attacks = 0; f.score = 0; f.members[0].attacks = 0; f.members[0].score = 0;
+        f.rewards.items = warId === 1 ? [] : [{ id: 1, name: warId === 2 ? 'Armor Cache' : 'Melee Cache', quantity: 2 }, { id: 2, name: 'Unpriced', quantity: 0 }];
+      }
+      const validated = validateResearchReport(payload);
+      db.prepare('INSERT INTO ranked_research_reports(war_id, start, end, report_json, classification) VALUES (?, ?, ?, ?, ?)')
+        .run(warId, start, start + 3600, validated.raw, validated.classification);
+      db.prepare('INSERT INTO ranked_research_run_wars(run_id, war_id) VALUES (?, ?)').run(id, warId);
+    }
+    const range = { start: '2026-09-01', end: '2026-09-30' };
+    const result = await getResearchTopWars(env, id, { range, prices: { 'Armor Cache': 0, 'Melee Cache': 100 } });
+    expect(result.valued_wars).toBe(3);
+    expect(result.wars.map(w => [w.war_id, w.gross_value])).toEqual([[3, 400], [1, 0], [2, 0]]);
+    expect(result.wars[0]).toMatchObject({ attack_balance: 0, winner: { participation_rate: 0, top20_attack_share: 0 } });
+    const repriced = await getResearchTopWars(env, id, { range, prices: { 'Armor Cache': 200, 'Melee Cache': null } });
+    expect(repriced.valued_wars).toBe(2);
+    expect(repriced.wars.map(w => [w.war_id, w.gross_value])).toEqual([[2, 800], [1, 0]]);
   });
   it('uses only enemy-scouting opt-ins while keeping research usage attribution', async () => {
     db.prepare('UPDATE torn_api_keys SET allowed_features_json = ? WHERE id = ?').run('["ranked_war_research"]', 'key1');

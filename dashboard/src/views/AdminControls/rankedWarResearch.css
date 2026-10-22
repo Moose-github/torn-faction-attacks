@@ -46,5 +46,9 @@
 .research-plot-controls select { max-width: 100%; }
 .research-results-plots > article { border-top: 1px solid #71809655; margin-top: 24px; padding-top: 12px; }
 .research-results-plots .research-plot-scroll { max-width: 960px; }
+.research-top-wars { min-width: 0; }
+.research-top-wars th small { display: block; font-weight: 400; opacity: .75; margin-top: 6px; }
+.research-top-war-detail { white-space: normal; padding: 12px; max-width: 960px; }
+.research-top-war-detail > table { margin-top: 12px; }
 @media (max-width: 800px) { .war-research-grid { grid-template-columns: 1fr; } }
 @media (max-width: 800px) { .research-scroll-hint { display: block; font-size: .85rem; } }

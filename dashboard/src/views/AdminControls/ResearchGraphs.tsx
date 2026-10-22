@@ -25,6 +25,9 @@ function Scatter({ data, index, medians, whole }: { data: ResearchFactorGraphs; 
 }
 
 export function ResearchFactorPlots({ data, whole }: { data?: ResearchFactorGraphs; whole: boolean }) {
+  // Update labels from existing saved analyses without requiring reanalysis.
+  data = data && { ...data, factors: data.factors.map(factor => factor.field === 'top20_attack_share'
+    ? { ...factor, label: 'Attack share from busiest 20%' } : factor) };
   const descriptions: Record<string, string> = {
     participation_rate: 'Share of listed members who made at least one reported attack.',
     top20_attack_share: whole ? 'Share of all attacks made by each faction’s busiest 20% of listed members, combined.' : 'Share of attacks made by the busiest 20% of listed members.',
