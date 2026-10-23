@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { ResearchComparison, ResearchGraphs, ResearchFactorGraphs } from '../../../../shared/rankedResearch';
+import { rewardPerMemberGraph } from '../../utils/researchRewardPerMember';
 
 const compact = (v: number) => new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 1 }).format(v);
 const dollars = (v: number) => `$${compact(v)}`;
@@ -8,20 +9,34 @@ const ticks = (lo: number, hi: number) => Array.from({ length: 5 }, (_, i) => lo
 const scale = (lo: number, hi: number, start: number, end: number) => (v: number) => start + (v - lo) / (hi - lo || 1) * (end - start);
 const names: Record<string, string> = { attacks: 'Reported attacks', score: 'War score', participation_rate: 'Participation', top20_attack_share: 'Attack concentration', duration_hours: 'Duration', listed_members: 'Roster size', opponent_listed_members: 'Opponent roster', opponent_score: 'Opponent score', attack_balance: 'Attack balance', score_balance: 'Score balance', roster_balance: 'Roster balance' };
 
-function Scatter({ data, index, medians, whole }: { data: ResearchFactorGraphs; index: number; medians: boolean; whole: boolean }) {
+function Scatter({ data, index, medians, whole, perMember = false }: { data: ResearchFactorGraphs; index: number; medians: boolean; whole: boolean; perMember?: boolean }) {
   const f = data.factors[index];
+  const rewardLabel = perMember ? 'Gross reward per listed member' : 'Gross reward';
   const lo = f.range[0], hi = f.range[1] === lo ? lo + 1 : f.range[1];
   const ymax = data.value_range[1] || 1;
   const x = scale(lo, hi, 84, 670), y = scale(0, ymax, 340, 35);
-  return <div className="research-plot-scroll" tabIndex={0} aria-label="Scrollable factor plot"><svg viewBox="0 0 710 410" role="img" aria-label={`${f.label} versus gross ${whole ? 'combined' : 'faction'} rewards`}>
-    <title>{f.label} versus gross rewards. {data.points.length} dots of {data.observations} observations; grouped medians use all observations.</title>
-    <text x={84} y={18}>Gross reward ($)</text>
+  return <div className="research-plot-scroll" tabIndex={0} aria-label="Scrollable factor plot"><svg viewBox="0 0 710 410" role="img" aria-label={`${f.label} versus ${rewardLabel.toLowerCase()} (${whole ? 'combined war' : 'individual faction'})`}>
+    <title>{f.label} versus {rewardLabel.toLowerCase()}. {data.points.length} dots of {data.observations} observations.{medians && ' Grouped medians use all observations.'}</title>
+    <text x={84} y={18}>{rewardLabel} ($)</text>
     {ticks(0, ymax).map(v => <g key={v}><line className="research-gridline" x1={84} x2={670} y1={y(v)} y2={y(v)}/><text x={74} y={y(v) + 4} textAnchor="end">{dollars(v)}</text></g>)}
     {ticks(lo, hi).map(v => <g key={v}><line className="research-gridline" x1={x(v)} x2={x(v)} y1={35} y2={340}/><text x={x(v)} y={363} textAnchor="middle">{compact(v)}</text></g>)}
-    {data.points.map(p => <circle className="research-dot" key={`${p.war_id}-${p.faction_id}`} cx={x(p.values[index])} cy={y(p.value)} r={3.5}><title>{`War ${p.war_id} · ${whole ? 'Winner' : 'Faction'} ${p.faction_id}\n${f.label}: ${p.values[index]} ${f.unit}\nGross reward: ${fullMoney(p.value)}`}</title></circle>)}
+    {data.points.map(p => <circle className="research-dot" key={`${p.war_id}-${p.faction_id}`} cx={x(p.values[index])} cy={y(p.value)} r={3.5}><title>{`War ${p.war_id} · ${whole ? 'Winner' : 'Faction'} ${p.faction_id}\n${f.label}: ${p.values[index]} ${f.unit}\n${rewardLabel}: ${fullMoney(p.value)}`}</title></circle>)}
     {medians && f.medians.map((m, i) => <rect className="research-median" key={i} x={x(m.x)-5} y={y(m.y)-5} width={10} height={10}><title>{`Group median: ${m.x} ${f.unit}, ${fullMoney(m.y)} · n=${m.n}`}</title></rect>)}
     <text x={377} y={396} textAnchor="middle">{f.label} ({f.unit})</text>
   </svg></div>;
+}
+
+function RewardPerMemberPlot({ data, whole }: { data: ResearchFactorGraphs; whole: boolean }) {
+  const graph = rewardPerMemberGraph(data);
+  return <article className="research-per-member-plot">
+    <h4>Gross reward per listed member vs war score</h4>
+    <p>{whole ? 'Both factions’ combined gross rewards divided by their combined listed roster size, plotted against their combined war score.' : 'Each faction’s gross reward divided by its own listed roster size, plotted against its own war score.'} Roster size includes listed members who made no attacks. This is a size-normalised reward value, not an actual member payout.</p>
+    {!graph ? <p>This saved analysis lacks the score or roster data needed for this graph.</p> : !graph.points.length ? <p>No observations have a valid score, reward value and positive roster size.</p> : <>
+      <p><span className="research-dot-key">●</span> {graph.points.length.toLocaleString()} {whole ? 'war' : 'faction'} observations from {graph.wars.toLocaleString()} wars. {data.points.length < data.observations ? `Uses the existing repeatable dot sample from ${data.observations.toLocaleString()} usable observations; axis ranges reflect the displayed sample and may omit extremes.` : 'Uses every saved graph observation with a valid roster size.'}</p>
+      {graph.points.length < data.points.length && <p>{(data.points.length - graph.points.length).toLocaleString()} observations omitted because their score, reward or roster size is invalid.</p>}
+      <Scatter data={graph} index={0} medians={false} whole={whole} perMember/>
+    </>}
+  </article>;
 }
 
 export function ResearchFactorPlots({ data, whole }: { data?: ResearchFactorGraphs; whole: boolean }) {
@@ -47,6 +62,7 @@ export function ResearchFactorPlots({ data, whole }: { data?: ResearchFactorGrap
         {descriptions[factor.field] && <p>{descriptions[factor.field]}</p>}
         <Scatter data={data} index={index} medians={true} whole={whole}/>
       </article>)}
+      <RewardPerMemberPlot data={data} whole={whole}/>
     </>}
   </section>;
 }
@@ -109,16 +125,16 @@ function ScoreBands({ card }: { card?: ResearchComparison }) {
 }
 
 export function ResearchGraphPanel({ data, cards = [], whole }: { data?: ResearchGraphs; cards?: ResearchComparison[]; whole: boolean }) {
-  const [view, setView] = useState<'factors'|'divisions'|'adjusted'>('factors');
+  const [view, setView] = useState<'factors'|'perMember'|'divisions'|'adjusted'>('factors');
   const [field, setField] = useState('attacks');
   const [medians, setMedians] = useState(true);
   const index = Math.max(0, data?.factors.findIndex(f=>f.field===field) ?? 0);
   return <section className="war-research-graphs">
     <h3>Reward graphs</h3>
-    <div className="war-research-steps" role="group" aria-label="Graph type">{(['factors','divisions','adjusted'] as const).map(v => <button key={v} className="admin-button" aria-pressed={view===v} onClick={()=>setView(v)}>{v==='factors' ? 'Factors vs rewards' : v==='divisions' ? 'Division distributions' : 'Adjusted associations'}</button>)}</div>
+    <div className="war-research-steps" role="group" aria-label="Graph type">{(['factors','perMember','divisions','adjusted'] as const).map(v => <button key={v} className="admin-button" aria-pressed={view===v} onClick={()=>setView(v)}>{v==='factors' ? 'Factors vs rewards' : v==='perMember' ? 'Reward per member vs score' : v==='divisions' ? 'Division distributions' : 'Adjusted associations'}</button>)}</div>
     <p>Gross {whole ? 'combined pot' : 'individual faction reward'} value. {data ? `${data.observations.toLocaleString()} fully priced, audited observations from ${data.wars.toLocaleString()} wars.` : 'Reanalyse the saved collection to add observed plots.'} Observed plots do not isolate causal effects.</p>
     <p className="research-scroll-hint">Scroll charts horizontally to see all values. Expand the values below a chart for its numerical summary.</p>
-    {view==='adjusted' ? <Adjusted cards={cards}/> : !data ? null : !data.observations ? <p>No fully priced observations pass the member-total checks. Graphs will appear when usable data is available.</p> : view==='divisions' ? <Distributions data={data} whole={whole}/> : <>
+    {view==='adjusted' ? <Adjusted cards={cards}/> : !data ? null : !data.observations ? <p>No fully priced observations pass the member-total checks. Graphs will appear when usable data is available.</p> : view==='divisions' ? <Distributions data={data} whole={whole}/> : view==='perMember' ? <RewardPerMemberPlot data={data} whole={whole}/> : <>
       <div className="research-plot-controls"><label>Factor<select value={data.factors[index].field} onChange={e=>setField(e.target.value)}>{data.factors.map(f=><option key={f.field} value={f.field}>{f.label}</option>)}</select></label><label><input type="checkbox" checked={medians} onChange={e=>setMedians(e.target.checked)}/> Show grouped medians</label></div>
       <p><span className="research-dot-key">●</span> {data.points.length.toLocaleString()} {data.points.length<data.observations ? 'repeatably sampled' : 'individual'} observations shown. {data.points.length<data.observations && 'This dot sample may omit extremes; axis ranges include the full sample. '}<span className="research-median-key">■</span> Grouped medians use all {data.observations.toLocaleString()} observations. Hover over a mark for its values.</p>
       <Scatter data={data} index={index} medians={medians} whole={whole}/>
