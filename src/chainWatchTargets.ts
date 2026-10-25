@@ -1,5 +1,5 @@
 import {
-  CHAIN_TARGET_SEARCH_CURSORS, CHAIN_TARGET_SEARCH_FILTERS, CHAIN_TARGET_SEARCH_SORT,
+  CHAIN_TARGET_SEARCH_CURSORS, CHAIN_TARGET_SEARCH_FILTERS, type ChainTargetSearchPosition,
 } from "./chainWatchTargetCursors";
 import { fetchTrackedTornResponse } from "./external/torn";
 import { markTornKeyFailure, readAvailableTornApiKeys, recordTornKeyUse, type TornKeyPoolCandidate } from "./tornKeyPool";
@@ -7,8 +7,10 @@ import type { Env } from "./types";
 import { nowSeconds } from "./utils";
 
 const MAX_BATCHES = 3;
-const SEARCH_BUDGET_MS = 5_000;
-const PAGE_TIMEOUT_MS = 2_000;
+// Live user/search calls can take longer than two seconds. Keep the optional
+// warning enrichment bounded while allowing slow, healthy pages to complete.
+const SEARCH_BUDGET_MS = 12_000;
+const PAGE_TIMEOUT_MS = 5_000;
 // Verified against live user/search responses: hospital, jail, federal jail,
 // and travel (including abroad / "Hiding out in ...").
 const UNAVAILABLE_ICON_IDS = new Set([15, 16, 70, 71]);
@@ -53,14 +55,14 @@ export async function fetchChainWatchTargets(env: Env): Promise<ChainWatchTarget
   let sawTimeout = false;
   for (let batch = 0; batch < MAX_BATCHES; batch++) {
     if (Date.now() >= deadline) return { ...result, status: "timeout" };
-    const jobs: { cursor: string | null; candidate: TornKeyPoolCandidate }[] = [];
+    const jobs: { position: ChainTargetSearchPosition; candidate: TornKeyPoolCandidate }[] = [];
     for (let slot = 0; slot < 2 && cursors.length; slot++) {
       const candidate = candidates.find(key => !disabledKeys.has(key.id) &&
         (key.maxRequestsPerMinute === null || key.currentMinuteUsage < key.maxRequestsPerMinute));
       if (!candidate) break;
       candidate.currentMinuteUsage++;
-      const [cursor] = cursors.splice(Math.floor(Math.random() * cursors.length), 1);
-      jobs.push({ cursor, candidate });
+      const [position] = cursors.splice(Math.floor(Math.random() * cursors.length), 1);
+      jobs.push({ position, candidate });
     }
     if (!jobs.length) return { ...result, status: "unavailable" };
     try {
@@ -72,7 +74,7 @@ export async function fetchChainWatchTargets(env: Env): Promise<ChainWatchTarget
       return { ...result, status: "unavailable" };
     }
     if (Date.now() >= deadline) return { ...result, status: "timeout" };
-    const pages = await Promise.all(jobs.map(job => fetchSearchPage(env, job.cursor, job.candidate, batch, deadline)));
+    const pages = await Promise.all(jobs.map(job => fetchSearchPage(env, job.position, job.candidate, batch, deadline)));
     const ids = new Set<number>();
     for (const [index, page] of pages.entries()) {
       result.pages_fetched++;
@@ -93,13 +95,13 @@ export async function fetchChainWatchTargets(env: Env): Promise<ChainWatchTarget
 }
 
 async function fetchSearchPage(
-  env: Env, cursor: string | null, candidate: TornKeyPoolCandidate, batch: number, deadline: number,
+  env: Env, position: ChainTargetSearchPosition, candidate: TornKeyPoolCandidate, batch: number, deadline: number,
 ): Promise<SearchPage> {
   const url = new URL("https://api.torn.com/v2/user/search");
   url.searchParams.set("filters", CHAIN_TARGET_SEARCH_FILTERS);
-  url.searchParams.set("sort", CHAIN_TARGET_SEARCH_SORT);
+  url.searchParams.set("sort", position.sort);
   url.searchParams.set("timestamp", String(Date.now()));
-  if (cursor !== null) url.searchParams.set("cursor", cursor);
+  if (position.cursor !== null) url.searchParams.set("cursor", position.cursor);
   const controller = new AbortController();
   const failure: SearchPage = { players: [], failed: true, timedOut: false, keyFailure: false };
   let timer: ReturnType<typeof setTimeout>;

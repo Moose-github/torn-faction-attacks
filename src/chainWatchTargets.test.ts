@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { CHAIN_TARGET_SEARCH_CURSORS, CHAIN_TARGET_SEARCH_FILTERS } from "./chainWatchTargetCursors";
+import { CHAIN_TARGET_SEARCH_CURSORS } from "./chainWatchTargetCursors";
 import { fetchChainWatchTargets, isViableChainWatchTarget } from "./chainWatchTargets";
 import { fetchTrackedTornResponse } from "./external/torn";
 import { markTornKeyFailure, readAvailableTornApiKeys, recordTornKeyUse, type TornKeyPoolCandidate } from "./tornKeyPool";
@@ -42,12 +42,17 @@ describe("target availability", () => {
 });
 
 describe("random cursor search", () => {
-  it("bundles all collected positions, including page one, with distinct reusable cursors", () => {
-    expect(CHAIN_TARGET_SEARCH_CURSORS).toHaveLength(91);
-    expect(CHAIN_TARGET_SEARCH_CURSORS[0]).toBeNull();
-    expect(new Set(CHAIN_TARGET_SEARCH_CURSORS).size).toBe(91);
-    for (const cursor of CHAIN_TARGET_SEARCH_CURSORS.slice(1)) {
-      expect(JSON.parse(atob(cursor!))).toMatchObject({ direction: "next", id: expect.any(Number), name: expect.any(String) });
+  it("bundles 100 distinct positions from each end, preserving each cursor's sort direction", () => {
+    expect(CHAIN_TARGET_SEARCH_CURSORS).toHaveLength(200);
+    expect(new Set(CHAIN_TARGET_SEARCH_CURSORS.map(position => JSON.stringify(position))).size).toBe(200);
+    for (const sort of ["ASC", "DESC"]) {
+      const positions = CHAIN_TARGET_SEARCH_CURSORS.filter(position => position.sort === sort);
+      expect(positions).toHaveLength(100);
+      expect(positions[0].cursor).toBeNull();
+      expect(positions.filter(position => position.cursor === null)).toHaveLength(1);
+      for (const position of positions.slice(1)) {
+        expect(JSON.parse(atob(position.cursor!))).toMatchObject({ direction: "next", id: expect.any(Number), name: expect.any(String) });
+      }
     }
   });
   it("starts two pages concurrently, uses the Enemy scouting pool, and merges viable IDs", async () => {
@@ -64,17 +69,46 @@ describe("random cursor search", () => {
     const calls = vi.mocked(fetchTrackedTornResponse).mock.calls;
     const urls = calls.map(call => new URL(String(call[1])));
     expect(urls[0].searchParams.has("cursor")).toBe(false);
-    expect(urls[1].searchParams.get("cursor")).toBe(CHAIN_TARGET_SEARCH_CURSORS[1]);
+    expect(urls[1].searchParams.get("cursor")).toBe(CHAIN_TARGET_SEARCH_CURSORS[1].cursor);
     for (const [index, url] of urls.entries()) {
       expect(url.origin + url.pathname).toBe("https://api.torn.com/v2/user/search");
-      expect(url.searchParams.get("filters")).toBe(CHAIN_TARGET_SEARCH_FILTERS);
-      expect(url.searchParams.get("sort")).toBe("ASC");
+      // Pin the equality filter literally so an old level threshold cannot regress unnoticed.
+      expect(url.searchParams.get("filters")).toBe("lastActionYearAgo,level:=:1,offences:=:0,notInHospital");
+      expect(url.searchParams.get("sort")).toBe(CHAIN_TARGET_SEARCH_CURSORS[index].sort);
       expect(url.searchParams.has("timestamp")).toBe(true);
       expect(url.searchParams.has("offset")).toBe(false);
       expect(url.searchParams.has("key")).toBe(false);
       expect(calls[index][2]).toMatchObject({ headers: { Authorization: "ApiKey test-key-one" } });
       expect(calls[index][3]).toMatchObject({ feature: "chain-watch:targets", keySource: "key_pool:one" });
     }
+  });
+  it("can select every position across the entire saved pool", async () => {
+    const random = vi.spyOn(Math, "random");
+    const fetch = vi.mocked(fetchTrackedTornResponse);
+    vi.mocked(readAvailableTornApiKeys).mockImplementation(async () => [key()]);
+    fetch.mockImplementation(async () => respond([player(5)]));
+    for (const [index, position] of CHAIN_TARGET_SEARCH_CURSORS.entries()) {
+      fetch.mockClear();
+      // Use the middle of each equal-sized selection interval, including the last.
+      random.mockReturnValue((index + 0.5) / CHAIN_TARGET_SEARCH_CURSORS.length);
+      await fetchChainWatchTargets(env);
+      expect(fetch).toHaveBeenCalledTimes(2);
+      const selected = fetch.mock.calls.map(call => {
+        const params = new URL(String(call[1])).searchParams;
+        return { sort: params.get("sort"), cursor: params.get("cursor") };
+      });
+      expect(selected[0]).toEqual(position);
+      expect(selected[1]).not.toEqual(position);
+    }
+  });
+  it("fetches a saved descending cursor with DESC, not the old global ascending sort", async () => {
+    const index = CHAIN_TARGET_SEARCH_CURSORS.findIndex(position => position.sort === "DESC" && position.cursor !== null);
+    vi.spyOn(Math, "random").mockReturnValue(index / CHAIN_TARGET_SEARCH_CURSORS.length);
+    vi.mocked(fetchTrackedTornResponse).mockImplementation(async () => respond([player(5)]));
+    await fetchChainWatchTargets(env);
+    const url = new URL(String(vi.mocked(fetchTrackedTornResponse).mock.calls[0][1]));
+    expect(url.searchParams.get("sort")).toBe("DESC");
+    expect(url.searchParams.get("cursor")).toBe(CHAIN_TARGET_SEARCH_CURSORS[index].cursor);
   });
   it("tries different positions after an empty/blocked batch, then stops on success", async () => {
     vi.spyOn(Math, "random").mockReturnValue(0.4);
@@ -83,13 +117,19 @@ describe("random cursor search", () => {
       .mockResolvedValueOnce(respond([player(4, [icon(71, "Hiding out in UAE")])]))
       .mockResolvedValueOnce(respond([player(5)]));
     expect(await fetchChainWatchTargets(env)).toMatchObject({ target_ids: [5], status: "ok", pages_fetched: 4 });
-    const cursors = vi.mocked(fetchTrackedTornResponse).mock.calls.map(call => new URL(String(call[1])).searchParams.get("cursor"));
+    const cursors = vi.mocked(fetchTrackedTornResponse).mock.calls.map(call => {
+      const params = new URL(String(call[1])).searchParams;
+      return `${params.get("sort")}:${params.get("cursor")}`;
+    });
     expect(new Set(cursors).size).toBe(4);
   });
   it("caps an empty search at six distinct pages", async () => {
     expect(await fetchChainWatchTargets(env)).toMatchObject({ target_ids: [], status: "no_targets", pages_fetched: 6 });
     expect(fetchTrackedTornResponse).toHaveBeenCalledTimes(6);
-    const cursors = vi.mocked(fetchTrackedTornResponse).mock.calls.map(call => new URL(String(call[1])).searchParams.get("cursor"));
+    const cursors = vi.mocked(fetchTrackedTornResponse).mock.calls.map(call => {
+      const params = new URL(String(call[1])).searchParams;
+      return `${params.get("sort")}:${params.get("cursor")}`;
+    });
     expect(new Set(cursors).size).toBe(6);
   });
   it("keeps usable results when the other page fails", async () => {
@@ -127,6 +167,19 @@ describe("random cursor search", () => {
     expect(await fetchChainWatchTargets(env)).toMatchObject({ status: "ok", target_ids: [8], pages_fetched: 4 });
     expect(vi.mocked(fetchTrackedTornResponse).mock.calls[2][3].keySource).toBe("key_pool:two");
   });
+  it("accepts healthy search pages that take longer than the former two-second timeout", async () => {
+    vi.useFakeTimers();
+    const signals: AbortSignal[] = [];
+    vi.mocked(fetchTrackedTornResponse).mockImplementation((_env, _url, init) => {
+      signals.push(init.signal!);
+      return new Promise(resolve => setTimeout(() => resolve(respond([player(9)])), 3_500));
+    });
+    const pending = fetchChainWatchTargets(env);
+    await vi.advanceTimersByTimeAsync(3_500);
+    expect(await pending).toMatchObject({ status: "ok", target_ids: [9], pages_fetched: 2, failed_pages: 0 });
+    expect(signals.every(signal => !signal.aborted)).toBe(true);
+    expect(vi.getTimerCount()).toBe(0);
+  });
   it("bounds stalled response bodies and aborts requests at the overall search deadline", async () => {
     vi.useFakeTimers();
     const signals: AbortSignal[] = [];
@@ -135,7 +188,7 @@ describe("random cursor search", () => {
       return { ok: true, status: 200, json: () => new Promise(() => {}) } as unknown as Response;
     });
     const pending = fetchChainWatchTargets(env);
-    await vi.advanceTimersByTimeAsync(5_000);
+    await vi.advanceTimersByTimeAsync(12_000);
     expect(await pending).toMatchObject({ status: "timeout", target_ids: [], pages_fetched: 6 });
     expect(signals).toHaveLength(6);
     expect(signals.every(signal => signal.aborted)).toBe(true);
