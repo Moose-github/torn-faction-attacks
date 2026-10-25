@@ -1,20 +1,30 @@
 import { readAuthenticatedUserId } from "../auth";
 import { getChainWatchLive } from "../chainWatch";
+import { fetchChainWatchTargets } from "../chainWatchTargets";
 import { readJsonObject } from "../backend/request";
 import { changeWatchSlots, readWatch, readWatchHistory, setWatchFinish, WatchError } from "../chainWatchSchedule";
 import { syncWatchBoardsSafely } from "../chainWatchScheduleDiscord";
 import { json } from "../utils";
-import { withAdmin, withMember, type RouteContext, type RouteResult } from "./context";
+import { requireActionCooldown, withAdmin, withMember, type RouteContext, type RouteResult } from "./context";
 
 export async function routeWatchScheduleApi(context: RouteContext): Promise<RouteResult> {
   const { request, env, url, ctx } = context;
   const live = url.pathname === "/api/chain-watch/live";
+  const targets = url.pathname === "/api/chain-watch/targets";
   const admin = url.pathname.startsWith("/api/admin/chain-watch");
   const base = admin ? "/api/admin/chain-watch" : "/api/chain-watch";
   const history = url.pathname === `${base}/history`;
-  if (!live && !history && url.pathname !== base && url.pathname !== `${base}/slots` && url.pathname !== `${base}/finish`) return null;
+  if (!live && !targets && !history && url.pathname !== base && url.pathname !== `${base}/slots` && url.pathname !== `${base}/finish`) return null;
   return (admin ? withAdmin : withMember)(context, async () => {
     try {
+      if (targets) {
+        if (request.method !== "POST") return json({ ok: false, error: "Method not allowed" }, 405);
+        const cooldown = await requireActionCooldown(env, "chain_watch_target_search", 20);
+        if (cooldown) return cooldown;
+        const result = await fetchChainWatchTargets(env);
+        const status = result.status === "timeout" ? 504 : result.status === "unavailable" ? 503 : 200;
+        return json({ ok: status === 200, ...result }, status);
+      }
       if (live) return request.method === "GET" ? await getChainWatchLive(env) : json({ ok: false, error: "Method not allowed" }, 405);
       if (history) return request.method === "GET" ? json(await readWatchHistory(env)) : json({ ok: false, error: "Method not allowed" }, 405);
       if (request.method === "GET" && url.pathname === base) return json(await readWatch(env, url.searchParams.get("watch")));
