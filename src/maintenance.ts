@@ -39,6 +39,9 @@ const TORN_API_CALL_LOG_RETENTION_SECONDS = 7 * 24 * 60 * 60;
 const TORN_API_KEY_USAGE_WINDOW_RETENTION_SECONDS = 24 * 60 * 60;
 // Bounded so the first run after a long backlog stays within D1 statement limits.
 const TORN_API_KEY_USAGE_WINDOW_DELETE_LIMIT = 100_000;
+// Data Health reads at most the last 7 days of API usage rollups.
+const TORN_API_USAGE_ROLLUP_RETENTION_SECONDS = 30 * 24 * 60 * 60;
+const TORN_API_USAGE_ROLLUP_DELETE_LIMIT = 100_000;
 const METRICS_RETENTION_STATE_NAME = "scheduled_metrics_retention";
 const MEMBER_STAT_CORRECTION_INTERVAL_SECONDS = 60 * 60;
 const MEMBER_STAT_CORRECTION_STATE_NAME = "open_war_member_stats_rebuild";
@@ -428,6 +431,20 @@ async function cleanupOldMetrics(env: Env): Promise<MaintenanceTaskMetrics> {
   )
     .bind(tornApiKeyUsageWindowCutoff, TORN_API_KEY_USAGE_WINDOW_DELETE_LIMIT)
     .run();
+  const tornApiUsageRollupCutoff = now - TORN_API_USAGE_ROLLUP_RETENTION_SECONDS;
+  const tornApiUsageRollupDelete = await env.DB.prepare(
+    `
+    DELETE FROM torn_api_usage_rollup_15m
+    WHERE rowid IN (
+      SELECT rowid
+      FROM torn_api_usage_rollup_15m
+      WHERE bucket_start < ?
+      LIMIT ?
+    )
+    `,
+  )
+    .bind(tornApiUsageRollupCutoff, TORN_API_USAGE_ROLLUP_DELETE_LIMIT)
+    .run();
 
   await upsertSyncTimestamp(env, METRICS_RETENTION_STATE_NAME, now);
 
@@ -436,15 +453,17 @@ async function cleanupOldMetrics(env: Env): Promise<MaintenanceTaskMetrics> {
   const deletedIngestionRuns = d1Changes(ingestionDelete);
   const deletedTornApiCallLogs = d1Changes(tornApiCallLogDelete);
   const deletedTornApiKeyUsageWindows = d1Changes(tornApiKeyUsageWindowDelete);
+  const deletedTornApiUsageRollups = d1Changes(tornApiUsageRollupDelete);
 
   return {
-    writeStatements: 6,
+    writeStatements: 7,
     changedRows:
       deletedMaintenanceTasks +
       deletedMaintenanceRuns +
       deletedIngestionRuns +
       deletedTornApiCallLogs +
       deletedTornApiKeyUsageWindows +
+      deletedTornApiUsageRollups +
       1,
     details: {
       cutoff,
@@ -457,6 +476,9 @@ async function cleanupOldMetrics(env: Env): Promise<MaintenanceTaskMetrics> {
       deleted_torn_api_call_logs: deletedTornApiCallLogs,
       torn_api_key_usage_window_cutoff: tornApiKeyUsageWindowCutoff,
       deleted_torn_api_key_usage_windows: deletedTornApiKeyUsageWindows,
+      torn_api_usage_rollup_cutoff: tornApiUsageRollupCutoff,
+      torn_api_usage_rollup_retention_days: 30,
+      deleted_torn_api_usage_rollups: deletedTornApiUsageRollups,
     },
   };
 }

@@ -54,9 +54,6 @@ export function rankSignalsForStrategy(
   config: Pick<StrategyConfig, "sell_fee_rate">,
   strategy: PaperBotStrategy,
 ): StockSignal[] {
-  if (strategy === "copy-movement") {
-    return [];
-  }
   return strategy === "whale-flow"
     ? rankWhaleFlowSignals(market, observedAt, config)
     : rankStockPaperSignals(market, observedAt, config);

@@ -1,6 +1,5 @@
 import type { Env } from "../types";
 import type {
-  CopyMovementEvent,
   EquitySnapshot,
   MarketPoint,
   MarketStock,
@@ -120,26 +119,6 @@ export async function readRecentPaperTrades(
   )
     .bind(id, limit)
     .all<PaperTradeWithProfile>();
-
-  return rows.results ?? [];
-}
-
-export async function readRecentCopyMovementEvents(
-  env: Env,
-  sourcePlayerId: number,
-  limit: number,
-): Promise<CopyMovementEvent[]> {
-  const rows = await env.DB.prepare(
-    `
-    SELECT *
-    FROM stock_copy_movement_events
-    WHERE source_player_id = ?
-    ORDER BY observed_at DESC, created_at DESC
-    LIMIT ?
-    `,
-  )
-    .bind(sourcePlayerId, limit)
-    .all<CopyMovementEvent>();
 
   return rows.results ?? [];
 }
