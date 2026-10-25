@@ -9,6 +9,7 @@ import { DEFAULT_HALLOWEEN, HALLOWEEN_BOOKS, HALLOWEEN_BOOSTERS,
   HALLOWEEN_COMPANIES, HALLOWEEN_BASKETS, HALLOWEEN_SIMULATION_RUNS, HALLOWEEN_REFINED_RUNS, validateHalloween, getSimulatedTreatsPerAttack,
   type HalloweenBook, type HalloweenSettings, type HalloweenResult } from "../utils/halloweenProfit";
 import { formatMoney, formatCompact } from "./BookStrategy.helpers";
+import { useDebouncedValue } from "../hooks/useDebouncedValue";
 import "./HalloweenProfit.css";
 import { HalloweenStrategyBreakdown } from "./HalloweenStrategyBreakdown";
 import { HalloweenDistributions } from "./HalloweenDistributions";
@@ -22,6 +23,7 @@ const parse = (value: string) => {
   const match = value.replace(/[$,\s]/g, "").match(/^(-?\d+(?:\.\d+)?|\.\d+)([kmb])?$/i);
   return match ? Number(match[1]) * ({ k: 1e3, m: 1e6, b: 1e9 }[match[2]?.toLowerCase()] ?? 1) : NaN;
 };
+const HALLOWEEN_INPUT_DELAY_MS = 400;
 const count = (value: number) => value.toLocaleString(undefined, { maximumFractionDigits: 1 });
 const bookName = (book: HalloweenBook) => HALLOWEEN_BOOKS.find(item => item.id === book)!.name;
 const boosterName = (id: string) => HALLOWEEN_BOOSTERS.find(item => item.id === id)!.name;
@@ -89,23 +91,30 @@ export function HalloweenProfit() {
     return () => { window.removeEventListener("keydown", close); window.removeEventListener("pointerdown", outside); };
   }, [popout]);
   const dailyXanax = parse(xanaxPerDay);
-  const basket = HALLOWEEN_BASKETS.find(item => item.id === options.basketLevel)!;
-  const settings = React.useMemo(() => ({ ...options,
+  const inputSettings = React.useMemo(() => ({ ...options,
     ...Object.fromEntries(numberKeys.map(key => [key, parse(numbers[key])])), canPrices: prices.map(parse),
     drugInterval: 24 / dailyXanax,
   }) as HalloweenSettings, [options, numbers, prices, dailyXanax]);
   const validationError = !Number.isFinite(dailyXanax) || dailyXanax < 1 || dailyXanax > 4
-    ? "Enter Xanax/day between 1 and 4." : validateHalloween(settings);
+    ? "Enter Xanax/day between 1 and 4." : validateHalloween(inputSettings);
+  // A full comparison takes seconds, so wait for typing to pause before starting one.
+  const calculationSettings = useDebouncedValue(inputSettings, HALLOWEEN_INPUT_DELAY_MS);
   const [calculation, setCalculation] = React.useState<{
     settings: HalloweenSettings; results: HalloweenResult[]; error: string | null;
   } | null>(null);
+  // Results and their explanations describe the settings they were calculated with,
+  // which lag the inputs while a new calculation is pending.
+  const settings = calculation?.settings ?? calculationSettings;
+  const stale = !!calculation && (calculation.settings !== inputSettings || !!validationError);
+  const basket = HALLOWEEN_BASKETS.find(item => item.id === settings.basketLevel)!;
   const [refinement, setRefinement] = React.useState<{ settings: HalloweenSettings } | null>(null);
-  const requestedRuns = refinement?.settings === settings ? HALLOWEEN_REFINED_RUNS : HALLOWEEN_SIMULATION_RUNS;
+  const requestedRuns = refinement?.settings === calculationSettings ? HALLOWEEN_REFINED_RUNS : HALLOWEEN_SIMULATION_RUNS;
   const [job, setJob] = React.useState<{
     settings: HalloweenSettings; runs: number; completed: number; total: number; error: string | null;
   } | null>(null);
   React.useEffect(() => {
-    if (validationError) return;
+    if (validateHalloween(calculationSettings)) return;
+    const settings = calculationSettings;
     let cancelled = false;
     const total = HALLOWEEN_BOOKS.length * HALLOWEEN_BOOSTERS.length;
     setJob({ settings, runs: requestedRuns, completed: 0, total, error: null });
@@ -128,12 +137,11 @@ export function HalloweenProfit() {
     worker.onerror = () => { finish([], "Unable to calculate Halloween strategies. Try again or change an input."); worker.terminate(); };
     worker.postMessage({ settings, runs: requestedRuns } satisfies HalloweenWorkerRequest);
     return () => { cancelled = true; worker.terminate(); };
-  }, [settings, validationError, requestedRuns, refinement]);
-  const currentCalculation = calculation?.settings === settings ? calculation : null;
-  const error = validationError ?? currentCalculation?.error;
-  const results = error ? [] : currentCalculation?.results ?? [];
+  }, [calculationSettings, requestedRuns, refinement]);
+  const calculationError = calculation?.error ?? null;
+  const results = calculation && !calculationError ? calculation.results : [];
   const displayedRuns = results[0]?.simulationRuns ?? HALLOWEEN_SIMULATION_RUNS;
-  const currentJob = job?.settings === settings && job.runs === requestedRuns ? job : null;
+  const currentJob = job?.settings === calculationSettings && job.runs === requestedRuns ? job : null;
   const refinementError = requestedRuns === HALLOWEEN_REFINED_RUNS ? currentJob?.error : null;
   const refining = requestedRuns === HALLOWEEN_REFINED_RUNS && displayedRuns !== HALLOWEEN_REFINED_RUNS && !refinementError;
   const ranked = results.filter(row => books.includes(row.book)).sort((a, b) => b.profit - a.profit);
@@ -155,7 +163,7 @@ export function HalloweenProfit() {
   } | null>(null);
   const selectedBook = selected?.book, selectedBooster = selected?.booster;
   React.useEffect(() => {
-    if (!selectedBook || !selectedBooster || error) return;
+    if (!selectedBook || !selectedBooster) return;
     let cancelled = false;
     const worker = new Worker(new URL("../workers/halloweenProfitWorker.ts", import.meta.url), { type: "module" });
     worker.onmessage = (event: MessageEvent<HalloweenWorkerResponse>) => {
@@ -169,7 +177,7 @@ export function HalloweenProfit() {
     worker.postMessage({ settings: { ...settings, weapon: settings.weapon === "scary" ? "revitalize" : "scary" },
       runs: displayedRuns, strategy: { book: selectedBook, booster: selectedBooster } } satisfies HalloweenWorkerRequest);
     return () => { cancelled = true; worker.terminate(); };
-  }, [settings, selectedBook, selectedBooster, displayedRuns, error]);
+  }, [settings, selectedBook, selectedBooster, displayedRuns]);
   const alternativeWeapon = alternative?.settings === settings && alternative.id === selected?.id && alternative.runs === displayedRuns
     ? alternative.result : null;
   const chart = selected?.timeline.map((point, index) => ({ ...point, baseline: baseline?.timeline[index].profit }));
@@ -277,8 +285,10 @@ export function HalloweenProfit() {
         <input type="checkbox" checked={books.includes(book.id)} disabled={book.id === "none"} onChange={event => setBooks(current => event.target.checked ? [...current, book.id] : current.filter(id => id !== book.id))} />
         <span><strong>{book.name}</strong><small>{book.description}</small></span></label>)}</div>
     </section>
-    {!error && !currentCalculation && <section className="panel" role="status">Calculating strategies across {HALLOWEEN_SIMULATION_RUNS} simulations…</section>}
-    {error ? <section className="panel halloween-error" role="alert">{error}</section> : best && bestWithoutBook && baseline && selected && <>
+    {!validationError && !calculation && <section className="panel" role="status">Calculating strategies across {HALLOWEEN_SIMULATION_RUNS} simulations…</section>}
+    {validationError && <section className="panel halloween-error" role="alert">{validationError}{calculation && !calculationError && " Results below are for your last valid settings."}</section>}
+    {stale && !validationError && <p className="halloween-note halloween-updating" role="status">Updating strategies for your new settings…</p>}
+    {calculationError ? !validationError && <section className="panel halloween-error" role="alert">{calculationError}</section> : best && bestWithoutBook && baseline && selected && <div className={`halloween-results${stale ? " halloween-stale" : ""}`} aria-busy={stale}>
       <div className="halloween-metrics">
         <MetricCard label="Highest net profit" value={formatMoney(best.profit)} detail={strategyName(best)} icon={<Trophy size={16} />} />
         <MetricCard label="Best uplift over baseline" value={formatMoney(best.profit - baseline.profit)} detail="Compared with no book and no paid boosters" icon={<Wallet size={16} />} />
@@ -286,8 +296,8 @@ export function HalloweenProfit() {
         <MetricCard label="Baseline net profit" value={formatMoney(baseline.profit)} detail="Same weapon, company, drugs, refills and free energy" icon={<Swords size={16} />} />
       </div>
       <section className="panel"><PanelHeader title="Strategy comparison" control={<div className="halloween-comparison-controls">
-        <button type="button" className="book-strategy-popout-button" disabled={refining || displayedRuns === HALLOWEEN_REFINED_RUNS}
-          onClick={() => setRefinement({ settings })} title="Recalculate all strategies with 1,024 simulations for a more precise estimate. Changing an input returns to 128 runs.">
+        <button type="button" className="book-strategy-popout-button" disabled={stale || refining || displayedRuns === HALLOWEEN_REFINED_RUNS}
+          onClick={() => setRefinement({ settings: calculationSettings })} title="Recalculate all strategies with 1,024 simulations for a more precise estimate. Changing an input returns to 128 runs.">
           {refining ? "Refining…" : displayedRuns === HALLOWEEN_REFINED_RUNS ? "Refined · 1,024 runs" : "Refine estimate"}
         </button>
         <label className="halloween-sort">Sort <select value={sort} onChange={event => setSort(event.target.value)}><option value="highest">Highest profit first</option><option value="lowest">Lowest profit first</option></select></label>
@@ -335,9 +345,9 @@ export function HalloweenProfit() {
           </div>
         </div>
       </section>
-    </>}
-    {selected && baseline && selectedNoBook && <HalloweenStrategyBreakdown selected={selected} baseline={baseline} noBook={selectedNoBook} settings={settings} />}
-    <HalloweenProgression settings={settings} pricesLoading={loadingPrices}
+      {selectedNoBook && <HalloweenStrategyBreakdown selected={selected} baseline={baseline} noBook={selectedNoBook} settings={settings} />}
+    </div>}
+    <HalloweenProgression settings={inputSettings} pricesLoading={loadingPrices}
       priceSource={priceSnapshot ? `Weav3r prices · snapshot ${new Date(priceSnapshot.generatedAt * 1000).toLocaleString()}` : priceNotice || priceError?.includes("Annual low prices are being used") ? "Annual low prices" : "Current price inputs"} />
     <section className="panel halloween-method"><details><summary>How the estimate works</summary>
       {selected && alternativeWeapon && <p><strong>Simulated treats per attack</strong><br />
