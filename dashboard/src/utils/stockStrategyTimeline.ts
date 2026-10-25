@@ -12,7 +12,8 @@ const YEAR = 365 * DAY;
 const TCI = "city_bank:tci_bonus";
 const EPSILON = 0.00001;
 const MAX_RECOMMENDATIONS = 9;
-const MAX_SAVINGS_TARGETS = 2;
+export const DEFAULT_STOCK_STRATEGY_SAVINGS_TARGETS = 2;
+export const MAX_STOCK_STRATEGY_SAVINGS_TARGETS = 5;
 
 export type StockStrategyPayout = {
   id: string; label: string; at: number; amount: number; reward_count: number; estimated: boolean;
@@ -53,6 +54,8 @@ export type StockStrategySavingsTarget = {
   purchase_at: number | null;
   status: "scheduled" | "unfunded" | "horizon" | "not_scheduled";
 };
+/** Why the displayed path stops; null when issues prevent a forecast. */
+export type StockStrategyEndReason = "step_limit" | "savings_targets" | "unfunded" | "horizon" | "no_options";
 export type StockStrategyForecast = {
   as_of: number | null;
   issues: string[];
@@ -60,12 +63,15 @@ export type StockStrategyForecast = {
   weekly_investment_income: number | null;
   timeline: StockStrategyTiming[];
   savings_target: StockStrategySavingsTarget | null;
+  end_reason: StockStrategyEndReason | null;
 };
 export type StockStrategyTimelineInput = StockBuyRecommendationInput & {
   /** Unix seconds; supplied by the caller so simulation is deterministic. */
   asOf: number;
   additionalIncomePerWeek: number;
   privateIslandCount?: number;
+  /** The displayed path ends at this savings target; defaults to two. */
+  savingsTargetLimit?: number;
 };
 
 type StockRow = StockInvestmentRecommendationRow & { stock_id: number; increment: number; total_shares_required: number };
@@ -104,7 +110,7 @@ export function buildStockStrategyTimeline(input: StockStrategyTimelineInput, li
     }
     if (!improved) break;
   }
-  return finishStockStrategyForecast(result);
+  return finishStockStrategyForecast(result, input.savingsTargetLimit);
 }
 
 function simulateStockStrategyTimeline(
@@ -113,7 +119,7 @@ function simulateStockStrategyTimeline(
   exclusions: ReadonlyMap<string, ReadonlySet<string>>,
 ): StockStrategyForecast {
   const snapshot = input.ownedSnapshot;
-  const result: StockStrategyForecast = { as_of: snapshot?.refreshed_at || null, issues: [], warnings: [], weekly_investment_income: null, timeline: [], savings_target: null };
+  const result: StockStrategyForecast = { as_of: snapshot?.refreshed_at || null, issues: [], warnings: [], weekly_investment_income: null, timeline: [], savings_target: null, end_reason: null };
   if (!snapshot || snapshot.refreshed_at <= 0 || utcDay(snapshot.refreshed_at) !== utcDay(input.asOf) || snapshot.refreshed_at > input.asOf) {
     result.issues.push("Refresh owned stocks today (UTC) to calculate payout dates. Historical collections are not assumed.");
     return result;
@@ -278,7 +284,7 @@ function simulateStockStrategyTimeline(
       ownedSnapshot: currentSnapshot, cityBankActive: bank !== null, budget: cash, fhgTciHybridActive: false,
       fhgTciHybridBaselineShares: undefined, fhgTciHybridReservedShares: undefined };
     const proposed = nextScheduledStockStrategyStep(stepInput, completed, limit);
-    if (!proposed) break;
+    if (!proposed) { result.end_reason = "no_options"; break; }
     if (!result.savings_target) result.savings_target = {
       recommendation: proposed.savings_target,
       cash_shortfall: Math.max(0, proposed.savings_target.estimated_cost - cash),
@@ -298,8 +304,10 @@ function simulateStockStrategyTimeline(
       const futureStockIncome = [...schedules.values()].some((schedule) => !schedule.passive && schedule.rows.some((row) => row.benefit_value > 0));
       const futureBankIncome = bank && (bank.profit > 0 || (!importedBank && (bankRow?.annual_return ?? 0) > 0));
       if ((!futureStockIncome && !futureBankIncome && continuousPerSecond <= 0) || next > end || !Number.isFinite(next)) {
-        result.timeline.push({ step: proposed, savings_target: proposed.savings_target, purchase_at: null, status: !futureStockIncome && !futureBankIncome && continuousPerSecond <= 0 ? "unfunded" : "horizon",
+        const status = !futureStockIncome && !futureBankIncome && continuousPerSecond <= 0 ? "unfunded" : "horizon";
+        result.timeline.push({ step: proposed, savings_target: proposed.savings_target, purchase_at: null, status,
           wait_weeks: null, elapsed_weeks: null, weekly_investment_income_after: null, weekly_total_income_after: null, funding: null });
+        result.end_reason = status;
         break;
       }
       const elapsed = next - now;
@@ -342,6 +350,7 @@ function simulateStockStrategyTimeline(
     payouts = [];
     sources = new Map();
   }
+  result.end_reason ??= "step_limit";
   return result;
 }
 
@@ -386,16 +395,22 @@ function unproductiveStockPurchases(
   return candidates;
 }
 
-function finishStockStrategyForecast(result: StockStrategyForecast): StockStrategyForecast {
+function finishStockStrategyForecast(result: StockStrategyForecast, savingsTargetLimit = DEFAULT_STOCK_STRATEGY_SAVINGS_TARGETS): StockStrategyForecast {
+  const targetLimit = Number.isFinite(savingsTargetLimit)
+    ? Math.min(MAX_STOCK_STRATEGY_SAVINGS_TARGETS, Math.max(1, Math.round(savingsTargetLimit)))
+    : DEFAULT_STOCK_STRATEGY_SAVINGS_TARGETS;
   groupSavingsMilestones(result.timeline);
   // Classify with the full lookahead first so a small repurchase (such as TCT)
-  // is not counted as the second milestone before its larger target is known.
+  // is not counted as a milestone before its larger target is known.
   let savingsTargets = 0;
-  const secondTargetIndex = result.timeline.findIndex(timing =>
+  const lastTargetIndex = result.timeline.findIndex(timing =>
     timing.step.recommendation.row.row_id === timing.savings_target.row.row_id
-    && ++savingsTargets === MAX_SAVINGS_TARGETS);
-  result.timeline = result.timeline.slice(0, Math.min(MAX_RECOMMENDATIONS,
-    secondTargetIndex < 0 ? result.timeline.length : secondTargetIndex + 1));
+    && ++savingsTargets === targetLimit);
+  const shownSteps = Math.min(MAX_RECOMMENDATIONS, lastTargetIndex < 0 ? result.timeline.length : lastTargetIndex + 1);
+  if (shownSteps < result.timeline.length) {
+    result.end_reason = shownSteps === lastTargetIndex + 1 ? "savings_targets" : "step_limit";
+  }
+  result.timeline = result.timeline.slice(0, shownSteps);
   if (result.savings_target) {
     const target = result.savings_target.recommendation;
     // A purchase of a later increment can also complete the initial target.

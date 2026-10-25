@@ -18,7 +18,10 @@ import { useAuth } from "../auth/AuthProvider";
 import { CollapsiblePanel, EmptyState, PanelHeader } from "../components/Common";
 import { formatDate, formatNumber, formatRelativeTime } from "../utils/format";
 import { parseNumber } from "../utils/numberInput";
-import { buildStockStrategyTimeline, type StockStrategySavingsTarget, type StockStrategyTiming } from "../utils/stockStrategyTimeline";
+import {
+  DEFAULT_STOCK_STRATEGY_SAVINGS_TARGETS, MAX_STOCK_STRATEGY_SAVINGS_TARGETS, buildStockStrategyTimeline,
+  type StockStrategyEndReason, type StockStrategySavingsTarget, type StockStrategyTiming,
+} from "../utils/stockStrategyTimeline";
 import { applyImportedCityBankReturn, cityBankValuation } from "../utils/cityBankValuation";
 import { stockBankPlannerContext } from "../utils/stockBankPlannerContext";
 import { importOwnedStockPortfolio, type OwnedStockImportProgress } from "../utils/ownedStockImport";
@@ -159,6 +162,7 @@ function StockInvestmentPlanner({ imported, onImport, onExitImport, isImporting 
   const [roiSort, setRoiSort] = React.useState<StockRoiSort>({ key: "roi_percent", direction: "desc" });
   const [strategyPanelTab, setStrategyPanelTab] = React.useState<StockStrategyPanelTab>("strategy");
   const [strategyDetailLevel, setStrategyDetailLevel] = React.useState<StockStrategyDetailLevel>("standard");
+  const [strategySavingsTargets, setStrategySavingsTargets] = React.useState(DEFAULT_STOCK_STRATEGY_SAVINGS_TARGETS);
   const [isPlannerSetupOpen, setIsPlannerSetupOpen] = React.useState(() => readPanelOpenStorage(storageUserId, "plannerSetup", true));
   const [isBenefitValuesOpen, setIsBenefitValuesOpen] = React.useState(() => readPanelOpenStorage(storageUserId, "benefitValues", true));
   const [isInvestmentReturnsOpen, setIsInvestmentReturnsOpen] = React.useState(() => readPanelOpenStorage(storageUserId, "investmentReturns", true));
@@ -613,13 +617,14 @@ function StockInvestmentPlanner({ imported, onImport, onExitImport, isImporting 
       asOf,
       additionalIncomePerWeek: weeklyAdditionalIncome,
       privateIslandCount: activePrivateIslandRentalCount,
+      savingsTargetLimit: strategySavingsTargets,
     }, DEFAULT_STOCK_STRATEGY_STEP_LIMIT);
     if (imported && (!effectiveOwnedSnapshot || effectiveOwnedSnapshot.refreshed_at <= 0)) {
       forecast.issues = ["This file has no dated portfolio snapshot. Ask the owner to load their holdings and export the planner again."];
     }
     return { forecast, asOf };
   }, [investmentRows, effectiveOwnedSnapshot, cityBankActive, effectiveFhgTciHybridActive,
-    budget, lockedStockIds, weeklyAdditionalIncome, activePrivateIslandRentalCount, forecastDay, imported]);
+    budget, lockedStockIds, weeklyAdditionalIncome, activePrivateIslandRentalCount, strategySavingsTargets, forecastDay, imported]);
   const strategyTimeline = strategyForecast.timeline;
   const weeklyInvestmentIncome = strategyForecast.weekly_investment_income;
   const totalPricedRows = investmentRows.length;
@@ -1053,7 +1058,20 @@ function StockInvestmentPlanner({ imported, onImport, onExitImport, isImporting 
           icon={<BadgeDollarSign size={18} />}
           control={(
             <div className="stock-strategy-header-controls">
-              {strategyPanelTab === "strategy" ? (
+              {strategyPanelTab === "strategy" ? (<>
+                <label className="stock-strategy-details">
+                  <span>Targets</span>
+                  <select
+                    value={strategySavingsTargets}
+                    onChange={(event) => setStrategySavingsTargets(Number(event.target.value))}
+                    aria-controls="stock-strategy-path-panel"
+                    aria-label="Savings targets to forecast"
+                  >
+                    {Array.from({ length: MAX_STOCK_STRATEGY_SAVINGS_TARGETS }, (_, index) => (
+                      <option key={index + 1} value={index + 1}>{index + 1}</option>
+                    ))}
+                  </select>
+                </label>
                 <label className="stock-strategy-details">
                   <span>Details</span>
                   <select
@@ -1066,7 +1084,7 @@ function StockInvestmentPlanner({ imported, onImport, onExitImport, isImporting 
                     <option value="high">High</option>
                   </select>
                 </label>
-              ) : null}
+              </>) : null}
               <span>{rebalanceRecommendations.length + strategyTimeline.length > 0 ? `${formatNumber(rebalanceRecommendations.length + strategyTimeline.length)} ideas` : "No ideas"}</span>
             </div>
           )}
@@ -1136,7 +1154,7 @@ function StockInvestmentPlanner({ imported, onImport, onExitImport, isImporting 
                 <strong>Strategy path</strong>
                 <span>ROI-first milestones</span>
               </div>
-              {strategyForecast.as_of !== null ? <p className="stock-owned-settings-description">Forecast ends at the ninth recommendation or second savings target. Dates follow UTC daily progress.</p> : null}
+              {strategyForecast.as_of !== null ? <p className="stock-owned-settings-description">Dates follow UTC daily progress.</p> : null}
               {strategyForecast.warnings.map((warning) => <p key={warning} className="stock-owned-settings-description">{warning}</p>)}
               {invalidStrategyCashInputs ? (
                 <EmptyState text="Enter valid cash and weekly income amounts to estimate the strategy path" />
@@ -1145,7 +1163,9 @@ function StockInvestmentPlanner({ imported, onImport, onExitImport, isImporting 
               ) : strategyForecast.issues.length > 0 ? (
                 <div role="status">{strategyForecast.issues.map((issue) => <EmptyState key={issue} text={issue} />)}</div>
               ) : strategyTimeline.length === 0 ? (
-                <EmptyState text="No strategy path matches the current budget" />
+                <EmptyState text={strategyForecast.end_reason === "no_options"
+                  ? "Nothing left to buy: every investment is already owned, excluded or earns no cash return"
+                  : "No strategy path matches the current budget"} />
               ) : (
                 <>
                   {strategyForecast.savings_target ? <SavingsTargetSummary target={strategyForecast.savings_target} asOf={strategyForecast.as_of} compact={strategyDetailLevel === "low"} /> : null}
@@ -1161,6 +1181,11 @@ function StockInvestmentPlanner({ imported, onImport, onExitImport, isImporting 
                       />
                     ))}
                   </div>
+                  {strategyForecast.end_reason ? (
+                    <p className="stock-owned-settings-description">
+                      <strong>Why the path ends here:</strong> {strategyEndReasonText(strategyForecast.end_reason, strategySavingsTargets)}
+                    </p>
+                  ) : null}
                 </>
               )}
             </div>
@@ -1984,6 +2009,18 @@ function SavingsTargetSummary({ target, asOf, compact }: { target: StockStrategy
       </dl>
     </section>
   );
+}
+
+function strategyEndReasonText(reason: StockStrategyEndReason, savingsTargets: number): string {
+  switch (reason) {
+    case "step_limit": return "The forecast shows the next nine purchases. Later steps will appear as you complete these.";
+    case "savings_targets": return savingsTargets === 1
+      ? "The forecast stops at the first savings target. Choose more targets to see further ahead."
+      : `The forecast stops after ${formatNumber(savingsTargets)} savings targets. Choose more targets to see further ahead.`;
+    case "unfunded": return "The last step cannot be funded from modelled income. Add cash or weekly income to continue.";
+    case "horizon": return "The next purchase falls beyond the five-year forecast.";
+    case "no_options": return "Nothing left earns a cash return. Every remaining investment is already owned, excluded or non-cash.";
+  }
 }
 
 function StrategyStepRow({

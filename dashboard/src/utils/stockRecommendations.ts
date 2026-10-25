@@ -655,7 +655,10 @@ function nextStrategyStep(
   }
   // Only count sale proceeds when the selected step actually includes those sales.
   const targetCashRequired = targetStep.cash_required;
-  const previousBestRoi = strategyBestPreviousRoi(previousSteps);
+  // Once the best remaining ROI falls below earlier purchases, compare temporary
+  // buys with the current target; no stepping stone could match the history.
+  const bestPreviousRoi = strategyBestPreviousRoi(previousSteps);
+  const previousBestRoi = bestPreviousRoi === null ? null : Math.min(bestPreviousRoi, target.ranking_roi_percent);
   const immediateStep = selectImmediateStrategyStep(input, recommendations, snapshot, currentCash, target, targetCashRequired, previousBestRoi, hybridHolding);
   if (immediateStep) {
     return immediateStep;
@@ -783,13 +786,14 @@ function strategyTemporaryRecommendationIsWorthHolding(
   return recommendation.ranking_roi_percent * targetGapRatio >= MIN_STRATEGY_TEMP_HOLD_SCORE;
 }
 
+// Any step that adds income beats leaving cash idle, even when its ROI is lower
+// than earlier steps. The ROI retention rule only filters temporary buys.
 function strategyStepIsWorthAdding(step: StockStrategyStep, previousSteps: StockStrategyStep[]): boolean {
   if (previousSteps.length === 0) {
     return true;
   }
 
-  const bestPreviousRoi = strategyBestPreviousRoi(previousSteps) ?? 0;
-  return step.roi_percent >= bestPreviousRoi * MIN_STRATEGY_ROI_RETENTION;
+  return step.annual_return_gain > 0;
 }
 
 function strategyBestPreviousRoi(previousSteps: StockStrategyStep[]): number | null {

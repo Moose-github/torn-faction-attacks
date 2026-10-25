@@ -40,7 +40,9 @@ describe("scheduled stock strategy", () => {
       { ...row(2, 600, 100), acronym: "PRN" },
       { ...row(3, 400, 60), acronym: "TCT" },
     ], [position(1, 0, 7, false, 1000)], { budget: 1, lockedStockIds: new Set() }));
-    expect(result.timeline.map(entry => entry.step.recommendation.row.acronym)).toEqual(["PRN", "TCT"]);
+    // Once both higher-ROI buys are funded, income rebuilds the lower-ROI ASS block.
+    expect(result.timeline.map(entry => entry.step.recommendation.row.acronym)).toEqual(["PRN", "TCT", "ASS"]);
+    expect(result.timeline[2]).toMatchObject({ status: "scheduled", step: { kind: "buy", sales: [] } });
     const first = result.timeline[0].step.sales[0];
     const second = result.timeline[1].step.sales[0];
     expect(first).toMatchObject({ stock_id: 1, shares: 600, retained_shares: 400 });
@@ -100,6 +102,7 @@ describe("scheduled stock strategy", () => {
     const result = buildStockStrategyTimeline(input([row(1, 10000, 1000), ...intermediaries], [],
       { additionalIncomePerWeek: 70, lockedStockIds: new Set(intermediaries.map(stock => stock.stock_id!)) }));
     expect(result.timeline).toHaveLength(9);
+    expect(result.end_reason).toBe("step_limit");
     expect(result.timeline.every(entry => entry.step.recommendation.row.stock_id !== 1)).toBe(true);
     expect(result.timeline.every(entry => entry.savings_target.row.stock_id === 1)).toBe(true);
     expect(result.savings_target).toMatchObject({ purchase_at: null, status: "not_scheduled" });
@@ -368,6 +371,37 @@ describe("scheduled stock strategy", () => {
     const args = input([row(1, 1000)]);
     expect(buildStockStrategyTimeline(args).timeline[0].status).toBe("unfunded");
     expect(buildStockStrategyTimeline({ ...args, additionalIncomePerWeek: 0.1 }).timeline[0].status).toBe("horizon");
+    expect(buildStockStrategyTimeline(args).end_reason).toBe("unfunded");
+    expect(buildStockStrategyTimeline({ ...args, additionalIncomePerWeek: 0.1 }).end_reason).toBe("horizon");
+  });
+
+  it("keeps investing in lower-ROI options instead of leaving income idle", () => {
+    const result = buildStockStrategyTimeline(input([row(1, 1000, 20), row(2, 5000, 60)], [],
+      { budget: 1000, additionalIncomePerWeek: 500, lockedStockIds: new Set([1]) }));
+    expect(result.timeline.map(entry => entry.step.recommendation.row.stock_id)).toEqual([1, 2]);
+    expect(result.timeline[1]).toMatchObject({ status: "scheduled", step: { kind: "buy", sales: [] } });
+    expect(result.timeline[1].elapsed_weeks).toBeGreaterThan(0);
+    expect(result.end_reason).toBe("no_options");
+  });
+
+  it("explains a path cut at the second savings target and reports no reason when issues block the forecast", () => {
+    const result = buildStockStrategyTimeline(input([row(1, 1000, 100), row(2, 2000, 150), row(3, 4000, 200)], [],
+      { additionalIncomePerWeek: 500 }));
+    expect(result.timeline.map(entry => entry.step.recommendation.row.stock_id)).toEqual([1, 2]);
+    expect(result.end_reason).toBe("savings_targets");
+    expect(buildStockStrategyTimeline({ ...input([row(1)]), ownedSnapshot: null }).end_reason).toBeNull();
+  });
+
+  it("shows as many savings targets as requested", () => {
+    const args = input([row(1, 1000, 100), row(2, 2000, 150), row(3, 4000, 200)], [], { additionalIncomePerWeek: 500 });
+    const stockIds = (savingsTargetLimit?: number) => buildStockStrategyTimeline({ ...args, savingsTargetLimit }).timeline
+      .map(entry => entry.step.recommendation.row.stock_id);
+    expect(stockIds()).toEqual([1, 2]);
+    expect(stockIds(1)).toEqual([1]);
+    expect(buildStockStrategyTimeline({ ...args, savingsTargetLimit: 1 }).end_reason).toBe("savings_targets");
+    expect(stockIds(3).slice(0, 2)).toEqual([1, 2]);
+    expect(stockIds(3).length).toBeGreaterThan(2);
+    expect(stockIds(0)).toEqual([1]);
   });
 
   it("excludes the synthetic hybrid while retaining actual stock income", () => {

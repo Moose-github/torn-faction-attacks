@@ -1431,6 +1431,7 @@ describe("stock buy recommendations", () => {
       row_id: step.recommendation.row.row_id,
     }))).toEqual([
       { kind: "buy", row_id: "stock:2:1" },
+      { kind: "buy", row_id: "stock:1:1" },
     ]);
   });
 
@@ -1619,7 +1620,8 @@ describe("stock buy recommendations", () => {
       lockedStockIds: new Set([1]),
     }, 2);
 
-    expect(plan.steps).toHaveLength(1);
+    expect(plan.steps).toHaveLength(2);
+    expect(plan.steps[1]).toMatchObject({ kind: "buy", recommendation: { row: { row_id: "stock:4:1" } }, sales: [] });
     expect(plan.steps[0]).toMatchObject({
       kind: "rebalance",
       recommendation: {
@@ -1791,12 +1793,28 @@ describe("stock buy recommendations", () => {
     expect(plan.steps[2].extra_cash_needed).toBeGreaterThan(0);
   });
 
-  it("stops the strategy path early when the next ROI is not useful enough", () => {
+  it("keeps investing when the next ROI is lower than earlier steps", () => {
     const plan = buildStockStrategyPlan({
       rows: [
         stockRow({ row_id: "stock:1:1", stock_id: 1, annual_return: 1_000, roi_percent: 100 }),
         stockRow({ row_id: "stock:2:1", stock_id: 2, annual_return: 600, roi_percent: 60 }),
         stockRow({ row_id: "stock:3:1", stock_id: 3, annual_return: 500, roi_percent: 50 }),
+      ],
+      ownedSnapshot: null,
+      cityBankActive: false,
+      budget: null,
+      affordableOnly: false,
+      minimumRoi: null,
+    }, 10);
+
+    expect(plan.steps.map((step) => step.recommendation.row.row_id)).toEqual(["stock:1:1", "stock:2:1", "stock:3:1"]);
+  });
+
+  it("ends the strategy path when no remaining option earns a return", () => {
+    const plan = buildStockStrategyPlan({
+      rows: [
+        stockRow({ row_id: "stock:1:1", stock_id: 1, annual_return: 1_000, roi_percent: 100 }),
+        stockRow({ row_id: "stock:2:1", stock_id: 2, annual_return: 0, roi_percent: 0 }),
       ],
       ownedSnapshot: null,
       cityBankActive: false,
