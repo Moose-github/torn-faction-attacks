@@ -458,7 +458,7 @@ function warOutgoingRespectStatement(
     WITH chain_members AS (
       ${memberId === undefined ? `
       SELECT DISTINCT a.attacker_id AS member_id
-      FROM attacks a
+      FROM tracker_attacks a
       JOIN wars w ON w.id = a.war_id
       WHERE a.war_id = ?
         AND a.attacker_faction_id = ${HOME_FACTION_ID}
@@ -473,7 +473,7 @@ function warOutgoingRespectStatement(
       SELECT
         a.attacker_id AS member_id,
         AVG(a.respect_gain) AS avg_respect
-      FROM attacks a
+      FROM tracker_attacks a
       JOIN wars w ON w.id = a.war_id
       JOIN chain_members cm ON cm.member_id = a.attacker_id
       WHERE a.war_id = ?
@@ -486,7 +486,7 @@ function warOutgoingRespectStatement(
     ),
     war_average AS (
       SELECT AVG(a.respect_gain) AS avg_respect
-      FROM attacks a
+      FROM tracker_attacks a
       JOIN wars w ON w.id = a.war_id
       WHERE a.war_id = ?
         AND a.attacker_faction_id = ${HOME_FACTION_ID}
@@ -554,7 +554,7 @@ function warOutgoingRespectStatement(
         THEN a.chain || ' - ' || printf('%g', ROUND(COALESCE(ma.avg_respect, wa.avg_respect, 0), 1)) || ' respect'
         ELSE NULL
       END, char(10)), '') AS chain_bonus_hit_details_vs_enemy
-    FROM attacks a
+    FROM tracker_attacks a
     JOIN wars w ON w.id = a.war_id
     JOIN chain_members cm ON cm.member_id = a.attacker_id
     JOIN war_member_stats existing ON existing.war_id = a.war_id AND existing.member_id = a.attacker_id
@@ -588,7 +588,7 @@ function warDefendRespectStatement(
     WITH chain_defenders AS (
       ${memberId === undefined ? `
       SELECT DISTINCT a.defender_id AS member_id
-      FROM attacks a
+      FROM tracker_attacks a
       JOIN wars w ON w.id = a.war_id
       WHERE a.war_id = ?
         AND a.defender_faction_id = ${HOME_FACTION_ID}
@@ -603,7 +603,7 @@ function warDefendRespectStatement(
       SELECT
         a.attacker_id,
         AVG(a.respect_gain) AS avg_respect
-      FROM attacks a
+      FROM tracker_attacks a
       JOIN wars w ON w.id = a.war_id
       WHERE a.war_id = ?
         AND a.defender_faction_id = ${HOME_FACTION_ID}
@@ -616,7 +616,7 @@ function warDefendRespectStatement(
     ),
     war_average AS (
       SELECT AVG(a.respect_gain) AS avg_respect
-      FROM attacks a
+      FROM tracker_attacks a
       JOIN wars w ON w.id = a.war_id
       WHERE a.war_id = ?
         AND a.defender_faction_id = ${HOME_FACTION_ID}
@@ -690,7 +690,7 @@ function warDefendRespectStatement(
         THEN a.chain || ' - ' || printf('%g', ROUND(COALESCE(ma.avg_respect, wa.avg_respect, 0), 1)) || ' respect'
         ELSE NULL
       END, char(10)), '') AS enemy_chain_bonus_hit_details_received
-    FROM attacks a
+    FROM tracker_attacks a
     JOIN wars w ON w.id = a.war_id
     JOIN chain_defenders cd ON cd.member_id = a.defender_id
     JOIN war_member_stats existing ON existing.war_id = a.war_id AND existing.member_id = a.defender_id
@@ -778,7 +778,7 @@ function warMemberAttackStatsStatement(
         a.war_id,
         a.attacker_id,
         AVG(a.respect_gain) AS avg_respect
-      FROM attacks a
+      FROM tracker_attacks a
       JOIN wars w ON w.id = a.war_id
       WHERE a.war_id = ?
         AND a.attacker_faction_id = ${HOME_FACTION_ID}
@@ -791,7 +791,7 @@ function warMemberAttackStatsStatement(
     ),
     war_average AS (
       SELECT AVG(a.respect_gain) AS avg_respect
-      FROM attacks a
+      FROM tracker_attacks a
       JOIN wars w ON w.id = a.war_id
       WHERE a.war_id = ?
         AND a.attacker_faction_id = ${HOME_FACTION_ID}
@@ -931,7 +931,7 @@ function warMemberAttackStatsStatement(
       END) AS average_fair_fight,
       MIN(a.started) AS first_action_at,
       MAX(a.started) AS last_action_at
-    FROM attacks a
+    FROM tracker_attacks a
     JOIN wars w ON w.id = a.war_id
     LEFT JOIN member_averages ma ON ma.war_id = a.war_id AND ma.attacker_id = a.attacker_id
     LEFT JOIN war_average wa ON 1 = 1
@@ -955,7 +955,7 @@ async function applyIngestedWarMemberStats(
   const countRow = (await env.DB.prepare(
     `
     SELECT COUNT(*) AS count
-    FROM attacks
+    FROM tracker_attacks
     WHERE war_id = ?
       AND ingest_run_id = ?
       AND stats_pending = 1
@@ -991,7 +991,7 @@ export function warMemberCombatBucketsCte(
       SELECT
         a.attacker_id AS member_id,
         AVG(a.respect_gain) AS avg_respect
-      FROM attacks a
+      FROM tracker_attacks a
       JOIN wars w ON w.id = a.war_id
       WHERE a.war_id = ?
         AND a.attacker_faction_id = ${HOME_FACTION_ID}
@@ -1004,7 +1004,7 @@ export function warMemberCombatBucketsCte(
     ),
     outgoing_war_average AS (
       SELECT AVG(a.respect_gain) AS avg_respect
-      FROM attacks a
+      FROM tracker_attacks a
       JOIN wars w ON w.id = a.war_id
       WHERE a.war_id = ?
         AND a.attacker_faction_id = ${HOME_FACTION_ID}
@@ -1017,7 +1017,7 @@ export function warMemberCombatBucketsCte(
       SELECT
         a.attacker_id,
         AVG(a.respect_gain) AS avg_respect
-      FROM attacks a
+      FROM tracker_attacks a
       JOIN wars w ON w.id = a.war_id
       WHERE a.war_id = ?
         AND a.defender_faction_id = ${HOME_FACTION_ID}
@@ -1030,7 +1030,7 @@ export function warMemberCombatBucketsCte(
     ),
     defend_war_average AS (
       SELECT AVG(a.respect_gain) AS avg_respect
-      FROM attacks a
+      FROM tracker_attacks a
       JOIN wars w ON w.id = a.war_id
       WHERE a.war_id = ?
         AND a.defender_faction_id = ${HOME_FACTION_ID}
@@ -1084,7 +1084,7 @@ export function warMemberCombatBucketsCte(
           ELSE 0
         END), 0) AS respect_gained,
         0 AS respect_lost
-      FROM attacks a
+      FROM tracker_attacks a
       JOIN wars w ON w.id = a.war_id
       LEFT JOIN outgoing_member_averages oma ON oma.member_id = a.attacker_id
       LEFT JOIN outgoing_war_average owa ON 1 = 1
@@ -1137,7 +1137,7 @@ export function warMemberCombatBucketsCte(
           END
           ELSE 0
         END), 0) AS respect_lost
-      FROM attacks a
+      FROM tracker_attacks a
       JOIN wars w ON w.id = a.war_id
       LEFT JOIN defend_member_averages dma ON dma.attacker_id = a.attacker_id
       LEFT JOIN defend_war_average dwa ON 1 = 1
@@ -1315,7 +1315,7 @@ function ingestedWarMemberCombatBucketsStatement(
           ELSE 0
         END), 0) AS respect_gained,
         0 AS respect_lost
-      FROM attacks a
+      FROM tracker_attacks a
       JOIN wars w ON w.id = a.war_id
       LEFT JOIN outgoing_member_averages oma ON oma.member_id = a.attacker_id
       LEFT JOIN outgoing_war_average owa ON 1 = 1
@@ -1370,7 +1370,7 @@ function ingestedWarMemberCombatBucketsStatement(
           END
           ELSE 0
         END), 0) AS respect_lost
-      FROM attacks a
+      FROM tracker_attacks a
       JOIN wars w ON w.id = a.war_id
       LEFT JOIN defend_war_average dwa ON 1 = 1
       WHERE a.war_id = ?
@@ -1615,7 +1615,7 @@ function ingestedWarMemberAttackStatsStatement(
       END) AS average_fair_fight,
       MIN(a.started) AS first_action_at,
       MAX(a.started) AS last_action_at
-    FROM attacks a
+    FROM tracker_attacks a
     JOIN wars w ON w.id = a.war_id
     LEFT JOIN member_averages ma ON ma.member_id = a.attacker_id
     LEFT JOIN war_average wa ON 1 = 1
@@ -1748,7 +1748,7 @@ function ingestedWarMemberDefendStatsStatement(
       END, char(10)), '') AS enemy_chain_bonus_hit_details_received,
       MIN(a.started) AS first_action_at,
       MAX(a.started) AS last_action_at
-    FROM attacks a
+    FROM tracker_attacks a
     JOIN wars w ON w.id = a.war_id
     LEFT JOIN member_averages ma ON ma.attacker_id = a.attacker_id
     LEFT JOIN war_average wa ON 1 = 1
@@ -1777,7 +1777,7 @@ function warMemberDefendStatsStatement(
       SELECT
         a.attacker_id,
         AVG(a.respect_gain) AS avg_respect
-      FROM attacks a
+      FROM tracker_attacks a
       JOIN wars w ON w.id = a.war_id
       WHERE a.war_id = ?
         AND a.defender_faction_id = ${HOME_FACTION_ID}
@@ -1790,7 +1790,7 @@ function warMemberDefendStatsStatement(
     ),
     war_average AS (
       SELECT AVG(a.respect_gain) AS avg_respect
-      FROM attacks a
+      FROM tracker_attacks a
       JOIN wars w ON w.id = a.war_id
       WHERE a.war_id = ?
         AND a.defender_faction_id = ${HOME_FACTION_ID}
@@ -1892,7 +1892,7 @@ function warMemberDefendStatsStatement(
       END, char(10)), '') AS enemy_chain_bonus_hit_details_received,
       MIN(a.started) AS first_action_at,
       MAX(a.started) AS last_action_at
-    FROM attacks a
+    FROM tracker_attacks a
     JOIN wars w ON w.id = a.war_id
     LEFT JOIN member_averages ma ON ma.attacker_id = a.attacker_id
     LEFT JOIN war_average wa ON 1 = 1

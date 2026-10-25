@@ -130,7 +130,7 @@ function warCommandExactRoutes(request: Request, env: RouteContext["env"]): Exac
       path: "/api/wars",
       method: "POST",
       handle: (routeContext) =>
-        withAdmin(routeContext, () => createManualEvent(request, env)),
+        withAdmin(routeContext, () => createManualEvent(request, env, routeContext.ctx)),
     },
     {
       path: "/api/wars/import",

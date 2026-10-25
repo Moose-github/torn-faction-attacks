@@ -18,7 +18,7 @@ import {
 export function MembersOverview({ isAdmin }: { isAdmin: boolean }) {
   const [warType, setWarType] = React.useState<WarType>("all");
   const [includeFormerMembers, setIncludeFormerMembers] = React.useState(false);
-  const [excludeEvents, setExcludeEvents] = React.useState(true);
+  const excludeEvents = warType !== "event";
   const [stats, setStats] = React.useState<Awaited<ReturnType<typeof getStats>> | null>(null);
   const [sort, setSort] = React.useState<MemberSort>({
     key: "attacks_vs_enemy_successful",
@@ -63,7 +63,7 @@ export function MembersOverview({ isAdmin }: { isAdmin: boolean }) {
       {error ? <div className="error-panel">{error}</div> : null}
       <section className="hero-panel compact-hero-panel">
         <div>
-          <p className="eyebrow">{warType === "all" ? excludeEvents ? "All wars" : "All records" : warType}</p>
+          <p className="eyebrow">{warType === "all" ? "All wars" : warType}</p>
           <h2>Member performance</h2>
           <p>
             Combined member results across the selected record type
@@ -97,10 +97,9 @@ export function MembersOverview({ isAdmin }: { isAdmin: boolean }) {
               onChange={(event) => {
                 const nextType = event.target.value as WarType;
                 setWarType(nextType);
-                if (nextType === "event") setExcludeEvents(false);
               }}
             >
-              <option value="all">All</option>
+              <option value="all">All wars</option>
               <option value="real">Real wars</option>
               <option value="termed">Termed wars</option>
               <option value="event">Events</option>
@@ -113,17 +112,6 @@ export function MembersOverview({ isAdmin }: { isAdmin: boolean }) {
               onChange={(event) => setIncludeFormerMembers(event.target.checked)}
             />
             <span>Show former members</span>
-          </label>
-          <label className="member-current-filter">
-            <input
-              type="checkbox"
-              checked={excludeEvents}
-              onChange={(event) => {
-                setExcludeEvents(event.target.checked);
-                if (event.target.checked && warType === "event") setWarType("all");
-              }}
-            />
-            <span>Exclude events</span>
           </label>
         </section>
       </section>
@@ -150,7 +138,7 @@ export function MembersOverview({ isAdmin }: { isAdmin: boolean }) {
         <p className="panel-description">
           Combines member performance across the selected record type so longer-term activity can be compared.
           {includeFormerMembers ? " Former faction members are included." : " Former faction members are hidden."}
-          {excludeEvents ? " Events are excluded." : ""}
+          {excludeEvents ? " Events are shown separately to avoid counting overlapping attacks twice." : " Event totals include war attacks within each event window."}
         </p>
         <MemberTable
           members={members}

@@ -164,11 +164,11 @@ async function relinkAttacksForWar(
   const [existingLinked, matching, unassignedMatching] = await Promise.all([
     countLinkedAttacks(env, war.id),
     countMatchingRelinkAttacks(env, war.id, false),
-    countMatchingRelinkAttacks(env, war.id, true),
+    war.war_type === "event" ? Promise.resolve(0) : countMatchingRelinkAttacks(env, war.id, true),
   ]);
   let newlyLinkedAttacks = 0;
 
-  if (!dryRun && unassignedMatching > 0) {
+  if (!dryRun && unassignedMatching > 0 && war.war_type !== "event") {
     const updateResult = await env.DB.prepare(
       `
       UPDATE attacks
@@ -215,7 +215,7 @@ async function countLinkedAttacks(env: Env, warId: number): Promise<number> {
   const row = (await env.DB.prepare(
     `
     SELECT COUNT(*) AS count
-    FROM attacks
+    FROM tracker_attacks
     WHERE war_id = ?
     `,
   )

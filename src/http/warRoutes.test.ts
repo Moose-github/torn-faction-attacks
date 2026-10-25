@@ -176,7 +176,7 @@ describe("war command routes", () => {
     expect(response?.status).toBe(200);
     expect(await response?.json()).toEqual({ ok: true, route: "create-event" });
     expect(requireAdmin).toHaveBeenCalledWith(expect.any(Request), expect.anything());
-    expect(createManualEvent).toHaveBeenCalledWith(expect.any(Request), expect.anything());
+    expect(createManualEvent).toHaveBeenCalledWith(expect.any(Request), expect.anything(), expect.anything());
   });
 
   it.each([

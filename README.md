@@ -13,6 +13,29 @@ A Cloudflare Worker and React dashboard that import Torn faction attack data int
   - member war stats
 - Exposes JSON API endpoints for the dashboard and admin controls.
 
+### Events during wars
+
+Events (including Halloween) can overlap real or termed wars. They run on their own
+start/finish schedule and count stored faction attacks within the event window,
+including attacks already assigned to a war. Starting, editing, finishing, or
+deleting an event does not take over the war room or reassign war attacks. Event
+windows still cannot overlap other events.
+
+Attack totals refresh after each minute's attack import. Creating a Halloween
+event immediately queues starting treat readings for every current member, even
+when the event is scheduled for later. Collection begins in the background, with
+the minute cron retrying failures and completing any remaining members. Saved
+baselines appear as **Starting treats** on the event page and survive the event
+start. Treats are checked again at the start, then every 6 or 12 hours, with a
+final reading at the finish. Missing readings are never assumed to be zero.
+In Member performance, **All wars** excludes events; select **Events** to see event
+totals separately without adding shared attacks twice.
+
+Deploy migration `0181_independent_event_tracking.sql` before the new worker.
+It adds the reporting view without changing existing ownership. The new worker's
+first ingestion run releases legacy event ownership while preserving raw attacks
+and event history. Apply the worker and dashboard changes together.
+
 ## Stack
 
 - Cloudflare Workers

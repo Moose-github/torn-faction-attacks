@@ -16,5 +16,10 @@ export async function readChainWatchDemand(env: Env, now = nowSeconds()) {
       AND (w.practical_finish_time IS NULL OR w.practical_finish_time > ?)
       AND w.official_end_time IS NULL
     LIMIT 1`).bind(SOURCE_NAME, now, now).first<{ id: number }>();
-  return { active: Boolean(watch || war), watch_id: watch?.id ?? null, war_id: war?.id ?? null };
+  // An opted-in event can request the shared monitor without taking war control.
+  const event = war ? null : await env.DB.prepare(`SELECT id FROM wars
+    WHERE war_type = 'event' AND status = 'active' AND chain_watch_enabled = 1
+      AND practical_start_time <= ? AND (practical_finish_time IS NULL OR practical_finish_time > ?)
+    ORDER BY practical_start_time, id LIMIT 1`).bind(now, now).first<{ id: number }>();
+  return { active: Boolean(watch || war || event), watch_id: watch?.id ?? null, war_id: war?.id ?? event?.id ?? null };
 }

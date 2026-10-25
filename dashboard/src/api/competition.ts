@@ -7,6 +7,7 @@ export type CompetitionMember = {
   team_name: string | null;
   captured_at: number | null;
   baseline_at: number | null;
+  baseline_treats: number | null;
   updated_at: number | null;
   treats_gained: number | null;
   basket_name: string | null;

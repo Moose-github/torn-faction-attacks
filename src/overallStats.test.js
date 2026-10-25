@@ -44,11 +44,11 @@ async function stats(query = "") {
 }
 
 describe("member performance event exclusion", () => {
-  it("preserves all records when exclusion is not requested", async () => {
+  it("keeps combined war totals separate from overlapping event records", async () => {
     const result = await stats();
-    expect(result.overall).toMatchObject({ total_wars: 4, total_respect_gain: 480 });
-    expect(result.members).toHaveLength(3);
-    expect(result.members.find(member => member.member_id === 1)).toMatchObject({ wars_participated: 4, respect_gained: 160 });
+    expect(result.overall).toMatchObject({ total_wars: 3, total_respect_gain: 180 });
+    expect(result.members).toHaveLength(2);
+    expect(result.members.find(member => member.member_id === 1)).toMatchObject({ wars_participated: 3, respect_gained: 60 });
   });
 
   it.each([false, true])("excludes events from totals and members, current members only: %s", async currentOnly => {

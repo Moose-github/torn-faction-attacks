@@ -30,7 +30,8 @@ async function warChainWatchResponse(env: Env, war: WarRow) {
   const live = await readChainWatchLive(env);
   const currentWar = await env.DB.prepare("SELECT active_war_id FROM sync_state WHERE name = 'attacks' AND war_state = 'current'")
     .first<{ active_war_id: number | null }>();
-  const isCurrent = currentWar?.active_war_id === war.id && war.status === "active";
+  const isCurrent = (currentWar?.active_war_id === war.id || (war.war_type === "event" && live.demand.war_id === war.id))
+    && war.status === "active";
   const enabled = Number(war.chain_watch_enabled ?? ((war.war_type ?? "real") === "event" ? 0 : 1));
   const state = isCurrent && live.state
     ? { ...live.state, war_id: war.id, enabled }

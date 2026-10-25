@@ -49,9 +49,11 @@ export function parseEventCompetitionSettings(body: { event_type?: unknown; comp
 
 export async function ensureEventCompetitionStarted(env: Env, warId: number, now = nowSeconds()): Promise<void> {
   const war = await env.DB.prepare("SELECT * FROM wars WHERE id = ?").bind(warId).first<WarRow>();
-  if (!war || war.war_type !== "event" || war.status !== "active" || !war.event_type || war.event_type === "general"
-    || war.practical_start_time > now || (war.practical_finish_time !== null && war.practical_finish_time <= now)) return;
-  if (war.event_type === "halloween") {
+  if (!war || war.war_type !== "event" || !war.event_type || war.event_type === "general"
+    || (war.practical_finish_time !== null && war.practical_finish_time <= now)) return;
+  const scheduledBaseline = war.event_type === "halloween" && war.status === "scheduled";
+  if (!scheduledBaseline && (war.status !== "active" || war.practical_start_time > now)) return;
+  if (war.event_type === "halloween" && !scheduledBaseline) {
     await env.DB.batch([
       env.DB.prepare(`UPDATE event_competition_members SET poll_kind = 'refresh', poll_due_at = ?,
         attempts = 0, lease_until = 0, final_observed_at = NULL
@@ -92,45 +94,62 @@ export async function requestEventCompetitionFinish(env: Env, warId: number, fin
 
 export async function rescheduleEventCompetition(env: Env, warId: number, hours: number): Promise<void> {
   await env.DB.prepare(`UPDATE event_competition_members
-    SET poll_due_at = ?, attempts = 0
+    SET poll_due_at = CASE WHEN (SELECT status FROM wars WHERE id = ?) = 'scheduled'
+      THEN CASE WHEN baseline_at IS NULL THEN poll_due_at ELSE (SELECT practical_start_time FROM wars WHERE id = ?) END
+      ELSE ? END, attempts = 0
     WHERE war_id = ? AND poll_kind = 'refresh' AND lease_until = 0
-      AND EXISTS (SELECT 1 FROM wars WHERE id = ? AND status = 'active' AND event_type = 'halloween')`)
-    .bind(nowSeconds() + hours * 3600, warId, warId).run();
+      AND EXISTS (SELECT 1 FROM wars WHERE id = ? AND status IN ('scheduled', 'active') AND event_type = 'halloween')`)
+    .bind(warId, warId, nowSeconds() + hours * 3600, warId, warId).run();
 }
 
 type PollRow = {
   war_id: number; member_id: number; poll_kind: "initial" | "refresh" | "final";
   poll_due_at: number; attempts: number; latest_treats: number | null;
+  baseline_at: number | null; practical_start_time: number;
   event_type: EventType; competition_refresh_hours: number; finish_at: number | null;
 };
 
 export async function runEventCompetitionCron(env: Env): Promise<void> {
   const now = nowSeconds();
-  const active = await env.DB.prepare(`SELECT id FROM wars WHERE war_type = 'event' AND status = 'active'
-    AND event_type != 'general'`).all<{ id: number }>();
+  const active = await env.DB.prepare(`SELECT id FROM wars WHERE war_type = 'event' AND event_type != 'general'
+    AND (status = 'active' OR (status = 'scheduled' AND event_type = 'halloween'))`).all<{ id: number }>();
   for (const war of active.results ?? []) await ensureEventCompetitionStarted(env, war.id, now);
   // Recover a finish interrupted between the lifecycle update and collection scheduling.
   const ended = await env.DB.prepare(`SELECT w.id, w.practical_finish_time FROM wars w
     JOIN event_competition_state s ON s.war_id = w.id
     WHERE w.status = 'ended' AND s.final_requested_at IS NULL`).all<{ id: number; practical_finish_time: number }>();
   for (const war of ended.results ?? []) await requestEventCompetitionFinish(env, war.id, war.practical_finish_time, now);
-  const due = await env.DB.prepare(`SELECT m.*, w.event_type, w.competition_refresh_hours, s.finish_at
+  await collectDueCompetitionReadings(env);
+}
+
+/** Start requests on creation; cron resumes anything left by the background time budget. */
+export async function collectInitialHalloweenBaseline(env: Env, warId: number): Promise<void> {
+  await collectDueCompetitionReadings(env, { warId, deadline: nowSeconds() + 20 });
+}
+
+async function collectDueCompetitionReadings(env: Env, initial?: { warId: number; deadline: number }): Promise<void> {
+  const now = nowSeconds();
+  const due = await env.DB.prepare(`SELECT m.*, w.event_type, w.competition_refresh_hours, w.practical_start_time, s.finish_at
     FROM event_competition_members m JOIN wars w ON w.id = m.war_id
     JOIN event_competition_state s ON s.war_id = m.war_id
     WHERE m.poll_due_at <= ? AND m.lease_until <= ? AND (
       (w.status = 'active' AND m.poll_kind != 'final' AND w.practical_start_time <= ?
         AND (w.practical_finish_time IS NULL OR w.practical_finish_time > ?))
+      OR (w.status = 'scheduled' AND w.event_type = 'halloween' AND m.baseline_at IS NULL AND m.poll_kind != 'final'
+        AND (w.practical_finish_time IS NULL OR w.practical_finish_time > ?))
       OR (w.status = 'ended' AND m.poll_kind = 'final'))
-    ORDER BY CASE m.poll_kind WHEN 'final' THEN 0 WHEN 'initial' THEN 1 ELSE 2 END, m.poll_due_at, m.member_id LIMIT 20`)
-    .bind(now, now, now, now).all<PollRow>();
+      ${initial ? "AND m.war_id = ? AND m.baseline_at IS NULL AND w.event_type = 'halloween' AND m.poll_kind != 'final'" : ""}
+    ORDER BY CASE m.poll_kind WHEN 'final' THEN 0 WHEN 'initial' THEN 1 ELSE 2 END, m.poll_due_at, m.member_id
+    ${initial ? "" : "LIMIT 20"}`)
+    .bind(now, now, now, now, now, ...(initial ? [initial.warId] : [])).all<PollRow>();
   const changed = new Set<number>();
-  for (const row of due.results ?? []) {
+  async function collect(row: PollRow) {
     const startedAt = nowSeconds();
     const leaseUntil = startedAt + 90;
     const claimed = await env.DB.prepare(`UPDATE event_competition_members SET lease_until = ?
       WHERE war_id = ? AND member_id = ? AND poll_due_at = ? AND poll_kind = ? AND lease_until <= ?`)
       .bind(leaseUntil, row.war_id, row.member_id, row.poll_due_at, row.poll_kind, startedAt).run();
-    if (!d1Changes(claimed)) continue;
+    if (!d1Changes(claimed)) return;
     changed.add(row.war_id);
     try {
       if (row.poll_kind === "final" && startedAt > (row.finish_at ?? 0) + FINAL_GRACE_SECONDS) {
@@ -155,6 +174,7 @@ export async function runEventCompetitionCron(env: Env): Promise<void> {
           .bind(reading.participation, reading.team, observedAt, row.war_id, row.member_id, leaseUntil, row.poll_kind).run();
       } else {
         const targetAt = row.poll_kind === "final" ? row.finish_at! : row.poll_due_at;
+        const beforeStart = row.baseline_at === null && observedAt < row.practical_start_time;
         // Both writes use the lease and phase to discard responses superseded by a finish.
         await env.DB.batch([
           env.DB.prepare(`INSERT INTO event_competition_snapshots
@@ -162,7 +182,7 @@ export async function runEventCompetitionCron(env: Env): Promise<void> {
             SELECT war_id, member_id, ?, ?, ?, ?, ?, ? FROM event_competition_members
             WHERE war_id = ? AND member_id = ? AND lease_until = ? AND poll_kind = ?
             ON CONFLICT(war_id, member_id, poll_kind, target_at) DO NOTHING`)
-            .bind(row.poll_kind, targetAt, observedAt, reading.treats, reading.basketId, reading.basketName,
+            .bind(beforeStart ? "baseline" : row.poll_kind, targetAt, observedAt, reading.treats, reading.basketId, reading.basketName,
               row.war_id, row.member_id, leaseUntil, row.poll_kind),
           env.DB.prepare(`UPDATE event_competition_members SET baseline_treats = COALESCE(baseline_treats, ?),
             baseline_at = COALESCE(baseline_at, ?), latest_treats = ?, latest_at = ?, basket_id = ?, basket_name = ?,
@@ -170,7 +190,7 @@ export async function runEventCompetitionCron(env: Env): Promise<void> {
             poll_due_at = ?, poll_kind = ?, lease_until = 0, attempts = 0, last_error = NULL
             WHERE war_id = ? AND member_id = ? AND lease_until = ? AND poll_kind = ?`)
             .bind(reading.treats, observedAt, reading.treats, observedAt, reading.basketId, reading.basketName,
-              observedAt, row.poll_kind === "final" ? null : observedAt + row.competition_refresh_hours * 3600,
+              observedAt, row.poll_kind === "final" ? null : beforeStart ? row.practical_start_time : observedAt + row.competition_refresh_hours * 3600,
               row.poll_kind === "final" ? "final" : "refresh", row.war_id, row.member_id, leaseUntil, row.poll_kind),
         ]);
       }
@@ -178,7 +198,10 @@ export async function runEventCompetitionCron(env: Env): Promise<void> {
       const attempt = row.attempts + 1;
       const exhausted = attempt >= MAX_ATTEMPTS || (row.poll_kind === "final" && nowSeconds() + RETRY_SECONDS > (row.finish_at ?? 0) + FINAL_GRACE_SECONDS);
       const regular = exhausted && row.event_type === "halloween" && row.poll_kind !== "final";
-      const nextAt = exhausted ? (regular ? nowSeconds() + row.competition_refresh_hours * 3600 : null) : nowSeconds() + RETRY_SECONDS;
+      let nextAt = exhausted ? (regular ? nowSeconds() + row.competition_refresh_hours * 3600 : null) : nowSeconds() + RETRY_SECONDS;
+      if (nextAt !== null && row.baseline_at === null && nowSeconds() < row.practical_start_time) {
+        nextAt = Math.min(nextAt, row.practical_start_time);
+      }
       const message = error instanceof Error && /^(Competition data|Elimination team|Halloween reading|Treat counter|Finish reading)/.test(error.message)
         ? error.message : "Competition request failed";
       await env.DB.prepare(`UPDATE event_competition_members SET poll_due_at = ?, poll_kind = ?, attempts = ?,
@@ -186,6 +209,15 @@ export async function runEventCompetitionCron(env: Env): Promise<void> {
         .bind(nextAt, regular ? "refresh" : row.poll_kind, regular ? 0 : attempt, message,
           row.war_id, row.member_id, leaseUntil, row.poll_kind).run();
     }
+  }
+  const rows = due.results ?? [];
+  if (initial) {
+    let index = 0;
+    await Promise.all(Array.from({ length: Math.min(4, rows.length) }, async () => {
+      while (index < rows.length && nowSeconds() < initial.deadline) await collect(rows[index++]);
+    }));
+  } else {
+    for (const row of rows) await collect(row);
   }
   for (const warId of changed) await bumpWarCacheVersionById(env, warId);
 }
@@ -205,7 +237,7 @@ export function projectTreatReadings(samples: CompetitionSnapshot[], start: numb
   const history: Array<{ observed_at: number; treats_gained: number }> = [];
   let total = 0;
   for (const sample of [...samples].sort((a, b) => a.observed_at - b.observed_at || a.member_id - b.member_id)) {
-    if (sample.observed_at < start || (finish !== null && sample.observed_at > finish
+    if ((sample.observed_at < start && sample.poll_kind !== "baseline") || (finish !== null && sample.observed_at > finish
       && !(sample.poll_kind === "final" && sample.target_at === finish))) continue;
     const member = members.get(sample.member_id);
     if (member) {
@@ -245,6 +277,7 @@ export async function readEventCompetition(env: Env, war: WarRow) {
       member_id: row.member_id, member_name: row.member_name, participation: row.participation,
       team_name: row.team_name, captured_at: row.captured_at,
       baseline_at: readings?.baseline.observed_at ?? null, updated_at: readings?.latest.observed_at ?? row.captured_at,
+      baseline_treats: readings?.baseline.treats_collected ?? null,
       treats_gained: readings ? readings.latest.treats_collected - readings.baseline.treats_collected : null,
       basket_name: readings?.latest.basket_name ?? null,
       status: war.event_type === "elimination" ? (row.captured_at !== null ? "complete" : row.last_error ? "unavailable" : "pending")
@@ -258,7 +291,7 @@ export async function readEventCompetition(env: Env, war: WarRow) {
     eliminated_teams: (eliminatedTeams.results ?? []).map(row => row.team_name),
     initialized_at: state?.initialized_at ?? null, final_requested_at: state?.final_requested_at ?? null,
     members, total_treats_gained: projection.members.size ? projection.total : null, history: projection.history,
-    next_refresh_at: war.status === "active" && (rows.results ?? []).some(row => row.poll_due_at !== null)
+    next_refresh_at: war.status !== "ended" && (rows.results ?? []).some(row => row.poll_due_at !== null)
       ? Math.min(...(rows.results ?? []).flatMap(row => row.poll_due_at === null ? [] : [row.poll_due_at])) : null,
   };
 }

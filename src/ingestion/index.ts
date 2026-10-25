@@ -1,3 +1,4 @@
+import { initializeIndependentEvents, refreshEventTracking } from "../eventTracking";
 import { sanitizeWarName, uniqueWarName } from "../warNames";
 import { processPracticalPhases, retryEndedPracticalPhases } from "../practicalPhases";
 import {
@@ -127,6 +128,7 @@ export async function runIngestion(
 
   try {
     await ensureState(env);
+    await initializeIndependentEvents(env);
     const latestRankedWar = await fetchLatestRankedWar(env).catch((err) => {
       console.error("Torn ranked wars sync failed:", err?.message || err);
       return null;
@@ -156,7 +158,7 @@ export async function runIngestion(
             official_home_score,
             official_enemy_score
           FROM wars
-          WHERE id = ? AND status = 'active'
+          WHERE id = ? AND status = 'active' AND COALESCE(war_type, 'real') != 'event'
           LIMIT 1
           `,
         )
@@ -275,6 +277,7 @@ export async function runIngestion(
     await retryEndedPracticalPhases(env, ingestionWar?.id ?? null);
 
     if (!ingestionWar) {
+      await refreshEventTracking(env);
       return;
     }
 
@@ -307,6 +310,8 @@ export async function runIngestion(
         metrics.statsFinishedAt = nowSeconds();
       }
     }
+    // Reconcile events after war updates so an event failure cannot skip them.
+    await refreshEventTracking(env);
   } catch (err: any) {
     metrics.error = err?.message || String(err);
     throw err;
@@ -531,10 +536,12 @@ export async function ingestHistoricalWarWindow(
   startedAt: number,
   endedAt: number,
 ): Promise<number> {
+  const target = await env.DB.prepare("SELECT war_type FROM wars WHERE id = ?").bind(warId).first<{ war_type: string | null }>();
+  const ownerId = target?.war_type === "event" ? null : warId;
   const ingestRunId = `import:${warId}:${crypto.randomUUID()}`;
   const stats = await scanAttackWindow(env, startedAt, endedAt, async (attacks) => {
     const statements = attacks.map((attack) =>
-      buildHistoricalImportStatement(env, warId, ingestRunId, attack),
+      buildHistoricalImportStatement(env, ownerId, ingestRunId, attack),
     );
     if (statements.length > 0) {
       await env.DB.batch(statements);
@@ -679,7 +686,7 @@ async function activateScheduledWarIfDue(env: Env): Promise<void> {
     `
     SELECT id
     FROM wars
-    WHERE status = 'active'
+    WHERE status = 'active' AND COALESCE(war_type, 'real') != 'event'
     LIMIT 1
     `,
   )
@@ -693,7 +700,7 @@ async function activateScheduledWarIfDue(env: Env): Promise<void> {
     `
     SELECT id, practical_start_time
     FROM wars
-    WHERE status = 'scheduled'
+    WHERE status = 'scheduled' AND COALESCE(war_type, 'real') != 'event'
       AND practical_start_time <= ?
     ORDER BY practical_start_time ASC
     LIMIT 1
@@ -1172,7 +1179,7 @@ async function syncUpcomingRankedWar(
     `
     SELECT id
     FROM wars
-    WHERE status = 'scheduled'
+    WHERE status = 'scheduled' AND COALESCE(war_type, 'real') != 'event'
       AND (
         practical_finish_time IS NULL
         OR practical_finish_time >= ?
@@ -1570,7 +1577,7 @@ function buildLiveInsertStatement(
 
 function buildHistoricalImportStatement(
   env: Env,
-  warId: number,
+  warId: number | null,
   ingestRunId: string,
   attack: TornAttack,
 ): D1PreparedStatement {

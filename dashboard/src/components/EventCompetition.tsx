@@ -143,7 +143,7 @@ export function EventCompetitionPanel({ war, data, error, compact = false }: {
       aside={halloween ? `Every ${data?.refresh_hours ?? war.competition_refresh_hours ?? 6} hours` : "Captured once"} />
     {error ? <p className="event-competition-warning" role="status">{error}</p> : null}
     {!data ? <EmptyState text={error ? "Data unavailable" : "Loading competition data"} /> : data.initialized_at === null ? (
-      <EmptyState text={war.status === "scheduled" ? "Collection starts with the event" : war.status === "ended" ? "No competition snapshots saved for this event" : "Awaiting initial collection"} />
+      <EmptyState text={war.status === "scheduled" ? halloween ? "Awaiting baseline collection" : "Collection starts with the event" : war.status === "ended" ? "No competition snapshots saved for this event" : "Awaiting initial collection"} />
     ) : <>
       <div className="event-competition-summary">
         {halloween ? <div><span>Treats gained</span><strong>{data.total_treats_gained === null ? "Unavailable" : formatNumber(data.total_treats_gained)}</strong></div>
@@ -152,10 +152,11 @@ export function EventCompetitionPanel({ war, data, error, compact = false }: {
         {!halloween ? <div><span>Not participating</span><strong>{members.filter(member => member.participation === "not_participating").length}</strong></div> : null}
         <div><span>{halloween && firstBaseline !== null ? "Tracked since" : "Collection started"}</span><span>{formatLongDateTime(firstBaseline ?? data.initialized_at)}</span></div>
         <div><span>Last reading</span><span>{lastUpdate ? formatLongDateTime(lastUpdate) : "Awaiting data"}</span></div>
-        {halloween && war.status === "active" && data.next_refresh_at ? <div><span>Next collection</span><span>{formatLongDateTime(data.next_refresh_at)}</span></div> : null}
+        {halloween && war.status !== "ended" && data.next_refresh_at ? <div><span>Next collection</span><span>{formatLongDateTime(data.next_refresh_at)}</span></div> : null}
       </div>
       {incomplete ? <p className="event-competition-warning">{incomplete} member {incomplete === 1 ? "reading is" : "readings are"} incomplete or unavailable. Totals use the last valid readings.</p> : null}
       {members.some(member => member.status === "finishing") ? <p className="event-competition-note"><RefreshCw size={14} /> Final collection pending</p> : null}
+      {halloween && war.status === "scheduled" ? <p className="event-competition-note">Starting treats are collected when the event is created. Collection resumes at the event start; gains use each member’s saved baseline.</p> : null}
       {halloween && war.practical_finish_time !== null && lastUpdate > war.practical_finish_time ? <p className="event-competition-warning">Final readings were collected after the event finish and may include later treats.</p> : null}
       {compact && !halloween ? <div className="event-team-counts">{teams.map(name => <div key={name}><span>{name}</span><strong>{members.filter(member => competitionTeam(member) === name).length}</strong></div>)}</div> : null}
       {!compact && halloween && data.history.length > 1 ? <div className="event-treat-chart" aria-label="Treats gained over time">
@@ -174,16 +175,16 @@ export function EventCompetitionPanel({ war, data, error, compact = false }: {
         <div className="table-scroll"><table className="event-competition-table">
           <thead><tr>
             <th aria-sort={sort.key === "name" ? sort.descending ? "descending" : "ascending" : "none"}><button type="button" onClick={() => changeSort("name")}>Member {sortIcon("name")}</button></th>
-            {halloween ? <><th aria-sort={sort.key === "treats" ? sort.descending ? "descending" : "ascending" : "none"}><button type="button" onClick={() => changeSort("treats")}>Treats gained {sortIcon("treats")}</button></th><th>Basket</th><th>Baseline captured</th></> : <th aria-sort={sort.key === "team" ? sort.descending ? "descending" : "ascending" : "none"}><button type="button" onClick={() => changeSort("team")}>Team {sortIcon("team")}</button></th>}
+            {halloween ? <><th>Starting treats</th><th aria-sort={sort.key === "treats" ? sort.descending ? "descending" : "ascending" : "none"}><button type="button" onClick={() => changeSort("treats")}>Treats gained {sortIcon("treats")}</button></th><th>Basket</th><th>Baseline captured</th></> : <th aria-sort={sort.key === "team" ? sort.descending ? "descending" : "ascending" : "none"}><button type="button" onClick={() => changeSort("team")}>Team {sortIcon("team")}</button></th>}
             {halloween ? <th>Last reading</th> : <th aria-sort={sort.key === "eliminated" ? sort.descending ? "descending" : "ascending" : "none"}><button type="button" onClick={() => changeSort("eliminated")}>Eliminated {sortIcon("eliminated")}</button></th>}<th>Status</th>
           </tr></thead>
           <tbody>{visible.map(member => <tr key={member.member_id}
             className={eliminationRowStatus(data, member) ? "event-inactive-row" : undefined}>
             <td><a className="member-link" href={`https://www.torn.com/profiles.php?XID=${member.member_id}`} target="_blank" rel="noreferrer">{member.member_name}</a></td>
-            {halloween ? <><td>{member.treats_gained === null ? "Unavailable" : formatNumber(member.treats_gained)}</td><td>{member.basket_name ?? "Unavailable"}</td><td>{member.baseline_at ? formatLongDateTime(member.baseline_at) : "Awaiting baseline"}</td></> : <td>{competitionTeam(member)}</td>}
+            {halloween ? <><td>{member.baseline_treats == null ? "Unavailable" : formatNumber(member.baseline_treats)}</td><td>{member.treats_gained === null ? "Unavailable" : formatNumber(member.treats_gained)}</td><td>{member.basket_name ?? "Unavailable"}</td><td>{member.baseline_at ? formatLongDateTime(member.baseline_at) : "Awaiting baseline"}</td></> : <td>{competitionTeam(member)}</td>}
             {halloween ? <td>{member.updated_at ? formatLongDateTime(member.updated_at) : "Awaiting data"}</td>
               : <td>{eliminationRowStatus(data, member) === "Eliminated" ? "Yes" : member.participation === "participating" ? "No" : "-"}</td>}
-            <td title={member.last_error ?? undefined}>{eliminationRowStatus(data, member) ?? (member.status === "complete" ? "Captured" : member.status === "tracking" ? "Tracking" : member.status === "pending" ? "Pending" : member.status === "finishing" ? "Final pending" : member.status === "stale" ? "Stale" : member.status === "incomplete" ? "Incomplete" : "Unavailable")}</td>
+            <td title={member.last_error ?? undefined}>{eliminationRowStatus(data, member) ?? (member.status === "complete" ? "Captured" : member.status === "tracking" ? halloween && war.status === "scheduled" ? "Baseline saved" : "Tracking" : member.status === "pending" ? "Pending" : member.status === "finishing" ? "Final pending" : member.status === "stale" ? "Stale" : member.status === "incomplete" ? "Incomplete" : "Unavailable")}</td>
           </tr>)}</tbody>
         </table></div>
         {!visible.length ? <EmptyState text="No members to show" /> : null}

@@ -215,7 +215,7 @@ export async function getWarChainBonusesForWar(url: URL, env: Env): Promise<Resp
         a.respect_loss,
         NULL AS adjusted_respect_gain,
         NULL AS respect_removed
-      FROM attacks a
+      FROM tracker_attacks a
       JOIN wars w ON w.id = a.war_id
       WHERE a.war_id = ?
         AND a.attacker_faction_id = ${HOME_FACTION_ID}
@@ -249,7 +249,7 @@ export async function getWarAttacks(url: URL, env: Env): Promise<Response> {
     const attacks = await env.DB.prepare(
       `
       SELECT *
-      FROM attacks
+      FROM tracker_attacks
       WHERE war_id = ?
       ORDER BY started DESC
       LIMIT ?
@@ -307,7 +307,7 @@ export async function getWarMemberAttacks(url: URL, env: Env): Promise<Response>
         a.respect_loss,
         a.m_retaliation,
         a.is_ranked_war
-      FROM attacks a
+      FROM tracker_attacks a
       JOIN wars w ON w.id = a.war_id
       WHERE a.war_id = ?
         AND a.attacker_id = ?
@@ -332,7 +332,7 @@ export async function getWarMemberAttacks(url: URL, env: Env): Promise<Response>
         a.respect_loss,
         a.m_retaliation,
         a.is_ranked_war
-      FROM attacks a
+      FROM tracker_attacks a
       JOIN wars w ON w.id = a.war_id
       WHERE a.war_id = ?
         AND a.defender_id = ?
@@ -486,7 +486,7 @@ export async function getWarActivity(url: URL, env: Env): Promise<Response> {
             THEN 1
             ELSE 0
           END) AS defend_other
-        FROM attacks a
+        FROM tracker_attacks a
         JOIN wars w ON w.id = a.war_id
         WHERE a.war_id = ?
           AND a.started IS NOT NULL
@@ -609,8 +609,8 @@ export async function getWarMemberCombatHeatmap(url: URL, env: Env): Promise<Res
         SELECT buckets.*, COALESCE(
           h.name,
           (SELECT member_name FROM war_member_stats WHERE war_id = buckets.war_id AND member_id = buckets.member_id),
-          (SELECT attacker_name FROM attacks WHERE war_id = buckets.war_id AND attacker_id = buckets.member_id LIMIT 1),
-          (SELECT defender_name FROM attacks WHERE war_id = buckets.war_id AND defender_id = buckets.member_id LIMIT 1)
+          (SELECT attacker_name FROM tracker_attacks WHERE war_id = buckets.war_id AND attacker_id = buckets.member_id LIMIT 1),
+          (SELECT defender_name FROM tracker_attacks WHERE war_id = buckets.war_id AND defender_id = buckets.member_id LIMIT 1)
         ) AS member_name
         FROM grouped_rows buckets
         ${reportableHomeMemberJoinSql("buckets.member_id")}
@@ -766,7 +766,8 @@ export async function getOverallStats(url: URL, env: Env): Promise<Response> {
     return warType;
   }
   const currentMembersOnly = url.searchParams.get("current_members") === "1";
-  const excludeEvents = url.searchParams.get("exclude_events") === "1";
+  // Event reports can share attacks with wars, so never sum the two record types.
+  const excludeEvents = warType !== "event";
 
   const overall = (await env.DB.prepare(
     `

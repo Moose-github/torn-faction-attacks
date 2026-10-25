@@ -88,7 +88,7 @@ export async function exportWarAttacksCsv(url: URL, env: Env): Promise<Response>
     const rows = await env.DB.prepare(
       `
       SELECT *
-      FROM attacks a
+      FROM ${linkedStatus === "linked" ? "tracker_attacks" : "attacks"} a
       WHERE ${conditions.join("\n        AND ")}
       ORDER BY a.started ASC, a.id ASC
       `,

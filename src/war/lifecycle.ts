@@ -39,7 +39,11 @@ export async function startWarTracking(
     }
   }
 
-  await setGlobalWarState(env, "current", options.warId, options.startedAt);
+  const tracker = await env.DB.prepare("SELECT war_type FROM wars WHERE id = ?")
+    .bind(options.warId).first<{ war_type: string | null }>();
+  if (tracker?.war_type !== "event") {
+    await setGlobalWarState(env, "current", options.warId, options.startedAt);
+  }
   await runWarStartedHooks(env, options);
 }
 
@@ -165,7 +169,8 @@ export async function finishEventTracking(
 
   await requestEventCompetitionFinish(env, options.warId, practicalFinishTime ?? options.finishAt);
   await finalizeWar(env, options.warId);
-  await setNextGlobalWarStateAfterOfficialEnd(env);
+  // Finishing an event must not replace or clear a live war's controls.
+  await clearCurrentWarState(env, options.warId);
   await bumpWarCacheVersionById(env, options.warId);
 }
 
@@ -333,6 +338,7 @@ async function setNextGlobalWarStateAfterOfficialEnd(env: Env): Promise<void> {
     SELECT id
     FROM wars
     WHERE status = 'scheduled'
+      AND COALESCE(war_type, 'real') != 'event'
     ORDER BY practical_start_time ASC
     LIMIT 1
     `,

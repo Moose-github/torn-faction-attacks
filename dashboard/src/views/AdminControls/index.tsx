@@ -878,7 +878,7 @@ export function AdminControls() {
 
         </AdminSettingsSection>
 
-        <AdminSettingsSection section="events" title="Events" description="Manual attack and defend tracking windows">
+        <AdminSettingsSection section="events" title="Events" description="Events can overlap wars and count the same attacks independently. Event windows cannot overlap other events.">
 
         <section className="admin-event-grid admin-event-controls-grid">
           <section className="panel admin-event-command">

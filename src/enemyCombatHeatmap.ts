@@ -53,7 +53,7 @@ export async function getWarEnemyCombatHeatmap(url: URL, env: Env): Promise<Resp
           SUM(CASE WHEN a.result IN (${POSITIVE_RESULTS_SQL}) THEN 1 ELSE 0 END) AS attacks_successful,
           COALESCE(SUM(CASE WHEN a.result IN (${POSITIVE_RESULTS_SQL}) THEN a.respect_gain ELSE 0 END), 0) AS respect_gained,
           0 AS outside_hits, 0 AS defends_lost, 0 AS respect_lost
-        FROM attacks a JOIN wars w ON w.id = a.war_id
+        FROM tracker_attacks a JOIN wars w ON w.id = a.war_id
         WHERE a.war_id = ? AND ${RELEVANT_DEFEND_SQL}
           AND (${windowSql})
           AND a.started >= ? AND COALESCE(a.ended, a.started) <= ?

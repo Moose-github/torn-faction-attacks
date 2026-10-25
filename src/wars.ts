@@ -9,7 +9,7 @@ import {
   bumpWarCacheVersion,
 } from "./cacheVersions";
 import { setChainWatchEnabledForWar } from "./chainWatchWar";
-import { parseEventCompetitionSettings, rescheduleEventCompetition } from "./eventCompetition";
+import { collectInitialHalloweenBaseline, ensureEventCompetitionStarted, parseEventCompetitionSettings, rescheduleEventCompetition } from "./eventCompetition";
 import {
   ingestHistoricalWarWindow,
   previewHistoricalWarWindow,
@@ -28,7 +28,6 @@ import {
   endWarPractically,
   finishEventTracking,
   setWarPracticalWindow,
-  setUpcomingWarState,
   startWarTracking,
 } from "./warLifecycle";
 export { exportWarAttacksCsv } from "./warExports";
@@ -77,7 +76,7 @@ async function saveEventCompetitionSettings(env: Env, warId: number, settings: R
     .bind(settings.eventType, settings.hours, warId).run();
 }
 
-export async function createManualEvent(request: Request, env: Env): Promise<Response> {
+export async function createManualEvent(request: Request, env: Env, ctx?: Pick<ExecutionContext, "waitUntil">): Promise<Response> {
   try {
     const body = (await request.json()) as EventMutationPayload & { war_type?: unknown };
     const warType = parseWarType(body.war_type, "event");
@@ -150,6 +149,12 @@ export async function createManualEvent(request: Request, env: Env): Promise<Res
       fetchMissing: parseOptionalBoolean(body.fetch_missing, "fetch_missing"),
       chainWatchEnabled,
     });
+    if (competition.eventType === "halloween" && statusResult !== "ended") {
+      await ensureEventCompetitionStarted(env, inserted.id);
+      ctx?.waitUntil(collectInitialHalloweenBaseline(env, inserted.id).catch(error => {
+        console.error("Initial Halloween baseline collection failed; cron will retry", error);
+      }));
+    }
     const war = await readWarById(env, inserted.id);
 
     return json(
@@ -1311,7 +1316,6 @@ async function applyEventStatusSideEffects(
   linked_attack_count?: number;
 }> {
   if (options.status === "scheduled") {
-    await refreshUpcomingTrackerState(env);
     await bumpWarCacheVersion(env, options.name);
     return {};
   }
@@ -1324,12 +1328,7 @@ async function applyEventStatusSideEffects(
     if (!options.chainWatchEnabled) {
       await setChainWatchEnabledForWar(env, options.warId, false);
     }
-    const linkedAttackCount = await linkStoredEventAttacks(
-      env,
-      options.warId,
-      options.startTime,
-      options.finishTime,
-    );
+    const linkedAttackCount = await countStoredEventAttacks(env, options.warId);
     if (linkedAttackCount > 0) {
       await rebuildWarStatsFromRaw(env, {
         scope: "single-war",
@@ -1371,12 +1370,7 @@ async function importEventAttackWindow(
   const importedAttackCount = options.fetchMissing
     ? await ingestHistoricalWarWindow(env, options.warId, options.startTime, options.finishTime)
     : 0;
-  const linkedAttackCount = await linkStoredEventAttacks(
-    env,
-    options.warId,
-    options.startTime,
-    options.finishTime,
-  );
+  const linkedAttackCount = await countStoredEventAttacks(env, options.warId);
 
   return {
     fetch_missing: options.fetchMissing,
@@ -1457,24 +1451,19 @@ async function previewStoredEventAttackWindow(
   };
 }
 
-async function linkStoredEventAttacks(
+async function countStoredEventAttacks(
   env: Env,
   warId: number,
-  startTime: number,
-  finishTime: number | null,
 ): Promise<number> {
   const result = await env.DB.prepare(
     `
-    UPDATE attacks
-    SET war_id = ?
-    WHERE war_id IS NULL
-      AND ${EVENT_ATTACK_WINDOW_SQL}
+    SELECT COUNT(*) AS count FROM tracker_attacks WHERE war_id = ?
     `,
   )
-    .bind(warId, startTime, finishTime ?? OPEN_ENDED_TIMESTAMP)
-    .run();
+    .bind(warId)
+    .first<{ count: number }>();
 
-  return Number(result.meta?.changes ?? 0);
+  return Number(result?.count ?? 0);
 }
 
 async function unassignEventAttacksOutsideWindow(
@@ -1521,6 +1510,7 @@ async function readTrackerOverlap(
       official_end_time
     FROM wars
     WHERE (? IS NULL OR id != ?)
+      AND war_type = 'event'
       AND practical_start_time <= ?
       AND COALESCE(practical_finish_time, official_end_time, ?) >= ?
     ORDER BY practical_start_time ASC, id ASC
@@ -1557,30 +1547,6 @@ function parseEventChainWatchEnabled(value: unknown, fallback: boolean): boolean
   return value === undefined || value === null || value === ""
     ? fallback
     : parseOptionalBoolean(value, "chain_watch_enabled");
-}
-
-async function refreshUpcomingTrackerState(env: Env): Promise<void> {
-  const currentState = await readSyncState(env, SOURCE_NAME);
-  if (currentState?.war_state === "current") {
-    return;
-  }
-
-  const scheduledWar = (await env.DB.prepare(
-    `
-    SELECT id
-    FROM wars
-    WHERE status = 'scheduled'
-    ORDER BY practical_start_time ASC, id ASC
-    LIMIT 1
-    `,
-  ).first()) as { id: number } | null;
-
-  if (scheduledWar) {
-    await setUpcomingWarState(env, scheduledWar.id);
-    return;
-  }
-
-  await clearCurrentWarState(env);
 }
 
 const EVENT_ATTACK_WINDOW_SQL = `

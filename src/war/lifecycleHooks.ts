@@ -138,6 +138,11 @@ export async function runWarStartedHooks(
 ): Promise<void> {
   await ensureEventCompetitionStarted(env, options.warId);
   const config = await readWarLifecycleConfig(env, options.warId);
+  if (config.warType === "event") {
+    if (shouldEnableChainWatch(config)) await ensureChainWatchEnabledForWar(env, options.warId);
+    await refreshWarDerivedStats(env, options.warId);
+    return;
+  }
   const handlers: WarLifecycleHandler[] = [
     {
       name: "attack_assignments_backfilled",

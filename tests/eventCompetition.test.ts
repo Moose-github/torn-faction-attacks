@@ -3,7 +3,7 @@ import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Env, WarRow } from "../src/types";
 import {
-  ensureEventCompetitionStarted, parseCompetitionReading, parseEventCompetitionSettings,
+  collectInitialHalloweenBaseline, ensureEventCompetitionStarted, parseCompetitionReading, parseEventCompetitionSettings,
   readEventCompetition, requestEventCompetitionFinish, rescheduleEventCompetition, runEventCompetitionCron,
   updateEliminationTeamStatus,
 } from "../src/eventCompetition";
@@ -66,9 +66,11 @@ beforeEach(() => {
   vi.clearAllMocks();
   db = new DatabaseSync(":memory:");
   db.exec(schema);
+  let batches: Promise<unknown> = Promise.resolve();
   env = { DB: {
     prepare: statement,
-    batch: async (statements: ReturnType<typeof statement>[]) => {
+    batch: (statements: ReturnType<typeof statement>[]) => {
+      const next = batches.then(async () => {
       db.exec("BEGIN");
       try {
         const results = [];
@@ -76,6 +78,9 @@ beforeEach(() => {
         db.exec("COMMIT");
         return results;
       } catch (error) { db.exec("ROLLBACK"); throw error; }
+      });
+      batches = next.catch(() => {});
+      return next;
     },
   } } as unknown as Env;
   vi.mocked(fetchTrackedTornJson).mockResolvedValue(halloween(1000));
@@ -139,8 +144,9 @@ describe("event competition collection", () => {
     expect(db.prepare("SELECT baseline_treats FROM event_competition_members").get()?.baseline_treats).toBe(1000);
   });
 
-  it("waits for scheduled events and never fetches current data for historical events", async () => {
-    war("halloween", "scheduled"); member();
+  it("waits for scheduled Elimination events and never fetches current data for historical events", async () => {
+    war("elimination", "scheduled"); member();
+    vi.mocked(fetchTrackedTornJson).mockResolvedValue(elimination("Loose Cannons"));
     await runEventCompetitionCron(env);
     expect(fetchTrackedTornJson).not.toHaveBeenCalled();
     db.exec("UPDATE wars SET status = 'ended'");
@@ -150,6 +156,82 @@ describe("event competition collection", () => {
     db.exec("UPDATE wars SET status = 'active'");
     await runEventCompetitionCron(env);
     expect(fetchTrackedTornJson).toHaveBeenCalledTimes(1);
+  });
+
+  it("starts a baseline for every current member on creation, before the scheduled start", async () => {
+    for (let id = 1; id <= 25; id++) member(id);
+    member(26, 0);
+    const background: Promise<unknown>[] = [];
+    const response = await createManualEvent(new Request("https://test/api/wars", { method: "POST", body: JSON.stringify({
+      name: "Test event", practical_start_time: START + 24 * 3600, event_type: "halloween", status: "scheduled",
+    }) }), env, { waitUntil: task => background.push(task) });
+    expect(response.status).toBe(201);
+    expect(background).toHaveLength(1);
+    await Promise.all(background);
+    expect(fetchTrackedTornJson).toHaveBeenCalledTimes(25);
+    const data = await view();
+    expect(data.members).toHaveLength(25);
+    expect(data.members.every(member => member.baseline_at === START && member.baseline_treats === 1000 && member.treats_gained === 0)).toBe(true);
+    expect(data.initialized_at).toBe(START);
+    expect(data.next_refresh_at).toBe(START + 24 * 3600);
+    at(START + 6 * 3600);
+    await runEventCompetitionCron(env);
+    expect(fetchTrackedTornJson).toHaveBeenCalledTimes(25);
+    expect(db.prepare("SELECT status FROM wars WHERE id = 1").get()?.status).toBe("scheduled");
+  });
+
+  it("keeps the creation baseline at the event start and then follows the chosen interval", async () => {
+    war("halloween", "scheduled", 12); member(); at(START - 3600);
+    await ensureEventCompetitionStarted(env, 1);
+    await collectInitialHalloweenBaseline(env, 1);
+    at(START - 60);
+    await rescheduleEventCompetition(env, 1, 12);
+    expect((await view()).next_refresh_at).toBe(START);
+    at(START); db.exec("UPDATE wars SET status = 'active'");
+    vi.mocked(fetchTrackedTornJson).mockResolvedValue(halloween(1050));
+    await runEventCompetitionCron(env);
+    expect((await view()).members[0]).toMatchObject({ baseline_at: START - 3600, baseline_treats: 1000, treats_gained: 50 });
+    expect((await view()).next_refresh_at).toBe(START + 12 * 3600);
+    at(START + 12 * 3600); vi.mocked(fetchTrackedTornJson).mockResolvedValue(halloween(1300));
+    await runEventCompetitionCron(env);
+    expect((await view()).total_treats_gained).toBe(300);
+  });
+
+  it("shows unavailable instead of zero when a pre-event baseline fails, then recovers before start", async () => {
+    war("halloween", "scheduled"); member(); at(START - 3600);
+    await ensureEventCompetitionStarted(env, 1);
+    vi.mocked(fetchTrackedTornJson).mockRejectedValueOnce(new Error("offline"));
+    await collectInitialHalloweenBaseline(env, 1);
+    expect((await view()).members[0]).toMatchObject({ baseline_treats: null, treats_gained: null });
+    at(START - 3540);
+    await runEventCompetitionCron(env);
+    expect((await view()).members[0]).toMatchObject({ baseline_treats: 1000, baseline_at: START - 3540, treats_gained: 0 });
+  });
+
+  it("leaves unstarted baseline requests queued when background time expires and cron completes them", async () => {
+    war("halloween", "scheduled"); for (let id = 1; id <= 25; id++) member(id);
+    at(START - 3600); await ensureEventCompetitionStarted(env, 1);
+    vi.mocked(fetchTrackedTornJson).mockImplementation(async () => {
+      at(START - 3570);
+      return halloween(1000);
+    });
+    await collectInitialHalloweenBaseline(env, 1);
+    const captured = (await view()).members.filter(member => member.baseline_treats !== null).length;
+    expect(captured).toBeGreaterThan(0);
+    expect(captured).toBeLessThan(25);
+    vi.mocked(fetchTrackedTornJson).mockResolvedValue(halloween(1000));
+    await runEventCompetitionCron(env);
+    await runEventCompetitionCron(env);
+    expect((await view()).members.every(member => member.baseline_treats === 1000)).toBe(true);
+    expect(fetchTrackedTornJson).toHaveBeenCalledTimes(25);
+  });
+
+  it("leases baseline requests so simultaneous creation and cron collection cannot collect a member twice", async () => {
+    war("halloween", "scheduled"); member(); at(START - 3600);
+    await ensureEventCompetitionStarted(env, 1);
+    await Promise.all([collectInitialHalloweenBaseline(env, 1), runEventCompetitionCron(env)]);
+    expect(fetchTrackedTornJson).toHaveBeenCalledTimes(1);
+    expect((await view()).members[0].baseline_treats).toBe(1000);
   });
 
   it("uses the first observed baseline when enabled partway through an event", async () => {
