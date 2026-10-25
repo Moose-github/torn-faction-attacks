@@ -212,7 +212,8 @@ describe("lifestyle stats workflows", () => {
       await refreshDailyMemberLifestyleStats(env, { limit: 40, useLock: true });
 
       expect(db.calls.some(isRecentCandidates)).toBe(false);
-      expect(db.calls.find(isExpiredCandidates)?.params).toEqual([8803, 5]);
+      // Faction, attempt cap, batch size.
+      expect(db.calls.find(isExpiredCandidates)?.params).toEqual([8803, 5, 5]);
       expect(completionWrites(db)).toEqual([]);
       expect(mocks.refreshMemberAchievementSummaries).not.toHaveBeenCalled();
     });

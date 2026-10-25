@@ -28,6 +28,8 @@ export const DAILY_REFRESH_AFTER_UTC_MINUTE = 10;
 export const MAX_LIFESTYLE_PERIOD_DAYS = 90;
 export const DAILY_LIFESTYLE_REFRESH_LIMIT = 40;
 export const EXPIRED_PERSONAL_STATS_RETRY_LIMIT = 5;
+// Retries an expired day gets before it stops taking an older-day retry slot.
+export const EXPIRED_PERSONAL_STATS_MAX_ATTEMPTS = 5;
 export const DAILY_LIFESTYLE_COMPLETE_STATE_NAME = "member_personal_stats_recent_daily";
 export const DAILY_GYM_COMPLETE_STATE_NAME = "member_gym_stats_current_daily";
 export const DAILY_GYM_LOCK_STATE_NAME = "member_gym_stats_current_daily_lock";

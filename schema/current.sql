@@ -752,6 +752,7 @@ CREATE TABLE member_personal_stats_recent (
   status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'completed', 'retry_expired', 'failed')),
   error TEXT,
   updated_at INTEGER NOT NULL,
+  expired_attempts INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (member_id, snapshot_date)
 );
 

@@ -22,6 +22,7 @@ import {
   DAILY_LIFESTYLE_LOCK_SECONDS,
   DAILY_LIFESTYLE_LOCK_STATE_NAME,
   DAILY_LIFESTYLE_REFRESH_LIMIT,
+  EXPIRED_PERSONAL_STATS_MAX_ATTEMPTS,
   EXPIRED_PERSONAL_STATS_RETRY_LIMIT,
   LIFESTYLE_STAT_KEYS,
   MISSING_DONATOR_DAYS_ERROR_CODE,
@@ -485,11 +486,12 @@ async function readPersonalStatsRecentCandidates(
        AND (members.current_join_date IS NULL OR recent.snapshot_date >= members.current_join_date)
       WHERE recent.personal_captured_at IS NULL
         AND recent.status = 'retry_expired'
+        AND recent.expired_attempts < ?
       ORDER BY recent.snapshot_date ASC, recent.attempted_at ASC NULLS FIRST, recent.member_name ASC
       LIMIT ?
       `,
     )
-      .bind(HOME_FACTION_ID, expiredLimit)
+      .bind(HOME_FACTION_ID, EXPIRED_PERSONAL_STATS_MAX_ATTEMPTS, expiredLimit)
       .all()).results ?? []) as PersonalStatsRecentRow[];
 
   return [...activeRows, ...expiredRows];
@@ -615,19 +617,21 @@ async function markPersonalStatsRecentAttempt(
   error: string,
   status: PersonalStatsRecentStatus,
 ): Promise<void> {
-  const nextStatus = row.status === "retry_expired" ? "retry_expired" : status;
+  const expired = row.status === "retry_expired";
+  const nextStatus = expired ? "retry_expired" : status;
   await env.DB.prepare(
     `
     UPDATE member_personal_stats_recent
     SET attempted_at = unixepoch(),
         status = ?,
         error = ?,
+        expired_attempts = expired_attempts + ?,
         updated_at = unixepoch()
     WHERE member_id = ?
       AND snapshot_date = ?
     `,
   )
-    .bind(nextStatus, error, row.member_id, row.snapshot_date)
+    .bind(nextStatus, error, expired ? 1 : 0, row.member_id, row.snapshot_date)
     .run();
 }
 
