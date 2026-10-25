@@ -202,3 +202,11 @@ dashboard/dist/
 dashboard/public/research-runtime/
 dashboard-vite*.log
 .tmp/
+
+### Local agent and browser tooling ###
+.codex/
+.codex-temp/
+.playwright-cli/
+.work-loans/
+/output/
+/outputs/
