@@ -202,7 +202,11 @@ export async function readRosterHealth(env: Env): Promise<RosterHealthRow> {
       COUNT(CASE WHEN is_current = 1 AND live.is_revivable = 1 THEN 1 END) AS revivable_members,
       COUNT(CASE WHEN is_current = 1 AND (ff_battlestats IS NOT NULL OR bsp_battlestats IS NOT NULL) THEN 1 END) AS stat_estimates,
       COUNT(CASE WHEN is_current = 1 AND networth IS NOT NULL THEN 1 END) AS networth_estimates,
-      MAX(members.updated_at) AS updated_at
+      -- Roster rows are only rewritten when they change, so include the last status check.
+      MAX(
+        MAX(members.updated_at),
+        COALESCE((SELECT last_started FROM sync_state WHERE name = 'home_faction_status_checked_at'), 0)
+      ) AS updated_at
     FROM home_faction_members members
     LEFT JOIN home_member_live_status live
       ON live.member_id = members.member_id

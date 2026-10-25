@@ -1,11 +1,16 @@
 import { HOME_FACTION_ID } from "../constants";
 import { fetchTornFactionMembers } from "../enemyScouting";
 import {
+  markDepartedHomeFactionMembers,
+  upsertHomeFactionMemberRoster,
+  validMemberIds,
+} from "../homeFactionRoster";
+import {
   HOME_MEMBER_LIVE_STATUS_TABLE,
   upsertMemberRevivableStatus,
 } from "../memberLiveStatus";
 import { Env, TornFactionMember } from "../types";
-import { boolToInt, effectiveRevivableStatus, finiteNumber } from "../utils";
+import { boolToInt, effectiveRevivableStatus } from "../utils";
 import type {
   TimedLifestyleStats,
 } from "./model";
@@ -100,41 +105,7 @@ export async function syncHomeFactionMemberList(env: Env): Promise<void> {
 
   await env.DB.batch(
     members.flatMap((member) => [
-      env.DB.prepare(
-        `
-        INSERT INTO home_faction_members (
-          member_id,
-          faction_id,
-          name,
-          level,
-          position,
-          days_in_faction,
-          is_current,
-          current_join_date,
-          updated_at
-        )
-        VALUES (?, ?, ?, ?, ?, ?, 1, date('now'), unixepoch())
-        ON CONFLICT(member_id) DO UPDATE SET
-          faction_id = excluded.faction_id,
-          name = excluded.name,
-          level = excluded.level,
-          position = excluded.position,
-          days_in_faction = excluded.days_in_faction,
-          current_join_date = CASE
-            WHEN home_faction_members.is_current = 0 THEN excluded.current_join_date
-            ELSE COALESCE(home_faction_members.current_join_date, excluded.current_join_date)
-          END,
-          is_current = 1,
-          updated_at = excluded.updated_at
-        `,
-      ).bind(
-        member.id,
-        HOME_FACTION_ID,
-        member.name,
-        finiteNumber(member.level),
-        member.position ?? null,
-        finiteNumber(member.days_in_faction),
-      ),
+      upsertHomeFactionMemberRoster(env, member),
       upsertMemberRevivableStatus(
         env,
         HOME_MEMBER_LIVE_STATUS_TABLE,
@@ -145,40 +116,8 @@ export async function syncHomeFactionMemberList(env: Env): Promise<void> {
     ]),
   );
 
-  await markDepartedHomeFactionMembers(env, members);
+  await markDepartedHomeFactionMembers(env, validMemberIds(members));
   await removeDepartedLifestyleMembers(env, members);
-}
-
-async function markDepartedHomeFactionMembers(
-  env: Env,
-  members: TornFactionMember[],
-): Promise<void> {
-  const ids = members.map((member) => member.id).filter((id) => Number.isInteger(id) && id > 0);
-  if (ids.length === 0) {
-    return;
-  }
-
-  await env.DB.prepare(
-    `
-    UPDATE home_faction_members
-    SET is_current = 0,
-        updated_at = unixepoch()
-    WHERE member_id NOT IN (${ids.map(() => "?").join(",")})
-      AND is_current != 0
-    `,
-  )
-    .bind(...ids)
-    .run();
-
-  await env.DB.prepare(
-    `
-    DELETE FROM home_member_live_status
-    WHERE faction_id = ?
-      AND member_id NOT IN (${ids.map(() => "?").join(",")})
-    `,
-  )
-    .bind(HOME_FACTION_ID, ...ids)
-    .run();
 }
 
 async function removeDepartedLifestyleMembers(

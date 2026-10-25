@@ -1130,9 +1130,21 @@ async function readOwnedKey(env: Env, submittedByTornUserId: number, keyId: stri
     .first<TornKeyPoolRow>();
 }
 
-async function deriveAesKey(secret: string): Promise<CryptoKey> {
-  const digest = await crypto.subtle.digest("SHA-256", utf8(secret));
-  return crypto.subtle.importKey("raw", digest, { name: "AES-GCM" }, false, ["encrypt", "decrypt"]);
+// Every pool read decrypts each stored key, so reuse the derived AES key while
+// the storage secret is unchanged instead of re-hashing it per key.
+let cachedAesKey: { secret: string; key: Promise<CryptoKey> } | null = null;
+
+function deriveAesKey(secret: string): Promise<CryptoKey> {
+  if (cachedAesKey?.secret !== secret) {
+    const key = crypto.subtle.digest("SHA-256", utf8(secret))
+      .then((digest) => crypto.subtle.importKey("raw", digest, { name: "AES-GCM" }, false, ["encrypt", "decrypt"]));
+    const entry = { secret, key };
+    cachedAesKey = entry;
+    key.catch(() => {
+      if (cachedAesKey === entry) cachedAesKey = null;
+    });
+  }
+  return cachedAesKey!.key;
 }
 
 function utf8(value: string): Uint8Array {

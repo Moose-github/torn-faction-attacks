@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { refreshHomeFactionMembers, refreshTrackedFactionMemberStatuses } from "./enemyScouting";
+import { fetchTornFactionMembers, refreshHomeFactionMembers, refreshTrackedFactionMemberStatuses } from "./enemyScouting";
 import { readEnemyScouting, readHomeScouting } from "./enemyScouting/queries";
 import type { EnemyFactionMemberRow } from "./enemyScouting/model";
 import { upsertMemberLiveStatus } from "./memberLiveStatus";
@@ -508,5 +508,67 @@ describe("travel observations during faction refresh", () => {
       estimated_arrival_earliest: now - 60 + flightSeconds,
       estimated_arrival_latest: now + flightSeconds,
     }));
+  });
+});
+
+describe("shared faction member fetches", () => {
+  const roster = { members: [{ id: 1, name: "Member" }] };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.useFakeTimers();
+    vi.setSystemTime(now * 1000);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("reuses one Torn response per faction within the shared window", async () => {
+    const env = {} as Env;
+    vi.mocked(withTornKeyPool).mockResolvedValue(roster);
+
+    const [first, second] = await Promise.all([
+      fetchTornFactionMembers(env, 8803),
+      fetchTornFactionMembers(env, 8803),
+    ]);
+    await fetchTornFactionMembers(env, 8803);
+    await fetchTornFactionMembers(env, 26312);
+
+    expect(withTornKeyPool).toHaveBeenCalledTimes(2);
+    expect(first).toEqual(second);
+    expect(first).not.toBe(second);
+  });
+
+  it("fetches again once the shared window expires", async () => {
+    const env = {} as Env;
+    vi.mocked(withTornKeyPool).mockResolvedValue(roster);
+
+    await fetchTornFactionMembers(env, 8803);
+    vi.advanceTimersByTime(31_000);
+    await fetchTornFactionMembers(env, 8803);
+
+    expect(withTornKeyPool).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not share a failed fetch", async () => {
+    const env = {} as Env;
+    vi.mocked(withTornKeyPool)
+      .mockRejectedValueOnce(new Error("Torn unavailable"))
+      .mockResolvedValue(roster);
+
+    await expect(fetchTornFactionMembers(env, 8803)).rejects.toThrow("Torn unavailable");
+    await expect(fetchTornFactionMembers(env, 8803)).resolves.toHaveLength(1);
+
+    expect(withTornKeyPool).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps separate Worker environments apart", async () => {
+    vi.mocked(withTornKeyPool).mockResolvedValue(roster);
+
+    await fetchTornFactionMembers({} as Env, 8803);
+    await fetchTornFactionMembers({} as Env, 8803);
+
+    expect(withTornKeyPool).toHaveBeenCalledTimes(2);
   });
 });

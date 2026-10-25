@@ -40,6 +40,11 @@ import {
   clearSyncLatch,
   isSyncLatchSet,
 } from "./syncLatches";
+import {
+  markDepartedHomeFactionMembers,
+  upsertHomeFactionMemberRoster,
+  validMemberIds,
+} from "./homeFactionRoster";
 import { hasSyncState, readSyncTimestamp, upsertSyncTimestamp } from "./syncState";
 import { fetchBspBattlestatJson } from "./external/bsp";
 import { fetchFfscouterStatsJson } from "./external/ffscouter";
@@ -492,13 +497,13 @@ export async function refreshHomeFactionMembers(env: Env): Promise<TornFactionMe
         ...statusSnapshot,
       };
       return [
-        upsertHomeMemberRosterSnapshot(env, snapshot),
+        upsertHomeFactionMemberRoster(env, member),
         upsertMemberLiveStatus(env, HOME_MEMBER_LIVE_STATUS_TABLE, snapshot),
       ];
     }),
   );
 
-  await markDepartedHomeFactionMembers(env, members);
+  await markDepartedHomeFactionMembers(env, validMemberIds(members));
   await upsertSyncTimestamp(env, HOME_STATUS_CHECKED_AT, fetchedAt);
 
   const rows = (await env.DB.prepare(
@@ -513,35 +518,6 @@ export async function refreshHomeFactionMembers(env: Env): Promise<TornFactionMe
 
   await refreshMissingFfBattlestats(env, rows ?? [], "home_faction_members");
   return members;
-}
-
-async function markDepartedHomeFactionMembers(env: Env, members: TornFactionMember[]): Promise<void> {
-  const ids = members.map((member) => member.id).filter((id) => Number.isInteger(id) && id > 0);
-  if (ids.length === 0) {
-    return;
-  }
-
-  await env.DB.prepare(
-    `
-    UPDATE home_faction_members
-    SET is_current = 0,
-        updated_at = unixepoch()
-    WHERE member_id NOT IN (${ids.map(() => "?").join(",")})
-      AND is_current != 0
-    `,
-  )
-    .bind(...ids)
-    .run();
-
-  await env.DB.prepare(
-    `
-    DELETE FROM home_member_live_status
-    WHERE faction_id = ?
-      AND member_id NOT IN (${ids.map(() => "?").join(",")})
-    `,
-  )
-    .bind(HOME_FACTION_ID, ...ids)
-    .run();
 }
 
 export async function refreshEnemyFactionMemberStatuses(
@@ -737,47 +713,6 @@ function upsertEnemyMemberRosterSnapshot(
     snapshot.company_type,
     snapshot.company_rating,
     snapshot.company_id,
-  );
-}
-
-function upsertHomeMemberRosterSnapshot(
-  env: Env,
-  snapshot: FactionMemberSnapshot,
-): D1PreparedStatement {
-  return env.DB.prepare(
-    `
-    INSERT INTO home_faction_members (
-      member_id,
-      faction_id,
-      name,
-      level,
-      position,
-      days_in_faction,
-      is_current,
-      current_join_date,
-      updated_at
-    )
-    VALUES (?, ?, ?, ?, ?, ?, 1, date('now'), unixepoch())
-    ON CONFLICT(member_id) DO UPDATE SET
-      faction_id = excluded.faction_id,
-      name = excluded.name,
-      level = excluded.level,
-      position = excluded.position,
-      days_in_faction = excluded.days_in_faction,
-      current_join_date = CASE
-        WHEN home_faction_members.is_current = 0 THEN excluded.current_join_date
-        ELSE COALESCE(home_faction_members.current_join_date, excluded.current_join_date)
-      END,
-      is_current = 1,
-      updated_at = excluded.updated_at
-    `,
-  ).bind(
-    snapshot.member_id,
-    snapshot.faction_id,
-    snapshot.name,
-    snapshot.level,
-    snapshot.position,
-    snapshot.days_in_faction,
   );
 }
 
@@ -1166,7 +1101,16 @@ export async function refreshMissingFfBattlestats(
   return metrics;
 }
 
-export async function fetchTornFactionMembers(
+// Several cron jobs read the same roster within seconds of each other (enemy
+// tracking, membership sync, heatmaps, travel tracker), so they share one Torn
+// response per faction for a short window. Keyed by env to stay per-Worker.
+const SHARED_FACTION_MEMBERS_FETCH_MS = 30_000;
+const sharedFactionMemberFetches = new WeakMap<
+  Env,
+  Map<number, { expiresAt: number; members: Promise<TornFactionMember[]> }>
+>();
+
+async function fetchTornFactionMembersFromTorn(
   env: Env,
   factionId: number,
 ): Promise<TornFactionMember[]> {
@@ -1187,6 +1131,30 @@ export async function fetchTornFactionMembers(
     }, { service: "Torn faction members" }),
   });
   return normalizeMembers(data.members);
+}
+
+export async function fetchTornFactionMembers(
+  env: Env,
+  factionId: number,
+): Promise<TornFactionMember[]> {
+  let fetches = sharedFactionMemberFetches.get(env);
+  if (!fetches) {
+    fetches = new Map();
+    sharedFactionMemberFetches.set(env, fetches);
+  }
+
+  const now = Date.now();
+  const shared = fetches.get(factionId);
+  if (shared && shared.expiresAt > now) {
+    return [...await shared.members];
+  }
+
+  const entry = { expiresAt: now + SHARED_FACTION_MEMBERS_FETCH_MS, members: fetchTornFactionMembersFromTorn(env, factionId) };
+  fetches.set(factionId, entry);
+  entry.members.catch(() => {
+    if (fetches.get(factionId) === entry) fetches.delete(factionId);
+  });
+  return [...await entry.members];
 }
 
 async function fetchTornUserJobCompanySnapshot(

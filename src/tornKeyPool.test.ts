@@ -36,6 +36,15 @@ describe("torn key pool", () => {
     await expect(decryptTornApiKey(encrypted, "storage-secret")).resolves.toBe("abc123-secret-key");
   });
 
+  it("derives a fresh AES key when the storage secret changes", async () => {
+    const first = await encryptTornApiKey("first-key", "storage-secret");
+    const rotated = await encryptTornApiKey("rotated-key", "rotated-secret");
+
+    await expect(decryptTornApiKey(rotated, "rotated-secret")).resolves.toBe("rotated-key");
+    await expect(decryptTornApiKey(first, "rotated-secret")).rejects.toThrow();
+    await expect(decryptTornApiKey(first, "storage-secret")).resolves.toBe("first-key");
+  });
+
   it("creates stable duplicate-detection fingerprints", async () => {
     const first = await fingerprintTornApiKey("same-key", "storage-secret");
     const second = await fingerprintTornApiKey("same-key", "storage-secret");
