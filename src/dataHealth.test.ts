@@ -365,6 +365,9 @@ describe("data health severity", () => {
   });
 
   it("splits daily member stats into personal and gym subsystem tiles", async () => {
+    vi.useFakeTimers();
+    // Missing gym streams are only due after the daily 00:10 UTC refresh.
+    vi.setSystemTime(new Date("2026-01-01T00:10:00Z"));
     vi.mocked(getDailyStatsAttention).mockResolvedValue({
       affected_member_count: 5, accepted_issues: 0,
       stale_personalstats: 5,
