@@ -1402,8 +1402,8 @@ CREATE TABLE event_competition_snapshots (
   target_at INTEGER NOT NULL,
   observed_at INTEGER NOT NULL,
   treats_collected INTEGER NOT NULL,
-  basket_id INTEGER NOT NULL,
-  basket_name TEXT NOT NULL,
+  basket_id INTEGER,
+  basket_name TEXT,
   PRIMARY KEY (war_id, member_id, poll_kind, target_at),
   FOREIGN KEY (war_id, member_id) REFERENCES event_competition_members(war_id, member_id) ON DELETE CASCADE
 );

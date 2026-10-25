@@ -88,6 +88,52 @@ beforeEach(() => {
 afterEach(() => { db.close(); vi.useRealTimers(); });
 
 describe("event competition collection", () => {
+  it.each([0, 123])("accepts %i treats with explicitly null basket metadata", (treats) => {
+    expect(parseCompetitionReading({ competition: {
+      name: "Halloween", treats_collected: treats, basket: { id: null, name: null },
+    } }, "halloween")).toEqual({ type: "halloween", treats, basketId: null, basketName: null });
+  });
+
+  it.each([undefined, null, -1, 0.5, "0"])("rejects an invalid treat count %s even without a basket", (treats) => {
+    expect(() => parseCompetitionReading({ competition: {
+      name: "Halloween", treats_collected: treats, basket: { id: null, name: null },
+    } }, "halloween")).toThrow("Halloween reading incomplete");
+  });
+
+  it.each([undefined, null, {}, { id: null, name: "Spooky basket" }, { id: 123, name: null }])(
+    "does not mistake malformed basket metadata %j for an explicitly unowned basket", (basket) => {
+      expect(() => parseCompetitionReading({ competition: {
+        name: "Halloween", treats_collected: 0, basket,
+      } }, "halloween")).toThrow("Halloween reading incomplete");
+    },
+  );
+
+  it("recovers a rejected zero baseline and preserves it after the member gets a basket", async () => {
+    war("halloween", "scheduled"); member(); at(START - 3600);
+    await ensureEventCompetitionStarted(env, 1);
+    db.exec("UPDATE event_competition_members SET last_error = 'Halloween reading incomplete', attempts = 2");
+    vi.mocked(fetchTrackedTornJson).mockResolvedValue({ competition: {
+      name: "Halloween", treats_collected: 0, basket: { id: null, name: null },
+    } });
+    await collectInitialHalloweenBaseline(env, 1);
+    expect((await view()).members[0]).toMatchObject({
+      baseline_treats: 0, treats_gained: 0, basket_name: null,
+      baseline_at: START - 3600, status: "tracking", last_error: null,
+    });
+    expect((await view()).total_treats_gained).toBe(0);
+    expect(db.prepare("SELECT basket_id, basket_name, treats_collected FROM event_competition_snapshots").get())
+      .toMatchObject({ basket_id: null, basket_name: null, treats_collected: 0 });
+    expect(db.prepare("SELECT attempts, poll_due_at FROM event_competition_members").get())
+      .toMatchObject({ attempts: 0, poll_due_at: START });
+
+    at(START); db.exec("UPDATE wars SET status = 'active'");
+    vi.mocked(fetchTrackedTornJson).mockResolvedValue(halloween(15));
+    await runEventCompetitionCron(env);
+    expect((await view()).members[0]).toMatchObject({
+      baseline_treats: 0, baseline_at: START - 3600, treats_gained: 15, basket_name: "Spooky basket",
+    });
+  });
+
   it("classifies Unknown as non-participating, without treating null team IDs as unknown", () => {
     expect(parseCompetitionReading(elimination("Unknown"), "elimination")).toEqual({ type: "elimination", participation: "not_participating", team: null });
     expect(parseCompetitionReading(elimination("Loose Cannons"), "elimination")).toEqual({ type: "elimination", participation: "participating", team: "Loose Cannons" });
@@ -372,6 +418,27 @@ describe("event competition collection", () => {
       upgrade.exec("CREATE TABLE wars(id INTEGER PRIMARY KEY, war_type TEXT); INSERT INTO wars VALUES (1, 'event');");
       upgrade.exec(readFileSync(new URL("../migrations/0144_add_event_competitions.sql", import.meta.url), "utf8"));
       expect(upgrade.prepare("SELECT event_type, competition_refresh_hours FROM wars").get()).toMatchObject({ event_type: "general", competition_refresh_hours: 6 });
+    } finally { upgrade.close(); }
+  });
+
+  it("makes snapshot baskets nullable without losing history, uniqueness, indexing, or deletion cascades", () => {
+    const upgrade = new DatabaseSync(":memory:");
+    try {
+      upgrade.exec("PRAGMA foreign_keys = ON; CREATE TABLE wars(id INTEGER PRIMARY KEY, war_type TEXT); INSERT INTO wars VALUES (1, 'event');");
+      upgrade.exec(readFileSync(new URL("../migrations/0144_add_event_competitions.sql", import.meta.url), "utf8"));
+      upgrade.exec(`INSERT INTO event_competition_members(war_id, member_id, member_name) VALUES (1, 1, 'Member 1');
+        INSERT INTO event_competition_snapshots VALUES (1, 1, 'baseline', 1, 1, 10, 123, 'Spooky basket');`);
+      const original = upgrade.prepare("SELECT * FROM event_competition_snapshots").all();
+      upgrade.exec(readFileSync(new URL("../migrations/0183_allow_halloween_without_basket.sql", import.meta.url), "utf8"));
+      expect(upgrade.prepare("SELECT * FROM event_competition_snapshots").all()).toEqual(original);
+      upgrade.exec("INSERT INTO event_competition_snapshots VALUES (1, 1, 'refresh', 2, 2, 0, NULL, NULL)");
+      expect(() => upgrade.exec("INSERT INTO event_competition_snapshots VALUES (1, 1, 'refresh', 2, 3, 0, NULL, NULL)"))
+        .toThrow(/UNIQUE/);
+      expect(upgrade.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
+      expect(upgrade.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'event_competition_history'").get())
+        .toMatchObject({ name: "event_competition_history" });
+      upgrade.exec("DELETE FROM wars WHERE id = 1");
+      expect(upgrade.prepare("SELECT * FROM event_competition_snapshots").all()).toEqual([]);
     } finally { upgrade.close(); }
   });
 

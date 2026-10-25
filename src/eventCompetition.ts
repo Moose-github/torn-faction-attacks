@@ -12,7 +12,7 @@ const MAX_ATTEMPTS = 3;
 
 type CompetitionReading =
   | { type: "elimination"; participation: "participating" | "not_participating"; team: string | null }
-  | { type: "halloween"; treats: number; basketId: number; basketName: string };
+  | { type: "halloween"; treats: number; basketId: number | null; basketName: string | null };
 
 export function parseCompetitionReading(value: unknown, type: EventType): CompetitionReading {
   const competition = (value as { competition?: Record<string, unknown> } | null)?.competition;
@@ -29,12 +29,16 @@ export function parseCompetitionReading(value: unknown, type: EventType): Compet
       : { type, participation: "participating", team };
   }
   const basket = competition.basket as Record<string, unknown> | null;
+  const noBasket = basket?.id === null && basket?.name === null;
   if (type !== "halloween" || !Number.isSafeInteger(competition.treats_collected)
-    || Number(competition.treats_collected) < 0 || !basket || !Number.isSafeInteger(basket.id)
-    || typeof basket.name !== "string" || !basket.name.trim()) {
+    || Number(competition.treats_collected) < 0 || !basket
+    || (!noBasket && (!Number.isSafeInteger(basket.id) || typeof basket.name !== "string" || !basket.name.trim()))) {
     throw new Error("Halloween reading incomplete");
   }
-  return { type, treats: Number(competition.treats_collected), basketId: Number(basket.id), basketName: basket.name };
+  return {
+    type, treats: Number(competition.treats_collected),
+    basketId: noBasket ? null : Number(basket.id), basketName: noBasket ? null : basket.name as string,
+  };
 }
 
 export function parseEventCompetitionSettings(body: { event_type?: unknown; competition_refresh_hours?: unknown }, existing?: WarRow) {
@@ -228,7 +232,7 @@ type MemberRow = {
   baseline_at: number | null; final_observed_at: number | null;
 };
 export type CompetitionSnapshot = {
-  member_id: number; observed_at: number; treats_collected: number; basket_name: string;
+  member_id: number; observed_at: number; treats_collected: number; basket_name: string | null;
   poll_kind: string; target_at: number;
 };
 
