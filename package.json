@@ -17,7 +17,7 @@
 		"check:worker": "tsc && wrangler deploy --dry-run",
 		"discord:commands:global": "node scripts/register-discord-commands.mjs --global",
 		"discord:commands:guild": "node scripts/register-discord-commands.mjs --guild",
-		"deploy": "wrangler deploy",
+		"deploy": "npm run migrate:remote && wrangler deploy",
 		"deploy:all": "npm run deploy && npm run deploy:stock-worker && npm run deploy:enemy-hospital-monitor",
 		"deploy:enemy-hospital-monitor": "npm --prefix workers/enemy-hospital-monitor run deploy",
 		"deploy:stock-worker": "npm --prefix workers/stock-market run deploy",
