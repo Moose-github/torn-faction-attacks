@@ -153,7 +153,14 @@ export async function refreshDailyMemberLifestyleStats(
     return { considered: 0, refreshed: 0, pending: 0, failed: 0, skipped: true };
   }
 
-  await syncHomeFactionMemberList(env);
+  try {
+    await syncHomeFactionMemberList(env);
+  } catch (err: any) {
+    // Torn often times out just after its daily rollover. The roster is also kept
+    // current by scheduled maintenance, so queue the saved members instead of
+    // losing the whole run.
+    console.warn("Personal stats member sync failed; using the saved roster:", err?.message || err);
+  }
   const activeDates = recentCompletedPersonalStatsDates(now);
   await preparePersonalStatsRecentQueue(env, activeDates);
   const targetSnapshotDate = activeDates[activeDates.length - 1];

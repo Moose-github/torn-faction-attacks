@@ -36,7 +36,9 @@ import { claimCronSlot, cronSlot, runOncePerSlot } from "./slots";
 // is caught up by the next run, and each slot is claimed so it runs only once.
 const QUARTER_HOUR_SLOT = cronSlot(15);
 const HOURLY_SLOT = cronSlot(60);
-const LIFESTYLE_SLOT = cronSlot(6 * 60, 10);
+// Hourly so personal stats Torn publishes late are picked up soon after; runs
+// only request members still missing, so a caught-up day costs little.
+const LIFESTYLE_SLOT = cronSlot(60, 10);
 
 export const CRON_JOB_DEFINITIONS: CronJobDefinition[] = [
   {
@@ -157,9 +159,9 @@ export const CRON_JOB_DEFINITIONS: CronJobDefinition[] = [
   },
   {
     label: "Cron personal lifestyle stats",
-    cadence: "4x daily at 00:10/06:10/12:10/18:10 UTC, catching up within 5m",
+    cadence: "hourly at :10 UTC, catching up within 5m",
     category: "daily",
-    purpose: "Fill recent personal stats queue and project daily lifestyle snapshots through the daily batch gate.",
+    purpose: "Fill the recent personal stats queue, retrying members still missing, and project daily lifestyle snapshots through the daily batch gate.",
     shouldRun: LIFESTYLE_SLOT.isDue,
     run: (env, scheduledTime) =>
       runOncePerSlot(env, "personal_lifestyle_stats", LIFESTYLE_SLOT, scheduledTime, () =>

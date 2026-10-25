@@ -162,6 +162,28 @@ describe("lifestyle stats workflows", () => {
     );
   });
 
+  it("still queues and refreshes personal stats when the member list fetch fails", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-10-25T00:10:45.000Z"));
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    mocks.syncHomeFactionMemberList.mockRejectedValueOnce(new Error("HTTP 504"));
+    const db = new TestD1Database((call) => handleDailyPersonalQuery(call));
+    const env = { DB: db } as unknown as Env;
+
+    const result = await refreshDailyMemberLifestyleStats(env, { limit: 1, useLock: false });
+
+    const seededDates = db.calls
+      .filter((call) => call.method === "run" && call.sql.includes("INSERT INTO member_personal_stats_recent") && call.sql.includes("FROM home_faction_members"))
+      .map((call) => call.params[0]);
+    expect(result).toMatchObject({ skipped: false });
+    expect(seededDates).toEqual(["2026-10-23", "2026-10-24"]);
+    expect(mocks.writeLifestyleSnapshotForDate).toHaveBeenCalledWith(
+      env,
+      "2026-10-25",
+      { freshAfter: timestampForDailyPoll("2026-10-25") + 10 * 60 },
+    );
+  });
+
   it("skips stale repair buckets and later unavailable repair items", async () => {
     const job = repairJob({
       calls_per_minute_per_key: 3,

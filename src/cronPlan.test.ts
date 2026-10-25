@@ -195,17 +195,16 @@ describe("monthly Xanax competition cron", () => {
     expect(rebuildWarStatsFromRaw).not.toHaveBeenCalled();
   });
 
-  it("keeps personal lifestyle imports on the four daily UTC slots", () => {
-    expect(buildCronPlan({} as Env, Date.UTC(2026, 5, 1, 0, 10, 0)).map((job) => job.label))
-      .toContain("Cron personal lifestyle stats");
-    expect(buildCronPlan({} as Env, Date.UTC(2026, 5, 1, 6, 10, 0)).map((job) => job.label))
-      .toContain("Cron personal lifestyle stats");
-    expect(buildCronPlan({} as Env, Date.UTC(2026, 5, 1, 12, 10, 0)).map((job) => job.label))
-      .toContain("Cron personal lifestyle stats");
-    expect(buildCronPlan({} as Env, Date.UTC(2026, 5, 1, 18, 10, 0)).map((job) => job.label))
-      .toContain("Cron personal lifestyle stats");
-    expect(buildCronPlan({} as Env, Date.UTC(2026, 5, 1, 0, 15, 0)).map((job) => job.label))
-      .not.toContain("Cron personal lifestyle stats");
+  it("runs personal lifestyle imports hourly from :10", () => {
+    for (let hour = 0; hour < 24; hour += 1) {
+      const minutes: number[] = [];
+      for (let minute = 0; minute < 60; minute += 1) {
+        if (buildCronPlan({} as Env, Date.UTC(2026, 5, 1, hour, minute, 0)).some((job) => job.label === "Cron personal lifestyle stats")) {
+          minutes.push(minute);
+        }
+      }
+      expect(minutes).toEqual([10, 11, 12, 13, 14]);
+    }
   });
 
   it("schedules gym lifestyle imports independently for daily and retry gating", () => {
@@ -284,13 +283,14 @@ describe("catch-up for skipped cron minutes", () => {
     expect(rebuildWarStatsFromRaw).toHaveBeenCalledTimes(1);
   });
 
-  it("catches up a skipped six-hourly lifestyle import", async () => {
+  it("catches up a skipped hourly lifestyle import and runs it once per hour", async () => {
     const env = slotEnv();
 
-    // 06:10 never fired.
+    // 06:10 never fired; 07:10 did.
     await runMinutes(env, [11, 12, 15], 6);
+    await runMinutes(env, [10, 11], 7);
 
-    expect(refreshDailyMemberLifestyleStats).toHaveBeenCalledTimes(1);
+    expect(refreshDailyMemberLifestyleStats).toHaveBeenCalledTimes(2);
   });
 
   it("runs the enemy scouting tick every minute", () => {
