@@ -3,7 +3,6 @@ import { runRankedResearchTick } from "../rankedResearch";
 import { runArmoryCron, runMedicalStockAlertsCron } from "../armory";
 import { runWatchScheduleCron } from "../chainWatchScheduleDiscord";
 import { runEventCompetitionCron } from "../eventCompetition";
-import { syncDiscordTravelTracker } from "../discordTravelTracker";
 import { runEnemyScoutingCronTick } from "../enemyScoutingCron";
 import { runIngestion } from "../ingestion";
 import {
@@ -140,19 +139,6 @@ export const CRON_JOB_DEFINITIONS: CronJobDefinition[] = [
       runEnemyScoutingCronTick(env, {
         trackingSchedule: "war-room",
         scheduledTime,
-      }),
-  },
-  // TODO: Remove this temporary travel tracker cron after out-of-war travel testing no longer needs live updates.
-  {
-    label: "Cron manual/home Discord travel tracker sync",
-    cadence: "5m temporary",
-    category: "discord",
-    purpose: "Temporarily refresh manually configured target travel and enabled home travel while no war-room target is active.",
-    shouldRun: (date) => date.getUTCMinutes() % 5 === 0,
-    run: (env, scheduledTime) =>
-      syncDiscordTravelTracker(env, {
-        scheduledTime,
-        manualOnly: true,
       }),
   },
   {

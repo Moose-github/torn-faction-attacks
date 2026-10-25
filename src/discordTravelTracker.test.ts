@@ -460,7 +460,7 @@ describe("Discord travel tracker", () => {
     vi.mocked(isWarRoomMemberTrackingActive).mockReturnValue(false);
     env.target = { id: 1, faction_id: 456, faction_name: "Manual faction", enabled: 1, last_refreshed_at: 1_799_999_000 };
     env.alertSettings.set(DISCORD_ALERT_KEYS.targetTravelTracker, { enabled: 0, configurable: 1 });
-    const result = await syncDiscordTravelTracker(env, { force: true, manualOnly: true, scheduledTime: 1_800_000_000_000 });
+    const result = await syncDiscordTravelTracker(env, { force: true, scheduledTime: 1_800_000_000_000 });
     expect(refreshTrackedFactionMemberStatuses).toHaveBeenCalledWith(env, 456, 1_799_999_000);
     expect(env.target).toMatchObject({ enabled: 1, last_refreshed_at: 1_800_000_000 });
     expect(result.target).toMatchObject({ enabled: true, source: "manual", faction_id: 456, reason: "Discord travel messages disabled", refreshed: { fetchedMembers: 2 } });
@@ -617,30 +617,6 @@ describe("Discord travel tracker", () => {
       { users: [], roles: [] },
       { embedColor: 0x778899 },
     );
-  });
-
-  it("manual-only sync still allows enabled home tracking", async () => {
-    const env = fakeEnv();
-    env.states.home = trackerState("home", { enabled: 1 });
-
-    await expect(syncDiscordTravelTracker(env, {
-      manualOnly: true,
-      scheduledTime: 1_800_000_000_000,
-    })).resolves.toMatchObject({
-      target: {
-        skipped: true,
-        reason: "manual travel tracker not active",
-        source: "war",
-      },
-      home: {
-        skipped: false,
-        source: "home",
-        changed: true,
-      },
-    });
-    expect(refreshTrackedFactionMemberStatuses).not.toHaveBeenCalled();
-    expect(refreshHomeFactionMembers).toHaveBeenCalledWith(env);
-    expect(upsertDiscordAlertMessage).toHaveBeenCalledOnce();
   });
 
   it("updates target and home tracker settings independently", async () => {
