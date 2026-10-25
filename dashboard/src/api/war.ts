@@ -198,7 +198,7 @@ export async function getWarControl(
 }
 
 export async function updateOfficialWar(payload: AdminWarPayload): Promise<unknown> {
-  return postJson("/api/wars/update-official", payload);
+  return postJson("/api/wars/update-official", payload);
 }
 
 export async function createEvent(payload: AdminWarPayload): Promise<unknown> {
@@ -210,7 +210,7 @@ export async function updateEvent(payload: AdminWarPayload): Promise<unknown> {
 }
 
 export async function importWar(payload: AdminWarPayload): Promise<unknown> {
-  return postJson("/api/wars/import", payload);
+  return postJson("/api/wars/import", payload);
 }
 
 export async function importEvent(payload: AdminWarPayload): Promise<unknown> {
@@ -218,18 +218,18 @@ export async function importEvent(payload: AdminWarPayload): Promise<unknown> {
 }
 
 export async function previewImportWar(payload: AdminWarPayload): Promise<unknown> {
-  return postJson("/api/wars/import/preview", {
-    practical_start_time: payload.practical_start_time,
-    practical_finish_time: payload.practical_finish_time,
-    official_start_time: payload.official_start_time,
-    official_end_time: payload.official_end_time,
-    war_type: payload.war_type,
-    torn_war_id: payload.torn_war_id,
-  });
+  return postJson("/api/wars/import/preview", {
+    practical_start_time: payload.practical_start_time,
+    practical_finish_time: payload.practical_finish_time,
+    official_start_time: payload.official_start_time,
+    official_end_time: payload.official_end_time,
+    war_type: payload.war_type,
+    torn_war_id: payload.torn_war_id,
+  });
 }
 
-export async function pullAttackWindow(payload: AttackWindowPayload): Promise<unknown> {
-  return postJson("/api/attacks/window", payload);
+export async function pullAttackWindow(payload: AttackWindowPayload): Promise<unknown> {
+  return postJson("/api/attacks/window", payload);
 }
 
 export async function previewImportEvent(payload: AdminWarPayload): Promise<unknown> {
@@ -243,50 +243,50 @@ export async function previewImportEvent(payload: AdminWarPayload): Promise<unkn
 
 export async function deleteWar(payload: {
   war_id?: number;
-  torn_war_id?: number;
-  name?: string;
-}): Promise<unknown> {
-  return postJson("/api/wars/delete", payload);
+  torn_war_id?: number;
+  name?: string;
+}): Promise<unknown> {
+  return postJson("/api/wars/delete", payload);
 }
 
 export async function previewRelinkAttacks(payload: {
   war_id?: number;
   scope?: "selected" | "all";
-  torn_war_id?: number;
-  name?: string;
-  fetch_missing?: boolean;
-}): Promise<unknown> {
-  return postJson("/api/wars/relink-attacks", { ...payload, dry_run: true });
+  torn_war_id?: number;
+  name?: string;
+  fetch_missing?: boolean;
+}): Promise<unknown> {
+  return postJson("/api/wars/relink-attacks", { ...payload, dry_run: true });
 }
 
 export async function relinkAttacks(payload: {
   war_id?: number;
   scope?: "selected" | "all";
-  torn_war_id?: number;
-  name?: string;
-  fetch_missing?: boolean;
-}): Promise<unknown> {
-  return postJson("/api/wars/relink-attacks", { ...payload, dry_run: false });
+  torn_war_id?: number;
+  name?: string;
+  fetch_missing?: boolean;
+}): Promise<unknown> {
+  return postJson("/api/wars/relink-attacks", { ...payload, dry_run: false });
 }
 
 export async function endActiveWar(options: {
   war_id?: number;
   practical_finish_time?: number;
 } = {}): Promise<{ ok: true; war_id: number; practical_finish_time: number }> {
-  return postJson(
-    "/api/wars/end",
+  return postJson(
+    "/api/wars/end",
     Object.keys(options).length === 0 ? undefined : options,
-  );
+  );
 }
 
-export async function fetchTornWarReport(tornWarId: number): Promise<unknown> {
-  return postJson(`/api/torn-wars/${encodeURIComponent(tornWarId)}/report/fetch`);
+export async function fetchTornWarReport(tornWarId: number): Promise<unknown> {
+  return postJson(`/api/torn-wars/${encodeURIComponent(tornWarId)}/report/fetch`);
 }
 
-export async function refreshEnemyScouting(warName: string): Promise<EnemyScoutingResponse> {
-  return postJson<EnemyScoutingResponse>(
-    `/api/wars/${encodeURIComponent(warName)}/enemy-scouting`,
-  );
+export async function refreshEnemyScouting(warName: string): Promise<EnemyScoutingResponse> {
+  return postJson<EnemyScoutingResponse>(
+    `/api/wars/${encodeURIComponent(warName)}/enemy-scouting`,
+  );
 }
 
 export async function exportWarAttacksCsv(options: AttackExportOptions): Promise<void> {
@@ -303,17 +303,17 @@ export async function exportWarAttacksCsv(options: AttackExportOptions): Promise
 
   const response = await getApiResponse(`/api/wars/${encodeURIComponent(options.warName)}/attacks${query}`);
 
-  const blob = await response.blob();
-  const disposition = response.headers.get("Content-Disposition") ?? "";
-  const filename = filenameFromContentDisposition(disposition) ?? `${options.warName}-attacks.csv`;
-  const downloadUrl = window.URL.createObjectURL(blob);
-  const anchor = document.createElement("a");
-  anchor.href = downloadUrl;
-  anchor.download = filename;
-  document.body.append(anchor);
-  anchor.click();
-  anchor.remove();
-  window.URL.revokeObjectURL(downloadUrl);
+  const blob = await response.blob();
+  const disposition = response.headers.get("Content-Disposition") ?? "";
+  const filename = filenameFromContentDisposition(disposition) ?? `${options.warName}-attacks.csv`;
+  const downloadUrl = window.URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = downloadUrl;
+  anchor.download = filename;
+  document.body.append(anchor);
+  anchor.click();
+  anchor.remove();
+  window.URL.revokeObjectURL(downloadUrl);
 }
 
 function queryForWarType(warType: WarType): string {
