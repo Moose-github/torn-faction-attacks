@@ -22,6 +22,7 @@ export const CHAIN_WATCH_TIMEOUT_SECONDS = 5 * 60;
 export const CHAIN_WATCH_WARNING_60_OFFSET_SECONDS = 4 * 60;
 export const CHAIN_WATCH_WARNING_30_OFFSET_SECONDS = 4 * 60 + 30;
 export const CHAIN_WATCH_ALERT_MIN_CHAIN = 100;
+export const CHAIN_WATCH_DROP_RETRY_SECONDS = 15;
 
 const CHAIN_WATCH_MAX_ERROR_LENGTH = 240;
 const CHAIN_WATCH_ALARM_NAME_PREFIX = "chain-watch";
@@ -186,6 +187,7 @@ export function selectNextChainWatchAlarm(input: {
   warning60SentAt: number | null;
   warning30SentAt: number | null;
   dropSentAt: number | null;
+  lastError?: string | null;
   now: number;
 }): NextChainWatchAlarm {
   if (
@@ -198,9 +200,13 @@ export function selectNextChainWatchAlarm(input: {
   }
 
   if (input.timeoutAt <= input.now) {
-    return input.warning60SentAt !== null || input.warning30SentAt !== null
-      ? { stage: "drop", alarmAt: input.now }
-      : null;
+    if (input.warning60SentAt === null && input.warning30SentAt === null) return null;
+    // A failed drop confirmation leaves last_error set. Retrying at once would
+    // re-fire the alarm within milliseconds and loop on Torn while it is down.
+    return {
+      stage: "drop",
+      alarmAt: input.lastError ? input.now + CHAIN_WATCH_DROP_RETRY_SECONDS : input.now,
+    };
   }
 
   if (input.warning60SentAt === null) {
@@ -814,7 +820,7 @@ async function scheduleChainWatchAlarmForState(
   const next = state.enabled === 1 ? selectNextChainWatchAlarm({
     currentChain: state.current_chain, resetAt: state.reset_at, timeoutAt: state.timeout_at,
     warning60SentAt: state.warning_60_sent_at, warning30SentAt: state.warning_30_sent_at,
-    dropSentAt: state.drop_sent_at, now,
+    dropSentAt: state.drop_sent_at, lastError: state.last_error, now,
   }) : null;
   // A timer reset or another completed stage invalidates this scheduling decision.
   await env.DB.prepare(`UPDATE faction_chain_watch_state

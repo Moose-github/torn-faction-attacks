@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  CHAIN_WATCH_DROP_RETRY_SECONDS,
   CHAIN_WATCH_TIMEOUT_SECONDS,
   chainHitAt,
   chainWatchAlertEligible,
@@ -123,6 +124,32 @@ describe("chain watch alarm selection", () => {
       dropSentAt: null,
       now: 1305,
     })).toEqual({ stage: "drop", alarmAt: 1305 });
+  });
+
+  it("delays an overdue drop check after a failed confirmation", () => {
+    expect(selectNextChainWatchAlarm({
+      currentChain: 101,
+      resetAt: 1000,
+      timeoutAt: 1300,
+      warning60SentAt: 1240,
+      warning30SentAt: 1270,
+      dropSentAt: null,
+      lastError: "Torn unavailable",
+      now: 1300,
+    })).toEqual({ stage: "drop", alarmAt: 1300 + CHAIN_WATCH_DROP_RETRY_SECONDS });
+  });
+
+  it("keeps the drop check at the timeout when an earlier error is still recorded", () => {
+    expect(selectNextChainWatchAlarm({
+      currentChain: 101,
+      resetAt: 1000,
+      timeoutAt: 1300,
+      warning60SentAt: 1240,
+      warning30SentAt: 1270,
+      dropSentAt: null,
+      lastError: "Torn unavailable",
+      now: 1280,
+    })).toEqual({ stage: "drop", alarmAt: 1300 });
   });
 
   it("does not schedule after the drop alert has been sent", () => {

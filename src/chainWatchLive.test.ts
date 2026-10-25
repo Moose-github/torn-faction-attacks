@@ -3,7 +3,7 @@ import { chainWatchDatabase } from "../scripts/chain-watch-test-database.mjs";
 import { createWatch, setWatchFinish } from "./chainWatchSchedule";
 import { watchUtc } from "../shared/chainWatchSchedule";
 import { HOME_FACTION_ID } from "./constants";
-import { getChainWatchLive, handleChainWatchAlarm, readChainWatchState, readLatestQualifyingChainHit, refreshActiveChainWatchFromStoredAttacks, refreshChainWatch, runChainWatchCron } from "./chainWatch";
+import { CHAIN_WATCH_DROP_RETRY_SECONDS, getChainWatchLive, handleChainWatchAlarm, readChainWatchState, readLatestQualifyingChainHit, refreshActiveChainWatchFromStoredAttacks, refreshChainWatch, runChainWatchCron } from "./chainWatch";
 import { readChainWatchDemand } from "./chainWatchDemand";
 import { getChainWatchForWar, setChainWatchEnabledForWar } from "./chainWatchWar";
 import { fetchTrackedTornJson } from "./external/torn";
@@ -256,6 +256,28 @@ describe("independent faction chain monitor", () => {
     advance(start + offset + 1);
     await handleChainWatchAlarm(db.env, HOME_FACTION_ID);
     expect(await readChainWatchState(db.env)).toMatchObject({ [column]: start + offset + 1, last_error: null });
+  });
+
+  it("backs off a failed drop confirmation instead of re-firing at once, then drops after Torn recovers", async () => {
+    await watch(); await hit(1, start); await tick();
+    for (const [offset, remaining] of [[240, 60], [270, 30]]) {
+      vi.mocked(fetchTrackedTornJson).mockResolvedValue({ chain: { current: 150, timeout: remaining } });
+      advance(start + offset); await handleChainWatchAlarm(db.env, HOME_FACTION_ID);
+    }
+    vi.mocked(fetchTrackedTornJson).mockRejectedValue(new Error("Torn unavailable"));
+    advance(start + 300); await handleChainWatchAlarm(db.env, HOME_FACTION_ID);
+    expect(await readChainWatchState(db.env)).toMatchObject({
+      scheduled_alarm_stage: "drop", scheduled_alarm_at: start + 300 + CHAIN_WATCH_DROP_RETRY_SECONDS,
+      last_error: "Torn unavailable", drop_sent_at: null, discord_message_id: "message",
+    });
+
+    vi.mocked(fetchTrackedTornJson).mockResolvedValue({ chain: { current: 0, timeout: 0 } });
+    advance(start + 300 + CHAIN_WATCH_DROP_RETRY_SECONDS); await handleChainWatchAlarm(db.env, HOME_FACTION_ID);
+    expect(await readChainWatchState(db.env)).toMatchObject({
+      source: "dropped", drop_sent_at: start + 300 + CHAIN_WATCH_DROP_RETRY_SECONDS,
+      last_error: null, discord_message_id: null, scheduled_alarm_stage: null,
+    });
+    expect(vi.mocked(upsertDiscordAlertMessage).mock.calls.at(-1)![3]).toContain("Chain Watch DROPPED\nChain 150");
   });
 
   it("exposes read-only faction status without a war or extra Torn request", async () => {

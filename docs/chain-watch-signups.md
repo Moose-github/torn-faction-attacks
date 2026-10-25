@@ -54,7 +54,10 @@ message. When a chain drops, its existing live status message is edited to show
 **Chain Watch DROPPED**. Its ID and final chain details are retained until that
 edit succeeds; failed edits retry without creating a replacement post. This also
 applies when a cron detects the drop or a lower chain count reveals a replacement
-chain. The next chain gets a new status message once it exceeds 100 hits.
+chain. If Torn cannot be reached to confirm a drop, the check retries every 15
+seconds (and on each minute cron) rather than immediately, so an outage cannot
+spin the alarm or drain the Torn key pool. The next chain gets a new status
+message once it exceeds 100 hits.
 Finalizing an existing status uses the status channel route and still happens
 when new alerts are muted. If no status message exists, the separate drop alert
 retains its configured route and enable setting.
