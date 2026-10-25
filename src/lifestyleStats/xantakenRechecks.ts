@@ -7,7 +7,7 @@ import { d1Changes, nowSeconds } from "../utils";
 import {
   dateKeyFromMs,
   timestampForDailyPoll,
-  utcDateKey,
+  personalStatsBucketDate,
 } from "./dates";
 import {
   LIFESTYLE_STAT_KEYS,
@@ -615,9 +615,7 @@ function extractTimedLifestyleStats(
   for (const [name, stat] of Object.entries(source)) {
     setLifestyleStat(stats, name, stat.value, stat.timestamp);
   }
-  stats.personalstats_bucket_date = stats.daysbeendonator_timestamp
-    ? utcDateKey(stats.daysbeendonator_timestamp)
-    : null;
+  stats.personalstats_bucket_date = personalStatsBucketDate(stats, options.requestedAt);
   stats.personalstats_requested_at = options.requestedAt;
   stats.personalstats_key_source = options.keySource;
   return stats;

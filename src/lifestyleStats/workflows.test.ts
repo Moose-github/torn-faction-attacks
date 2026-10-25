@@ -52,7 +52,7 @@ vi.mock("./internal", () => ({
 }));
 
 import { TornPersonalStatsHttpError } from "../personalStats";
-import { refreshDailyMemberLifestyleStats } from "./dailyPersonal";
+import { fetchMemberPersonalStats, personalStatsDataQualityError, refreshDailyMemberLifestyleStats } from "./dailyPersonal";
 import { refreshDailyGymStats } from "./dailyGym";
 import { processMemberLifestyleRepairJobs } from "./repairJobs";
 
@@ -182,6 +182,23 @@ describe("lifestyle stats workflows", () => {
       "2026-10-25",
       { freshAfter: timestampForDailyPoll("2026-10-25") + 10 * 60 },
     );
+  });
+
+  it("accepts a non-donator's snapshot for the requested day from timeplayed", async () => {
+    mocks.fetchTornPersonalStatsWithTimestamps.mockResolvedValue({
+      ...personalStatsResponse("2026-10-23"),
+      daysbeendonator: { value: 412, timestamp: timestampForDailyPoll("2025-08-07") },
+    });
+    const env = { DB: new TestD1Database(() => null) } as unknown as Env;
+
+    const stats = await fetchMemberPersonalStats(env, 101, {
+      requestedAt: timestampForDailyPoll("2026-10-23"),
+      apiKey: "key",
+      keySource: "key_pool:test",
+    });
+
+    expect(stats.personalstats_bucket_date).toBe("2026-10-23");
+    expect(personalStatsDataQualityError(stats, "2026-10-23")).toBeNull();
   });
 
   it("skips stale repair buckets and later unavailable repair items", async () => {

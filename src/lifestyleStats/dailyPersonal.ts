@@ -14,6 +14,7 @@ import {
   dailyRefreshReadyAt,
   recentCompletedPersonalStatsDates,
   timestampForDailyPoll,
+  personalStatsBucketDate,
   utcDateKey,
 } from "./dates";
 import {
@@ -594,7 +595,7 @@ export function personalStatsDataQualityError(
   }
 
   if (!stats.personalstats_bucket_date) {
-    return `${MISSING_PERSONALSTATS_BUCKET_ERROR_CODE}: daysbeendonator timestamp was not returned for ${targetSnapshotDate}`;
+    return `${MISSING_PERSONALSTATS_BUCKET_ERROR_CODE}: neither daysbeendonator nor timeplayed timestamps were returned for ${targetSnapshotDate}`;
   }
 
   if (!options.allowBucketLag && stats.personalstats_bucket_date !== targetSnapshotDate) {
@@ -754,9 +755,7 @@ function extractLifestyleStats(
     setLifestyleStat(stats, name, stat.value, stat.timestamp);
   }
 
-  stats.personalstats_bucket_date = stats.daysbeendonator_timestamp
-    ? utcDateKey(stats.daysbeendonator_timestamp)
-    : null;
+  stats.personalstats_bucket_date = personalStatsBucketDate(stats, options.requestedAt);
   stats.personalstats_requested_at = options.requestedAt;
   stats.personalstats_key_source = options.keySource;
 

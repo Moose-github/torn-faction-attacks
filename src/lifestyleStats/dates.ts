@@ -1,6 +1,7 @@
 import {
   DAILY_REFRESH_AFTER_UTC_HOUR,
   DAILY_REFRESH_AFTER_UTC_MINUTE,
+  type TimedLifestyleStats,
 } from "./model";
 
 export function normalizeDateParam(value: string | null): string | null {
@@ -46,6 +47,30 @@ export function recentCompletedPersonalStatsDates(timestamp: number): string[] {
 
 export function timestampForDailyPoll(date: string): number {
   return Math.floor(Date.parse(`${date}T00:00:00.000Z`) / 1000);
+}
+
+/**
+ * The day of the Torn snapshot a personalstats call returned. Each stat's
+ * timestamp is the day it last changed. daysbeendonator moves every day for
+ * donators, so it is the requested day or, before Torn catches up, the day
+ * before. Anything older means the member was not a donator on that day, so
+ * fall back to timeplayed, which moves on every day they play.
+ */
+export function personalStatsBucketDate(
+  stats: Pick<TimedLifestyleStats, "daysbeendonator_timestamp" | "useractivity_timestamp">,
+  requestedAt: number | null,
+): string | null {
+  const donatorDate = stats.daysbeendonator_timestamp ? utcDateKey(stats.daysbeendonator_timestamp) : null;
+  if (requestedAt === null) {
+    return donatorDate;
+  }
+
+  const dayBeforeRequested = utcDateKey(requestedAt - 86_400);
+  if (donatorDate !== null && donatorDate >= dayBeforeRequested) {
+    return donatorDate;
+  }
+
+  return stats.useractivity_timestamp ? utcDateKey(stats.useractivity_timestamp) : donatorDate;
 }
 
 export function utcDateKey(timestamp: number): string {

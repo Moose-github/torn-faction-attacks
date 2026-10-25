@@ -6,6 +6,7 @@ import {
   dateKeyFromMs,
   enumerateDateRange,
   normalizeDateParam,
+  personalStatsBucketDate,
   recentCompletedPersonalStatsDates,
   timestampForDailyPoll,
   utcDateKey,
@@ -60,5 +61,62 @@ describe("lifestyle stats date helpers", () => {
       "2026-06-06",
     ]);
     expect(enumerateDateRange("2026-06-06", "2026-06-04")).toEqual([]);
+  });
+});
+
+describe("personal stats bucket date", () => {
+  const day = (date: string) => timestampForDailyPoll(date);
+  const requestedAt = day("2026-10-23");
+
+  it("uses daysbeendonator for donators on the requested day", () => {
+    expect(personalStatsBucketDate({
+      daysbeendonator_timestamp: day("2026-10-23"),
+      useractivity_timestamp: day("2026-10-23"),
+    }, requestedAt)).toBe("2026-10-23");
+  });
+
+  it("keeps a donator's previous day while Torn catches up, even if timeplayed is newer", () => {
+    expect(personalStatsBucketDate({
+      daysbeendonator_timestamp: day("2026-10-22"),
+      useractivity_timestamp: day("2026-10-23"),
+    }, requestedAt)).toBe("2026-10-22");
+  });
+
+  it("falls back to timeplayed when donator days stopped moving", () => {
+    // Ed-Sheerio001: donator status ended in 2025.
+    expect(personalStatsBucketDate({
+      daysbeendonator_timestamp: day("2025-08-07"),
+      useractivity_timestamp: day("2026-10-23"),
+    }, requestedAt)).toBe("2026-10-23");
+    // JjDja: a short lapse two days back.
+    expect(personalStatsBucketDate({
+      daysbeendonator_timestamp: day("2026-10-21"),
+      useractivity_timestamp: day("2026-10-23"),
+    }, requestedAt)).toBe("2026-10-23");
+  });
+
+  it("reports an idle non-donator's last active day", () => {
+    expect(personalStatsBucketDate({
+      daysbeendonator_timestamp: day("2025-08-07"),
+      useractivity_timestamp: day("2026-10-20"),
+    }, requestedAt)).toBe("2026-10-20");
+  });
+
+  it("handles members who were never donators", () => {
+    expect(personalStatsBucketDate({
+      daysbeendonator_timestamp: null,
+      useractivity_timestamp: day("2026-10-23"),
+    }, requestedAt)).toBe("2026-10-23");
+    expect(personalStatsBucketDate({
+      daysbeendonator_timestamp: null,
+      useractivity_timestamp: null,
+    }, requestedAt)).toBeNull();
+  });
+
+  it("keeps the donator day when no date was requested", () => {
+    expect(personalStatsBucketDate({
+      daysbeendonator_timestamp: day("2025-08-07"),
+      useractivity_timestamp: day("2026-10-23"),
+    }, null)).toBe("2025-08-07");
   });
 });
