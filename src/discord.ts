@@ -161,7 +161,7 @@ function discordEmbedPayload(content: string, color: number): {
   };
 }
 
-function discordCardPayload(content: string, color: number): DiscordMessageContent {
+export function discordCardPayload(content: string, color: number): DiscordMessageContent {
   const { content: mentions, embeds: [embed] } = discordEmbedPayload(content, color);
   const components: DiscordCardComponent[] = [{
     type: 17,

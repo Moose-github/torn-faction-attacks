@@ -7,6 +7,7 @@ import {
 import { type DiscordAllowedMentions } from "./discord";
 import { deliverChainWatchAlert, deliverChainWatchDroppedStatus, deliverChainWatchWarningAlert, type WatchDeliveryResult } from "./chainWatchDiscordDelivery";
 import { recordChainWatchWarning, reconcileChainWatchWarningMessages } from "./chainWatchWarningCleanup";
+import { enrichChainWatchWarningTargets, type ChainWatchWarningTargetJob } from "./chainWatchWarningTargets";
 import { DISCORD_ALERT_KEYS, type DiscordAlertKey } from "./discordAlerts";
 import { formatDiscordAlertMessage, readDiscordAlertMentions } from "./discordMentions";
 import { fetchTrackedTornJson } from "./external/torn";
@@ -470,7 +471,9 @@ function storedObservation(hit: ChainWatchAttackRow): ChainWatchObservation {
   };
 }
 
-export async function handleChainWatchAlarm(env: Env, factionId: number): Promise<void> {
+export async function handleChainWatchAlarm(
+  env: Env, factionId: number, waitUntil?: (task: Promise<void>) => void,
+): Promise<void> {
   if (factionId !== HOME_FACTION_ID) return;
   const now = nowSeconds();
   if (!await reconcileChainWatchActivity(env, now)) return;
@@ -499,10 +502,11 @@ export async function handleChainWatchAlarm(env: Env, factionId: number): Promis
     return;
   }
 
+  let targetJob: ChainWatchWarningTargetJob | undefined;
   if (stateBefore.scheduled_alarm_stage === "warning_60") {
-    await sendWarningIfDue(env, state, "warning_60", now);
+    targetJob = await sendWarningIfDue(env, state, "warning_60", now);
   } else if (stateBefore.scheduled_alarm_stage === "warning_30") {
-    await sendWarningIfDue(env, state, "warning_30", now);
+    targetJob = await sendWarningIfDue(env, state, "warning_30", now);
   } else {
     await sendDroppedIfDue(env, state, now);
   }
@@ -511,6 +515,9 @@ export async function handleChainWatchAlarm(env: Env, factionId: number): Promis
   if (updated) {
     await scheduleChainWatchAlarmForState(env, updated, now);
   }
+  // The original alert and next alarm are complete before any target work starts.
+  // The Durable Object retains the task; never await it on the warning path.
+  if (targetJob && waitUntil) waitUntil(enrichChainWatchWarningTargets(env, targetJob));
 }
 
 async function sendWarningIfDue(
@@ -518,7 +525,7 @@ async function sendWarningIfDue(
   state: ChainWatchStateRow,
   stage: "warning_60" | "warning_30",
   sentAt: number,
-): Promise<void> {
+): Promise<ChainWatchWarningTargetJob | undefined> {
   const warningColumn = stage === "warning_60" ? "warning_60_sent_at" : "warning_30_sent_at";
   if (!chainWatchWarningDue(state, stage, sentAt)) return;
 
@@ -569,6 +576,15 @@ async function sendWarningIfDue(
       confirmedState.timer_version,
     )
     .run();
+  if (delivery.status === "success" && confirmedState.reset_at !== null) {
+    return {
+      factionId: confirmedState.faction_id, resetAt: confirmedState.reset_at,
+      timeoutAt: confirmedState.timeout_at, chainLength: Number(confirmedState.current_chain),
+      timerVersion: confirmedState.timer_version, stage, ...delivery.value,
+      message: message.message,
+      cardColor: stage === "warning_60" ? CHAIN_WATCH_WARNING_COLOR : CHAIN_WATCH_CRITICAL_COLOR,
+    };
+  }
 }
 
 function chainWatchWarningDue(

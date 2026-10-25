@@ -65,6 +65,6 @@ export class ChainWatchAlarm extends DurableObject<Env> {
       return;
     }
 
-    await handleChainWatchAlarm(this.env, factionId);
+    await handleChainWatchAlarm(this.env, factionId, task => this.ctx.waitUntil(task));
   }
 }

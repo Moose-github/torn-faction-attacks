@@ -1,6 +1,16 @@
 # Chain watch target fetch
 
-`fetchChainWatchTargets(env)` in `src/chainWatchTargets.ts` returns available target IDs independently of Discord. Nothing calls it from the chain messages or scheduled jobs yet.
+`fetchChainWatchTargets(env)` in `src/chainWatchTargets.ts` returns available target IDs independently of Discord. The faction alarm uses it in background work after delivering each 60- or 30-second warning and scheduling the next alarm.
+
+## Alert links
+
+The initial warning, including its normal mentions, is sent without waiting for targets. The Durable Object retains the optional enrichment task with `waitUntil`. When targets arrive, `src/chainWatchWarningTargets.ts` randomly chooses up to two distinct IDs and edits the existing warning to add primary and backup attack buttons. Its existing text and card color are preserved, and mentions are disabled for the edit.
+
+The lookup runs outside the warning cycle's cleanup lease. Before fetching, and again under that lease before editing, the task verifies the timer version, chain count, message/channel identity, expiry and unresolved outcome. A 60-second warning is also skipped once a critical warning has superseded it. Stored saving attacks are checked even if the live monitor state has not caught up yet. A busy cleanup lease causes the optional edit to be skipped rather than delaying cleanup.
+
+After releasing the edit lease, the task runs cleanup against fresh state so a save or drop during the Discord PATCH becomes the final summary. Cleanup replaces all components, removing the target buttons. No targets, lookup failures or deleted messages leave the original alert alone; target work never posts a replacement or fails the alarm. This is best-effort background work, not a durable delivery queue.
+
+## Direct requests
 
 Members can request a fresh lookup with `POST /api/chain-watch/targets` (no body), using the normal dashboard session. Responses are not cached. The endpoint has a shared 20-second action cooldown to limit requests; the underlying API calls also consume the selected keys' Enemy scouting usage allowance.
 

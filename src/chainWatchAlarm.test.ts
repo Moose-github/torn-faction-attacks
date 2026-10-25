@@ -31,7 +31,8 @@ describe("faction alarm ownership", () => {
       queue = next.catch(() => {});
       return next;
     };
-    return { values, storage, env, alarm: new ChainWatchAlarm({ storage, blockConcurrencyWhile } as unknown as DurableObjectState, env) };
+    const waitUntil = vi.fn();
+    return { values, storage, env, waitUntil, alarm: new ChainWatchAlarm({ storage, blockConcurrencyWhile, waitUntil } as unknown as DurableObjectState, env) };
   }
   it("retires legacy war alarms without invoking the faction monitor", async () => {
     const { values, storage, alarm } = object(); values.set("warId", HOME_FACTION_ID);
@@ -47,14 +48,17 @@ describe("faction alarm ownership", () => {
     expect(storage.setAlarm).not.toHaveBeenCalled();
   });
   it("schedules and handles the faction alarm", async () => {
-    const { env, values, storage, alarm } = object();
+    const { env, values, storage, alarm, waitUntil } = object();
     const at = Math.floor(Date.now() / 1000) + 60;
     vi.mocked(readChainWatchState).mockResolvedValue(scheduled(at));
     await alarm.syncFaction(HOME_FACTION_ID);
     expect(values.get("factionId")).toBe(HOME_FACTION_ID);
     expect(storage.setAlarm).toHaveBeenCalledWith(at * 1000);
     await alarm.alarm();
-    expect(handleChainWatchAlarm).toHaveBeenCalledExactlyOnceWith(env, HOME_FACTION_ID);
+    expect(handleChainWatchAlarm).toHaveBeenCalledExactlyOnceWith(env, HOME_FACTION_ID, expect.any(Function));
+    const background = new Promise<void>(() => {});
+    vi.mocked(handleChainWatchAlarm).mock.calls[0][2]!(background);
+    expect(waitUntil).toHaveBeenCalledWith(background);
   });
   it("ignores old RPC deadlines and cancellations while a newer schedule is active", async () => {
     const { storage, alarm } = object();
