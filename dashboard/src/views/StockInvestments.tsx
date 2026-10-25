@@ -15,6 +15,7 @@ import {
   updateStockBenefitValue,
 } from "../api";
 import { useAuth } from "../auth/AuthProvider";
+import { useDebouncedValue } from "../hooks/useDebouncedValue";
 import { CollapsiblePanel, EmptyState, PanelHeader } from "../components/Common";
 import { formatDate, formatNumber, formatRelativeTime } from "../utils/format";
 import { parseNumber } from "../utils/numberInput";
@@ -66,6 +67,7 @@ const DEFAULT_PRIVATE_ISLAND_COUNT = "0";
 const DEFAULT_PRIVATE_ISLAND_COST = "1700000000";
 const DEFAULT_PRIVATE_ISLAND_DAILY_RENT = "900000";
 const DEFAULT_PRIVATE_ISLAND_VACANT_DAYS = "7";
+const STRATEGY_FORECAST_INPUT_DELAY_MS = 400;
 
 type StockRoiSortKey = "acronym" | "name" | "shares" | "increment_cost" | "benefit" | "annual_return" | "days_to_break_even" | "roi_percent";
 
@@ -603,6 +605,10 @@ function StockInvestmentPlanner({ imported, onImport, onExitImport, isImporting 
     const timer = window.setInterval(() => setForecastDay(Math.floor(Date.now() / 86_400_000)), 60_000);
     return () => window.clearInterval(timer);
   }, []);
+  // The forecast takes hundreds of milliseconds, so wait for typing to pause.
+  const forecastBudget = useDebouncedValue(budget, STRATEGY_FORECAST_INPUT_DELAY_MS);
+  const forecastAdditionalIncome = useDebouncedValue(weeklyAdditionalIncome, STRATEGY_FORECAST_INPUT_DELAY_MS);
+  const strategyForecastPending = forecastBudget !== budget || forecastAdditionalIncome !== weeklyAdditionalIncome;
   const { forecast: strategyForecast, asOf: plannerAsOf } = React.useMemo(() => {
     const asOf = imported ? stockPlannerReplayAsOf(imported) : Math.floor(Date.now() / 1000);
     const forecast = buildStockStrategyTimeline({
@@ -610,12 +616,12 @@ function StockInvestmentPlanner({ imported, onImport, onExitImport, isImporting 
       ownedSnapshot: effectiveOwnedSnapshot,
       cityBankActive,
       fhgTciHybridActive: effectiveFhgTciHybridActive,
-      budget,
+      budget: forecastBudget,
       affordableOnly: false,
       minimumRoi: null,
       lockedStockIds,
       asOf,
-      additionalIncomePerWeek: weeklyAdditionalIncome,
+      additionalIncomePerWeek: forecastAdditionalIncome,
       privateIslandCount: activePrivateIslandRentalCount,
       savingsTargetLimit: strategySavingsTargets,
     }, DEFAULT_STOCK_STRATEGY_STEP_LIMIT);
@@ -624,7 +630,7 @@ function StockInvestmentPlanner({ imported, onImport, onExitImport, isImporting 
     }
     return { forecast, asOf };
   }, [investmentRows, effectiveOwnedSnapshot, cityBankActive, effectiveFhgTciHybridActive,
-    budget, lockedStockIds, weeklyAdditionalIncome, activePrivateIslandRentalCount, strategySavingsTargets, forecastDay, imported]);
+    forecastBudget, lockedStockIds, forecastAdditionalIncome, activePrivateIslandRentalCount, strategySavingsTargets, forecastDay, imported]);
   const strategyTimeline = strategyForecast.timeline;
   const weeklyInvestmentIncome = strategyForecast.weekly_investment_income;
   const totalPricedRows = investmentRows.length;
@@ -1155,6 +1161,7 @@ function StockInvestmentPlanner({ imported, onImport, onExitImport, isImporting 
                 <span>ROI-first milestones</span>
               </div>
               {strategyForecast.as_of !== null ? <p className="stock-owned-settings-description">Dates follow UTC daily progress.</p> : null}
+              {strategyForecastPending && !invalidStrategyCashInputs ? <p role="status" className="stock-owned-settings-description">Updating the forecast for your new cash amounts…</p> : null}
               {strategyForecast.warnings.map((warning) => <p key={warning} className="stock-owned-settings-description">{warning}</p>)}
               {invalidStrategyCashInputs ? (
                 <EmptyState text="Enter valid cash and weekly income amounts to estimate the strategy path" />
