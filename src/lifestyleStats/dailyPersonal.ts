@@ -5,8 +5,8 @@ import {
   fetchTornPersonalStatsWithTimestamps,
   TornPersonalStatsResponse,
 } from "../personalStats";
-import { claimDailyBatchGate } from "../scheduledGates";
-import { upsertSyncTimestamp } from "../syncState";
+import { claimDailyBatchLock } from "../scheduledGates";
+import { readSyncTimestamp, upsertSyncTimestamp } from "../syncState";
 import { runWithTornKeyPool } from "../tornKeyPool";
 import { Env } from "../types";
 import { nowSeconds } from "../utils";
@@ -53,6 +53,8 @@ export async function refreshMemberLifestyleStats(
     limit?: number;
     homeMembersSynced?: boolean;
     activeDates?: string[];
+    /** Only retry older days whose normal retry window has passed. */
+    expiredOnly?: boolean;
   } = {},
 ): Promise<{ considered: number; refreshed: number; pending: number; failed: number }> {
   const limit = Math.max(1, Math.min(Math.floor(options.limit ?? DAILY_LIFESTYLE_REFRESH_LIMIT), DAILY_LIFESTYLE_REFRESH_LIMIT));
@@ -63,7 +65,9 @@ export async function refreshMemberLifestyleStats(
   }
 
   await preparePersonalStatsRecentQueue(env, activeDates);
-  const members = await readPersonalStatsRecentCandidates(env, activeDates, limit);
+  const members = await readPersonalStatsRecentCandidates(env, activeDates, limit, {
+    expiredOnly: options.expiredOnly ?? false,
+  });
   let refreshed = 0;
   let failed = 0;
   let pending = 0;
@@ -163,46 +167,36 @@ export async function refreshDailyMemberLifestyleStats(
     console.warn("Personal stats member sync failed; using the saved roster:", err?.message || err);
   }
   const activeDates = recentCompletedPersonalStatsDates(now);
-  await preparePersonalStatsRecentQueue(env, activeDates);
   const targetSnapshotDate = activeDates[activeDates.length - 1];
-  const targetCompleteAt = timestampForDailyPoll(targetSnapshotDate);
-  let result = { considered: 0, refreshed: 0, pending: 0, failed: 0 };
-  let shouldRunPersonalBatch = true;
-  let personalCompletionAlreadyRecorded = false;
 
-  if (options.useLock) {
-    const gate = await claimDailyBatchGate(env, {
-      completeStateName: DAILY_LIFESTYLE_COMPLETE_STATE_NAME,
-      completeAfter: targetCompleteAt,
+  // Checked live rather than from the completion marker: the marker only tracks
+  // the latest day, and an earlier day can still have members outstanding.
+  const recentDatesComplete = await arePersonalStatsDatesComplete(env, activeDates);
+  if (!recentDatesComplete && options.useLock) {
+    const locked = await claimDailyBatchLock(env, {
       lockStateName: DAILY_LIFESTYLE_LOCK_STATE_NAME,
       now,
       lockSeconds: DAILY_LIFESTYLE_LOCK_SECONDS,
     });
-
-    if (gate.completed) {
-      shouldRunPersonalBatch = false;
-      personalCompletionAlreadyRecorded = true;
-    } else if (!gate.locked) {
+    if (!locked) {
       return { considered: 0, refreshed: 0, pending: 0, failed: 0, skipped: true };
     }
-  } else if (await isPersonalStatsDateComplete(env, targetSnapshotDate)) {
-    shouldRunPersonalBatch = false;
-    personalCompletionAlreadyRecorded = true;
   }
 
-  if (shouldRunPersonalBatch) {
-    result = await refreshMemberLifestyleStats(env, {
-      limit: options.limit ?? DAILY_LIFESTYLE_REFRESH_LIMIT,
-      homeMembersSynced: true,
-      activeDates,
-    });
-  }
+  // Once both recent days are in, keep trickling through older days whose
+  // normal retry window has passed instead of stopping until the next day.
+  // This also prepares the queue for both recent days.
+  const result = await refreshMemberLifestyleStats(env, {
+    limit: recentDatesComplete
+      ? EXPIRED_PERSONAL_STATS_RETRY_LIMIT
+      : options.limit ?? DAILY_LIFESTYLE_REFRESH_LIMIT,
+    homeMembersSynced: true,
+    activeDates,
+    expiredOnly: recentDatesComplete,
+  });
   const snapshotDate = utcDateKey(refreshAt);
   await writeLifestyleSnapshotForDate(env, snapshotDate, { freshAfter: refreshAt });
-  const complete = personalCompletionAlreadyRecorded
-    ? false
-    : await markDailyLifestyleRefreshCompleteIfDone(env, targetSnapshotDate);
-  if (complete) {
+  if (await markDailyLifestyleRefreshCompleteIfDone(env, activeDates, targetSnapshotDate)) {
     await refreshMemberAchievementSummaries(env, targetSnapshotDate);
   }
   await bumpMemberLifestyleCacheVersion(env);
@@ -210,21 +204,30 @@ export async function refreshDailyMemberLifestyleStats(
   return { ...result, skipped: false };
 }
 
+/** Records completion once per target day, when both recent days are complete. */
 async function markDailyLifestyleRefreshCompleteIfDone(
   env: Env,
+  activeDates: string[],
   targetSnapshotDate: string,
 ): Promise<boolean> {
-  if (!(await isPersonalStatsDateComplete(env, targetSnapshotDate))) {
+  const targetCompleteAt = timestampForDailyPoll(targetSnapshotDate);
+  if ((await readSyncTimestamp(env, DAILY_LIFESTYLE_COMPLETE_STATE_NAME)) >= targetCompleteAt) {
+    return false;
+  }
+  if (!(await arePersonalStatsDatesComplete(env, activeDates))) {
     return false;
   }
 
-  await upsertSyncTimestamp(
-    env,
-    DAILY_LIFESTYLE_COMPLETE_STATE_NAME,
-    timestampForDailyPoll(targetSnapshotDate),
-    null,
-  );
+  await upsertSyncTimestamp(env, DAILY_LIFESTYLE_COMPLETE_STATE_NAME, targetCompleteAt, null);
+  return true;
+}
 
+async function arePersonalStatsDatesComplete(env: Env, snapshotDates: string[]): Promise<boolean> {
+  for (const snapshotDate of snapshotDates) {
+    if (!(await isPersonalStatsDateComplete(env, snapshotDate))) {
+      return false;
+    }
+  }
   return true;
 }
 
@@ -422,9 +425,10 @@ async function readPersonalStatsRecentCandidates(
   env: Env,
   activeDates: string[],
   limit: number,
+  options: { expiredOnly: boolean },
 ): Promise<PersonalStatsRecentRow[]> {
   const expiredLimit = Math.min(EXPIRED_PERSONAL_STATS_RETRY_LIMIT, limit);
-  const activeLimit = Math.max(0, limit - expiredLimit);
+  const activeLimit = options.expiredOnly ? 0 : Math.max(0, limit - expiredLimit);
   const activeRows = activeLimit === 0 || activeDates.length === 0
     ? []
     : ((await env.DB.prepare(

@@ -6,6 +6,7 @@ import type {
 } from "./model";
 import {
   DAILY_GYM_COMPLETE_STATE_NAME,
+  DAILY_LIFESTYLE_COMPLETE_STATE_NAME,
   DAILY_GYM_FAILED_STATE_NAME,
   DAILY_GYM_LOCK_STATE_NAME,
   DAILY_GYM_RETRY_REFRESH_STATE_NAME,
@@ -146,20 +147,86 @@ describe("lifestyle stats workflows", () => {
       useLock: false,
     });
 
-    const completionCall = db.calls.find((call) =>
+    const completionCalls = db.calls.filter((call) =>
       call.method === "first" &&
       call.sql.includes("SELECT members.member_id") &&
       call.sql.includes("LEFT JOIN member_lifestyle_stat_snapshots snapshots")
     );
     expect(result).toMatchObject({ skipped: false, considered: 0, refreshed: 0, failed: 0 });
-    expect(completionCall?.sql).toContain("members.current_join_date IS NULL");
-    expect(completionCall?.sql).toContain("? >= members.current_join_date");
-    expect(completionCall?.params).toEqual(["2026-06-26", 8803, "2026-06-26"]);
+    expect(completionCalls[0]?.sql).toContain("members.current_join_date IS NULL");
+    expect(completionCalls[0]?.sql).toContain("? >= members.current_join_date");
+    // Both recent days are checked, not just the latest.
+    expect(completionCalls.map((call) => call.params)).toContainEqual(["2026-06-25", 8803, "2026-06-25"]);
+    expect(completionCalls.map((call) => call.params)).toContainEqual(["2026-06-26", 8803, "2026-06-26"]);
     expect(mocks.writeLifestyleSnapshotForDate).toHaveBeenCalledWith(
       env,
       "2026-06-27",
       { freshAfter: timestampForDailyPoll("2026-06-27") + 10 * 60 },
     );
+  });
+
+  describe("daily completion gate", () => {
+    const now = new Date("2026-10-25T07:10:45.000Z");
+    const isCompletionCheck = (call: QueryCall) =>
+      call.method === "first" &&
+      call.sql.includes("SELECT members.member_id") &&
+      call.sql.includes("LEFT JOIN member_lifestyle_stat_snapshots snapshots");
+    const isRecentCandidates = (call: QueryCall) =>
+      call.method === "all" && call.sql.includes("recent.snapshot_date IN");
+    const isExpiredCandidates = (call: QueryCall) =>
+      call.method === "all" && call.sql.includes("recent.status = 'retry_expired'");
+    const completionWrites = (db: TestD1Database) => db.calls.filter((call) =>
+      call.method === "run" && call.sql.includes("INSERT INTO sync_state") && call.params[0] === DAILY_LIFESTYLE_COMPLETE_STATE_NAME);
+
+    function gateEnv(options: { incompleteDates?: string[]; completeMarker?: number }) {
+      const db = new TestD1Database((call) => {
+        if (isCompletionCheck(call)) {
+          return options.incompleteDates?.includes(String(call.params[0])) ? { member_id: 1 } : null;
+        }
+        if (isSyncStateRead(call) && call.params[0] === DAILY_LIFESTYLE_COMPLETE_STATE_NAME) {
+          return options.completeMarker === undefined ? null : syncStateRow(DAILY_LIFESTYLE_COMPLETE_STATE_NAME, options.completeMarker, null);
+        }
+        return handleDailyPersonalQuery(call);
+      });
+      return { db, env: { DB: db } as unknown as Env };
+    }
+
+    it("keeps retrying the earlier day when only the latest day is complete", async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(now);
+      // Oct 24 was already marked complete while Oct 23 still had a member missing.
+      const { db, env } = gateEnv({ incompleteDates: ["2026-10-23"], completeMarker: timestampForDailyPoll("2026-10-24") });
+
+      await refreshDailyMemberLifestyleStats(env, { limit: 40, useLock: true });
+
+      const recent = db.calls.find(isRecentCandidates);
+      expect(recent?.params).toEqual([8803, "2026-10-23", "2026-10-24", 35]);
+      expect(completionWrites(db)).toEqual([]);
+    });
+
+    it("keeps trickling through expired days once both recent days are complete", async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(now);
+      const { db, env } = gateEnv({ completeMarker: timestampForDailyPoll("2026-10-24") });
+
+      await refreshDailyMemberLifestyleStats(env, { limit: 40, useLock: true });
+
+      expect(db.calls.some(isRecentCandidates)).toBe(false);
+      expect(db.calls.find(isExpiredCandidates)?.params).toEqual([8803, 5]);
+      expect(completionWrites(db)).toEqual([]);
+      expect(mocks.refreshMemberAchievementSummaries).not.toHaveBeenCalled();
+    });
+
+    it("records completion and refreshes achievements once both recent days finish", async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(now);
+      const { db, env } = gateEnv({ completeMarker: timestampForDailyPoll("2026-10-23") });
+
+      await refreshDailyMemberLifestyleStats(env, { limit: 40, useLock: true });
+
+      expect(completionWrites(db).map((call) => call.params[1])).toEqual([timestampForDailyPoll("2026-10-24")]);
+      expect(mocks.refreshMemberAchievementSummaries).toHaveBeenCalledExactlyOnceWith(env, "2026-10-24");
+    });
   });
 
   it("still queues and refreshes personal stats when the member list fetch fails", async () => {
@@ -381,6 +448,18 @@ function handleDailyPersonalQuery(call: QueryCall): unknown {
     call.sql.includes("FROM home_faction_members members")
   ) {
     return null;
+  }
+
+  if (call.method === "all" && call.sql.includes("FROM member_personal_stats_recent recent")) {
+    return [];
+  }
+
+  if (isSyncStateRead(call)) {
+    return null;
+  }
+
+  if (call.method === "run" && call.sql.includes("INSERT INTO sync_state")) {
+    return d1Result(1);
   }
 
   throw new Error(`Unhandled daily personal query: ${call.method} ${call.sql}`);

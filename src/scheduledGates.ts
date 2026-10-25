@@ -26,6 +26,18 @@ export async function claimDailyBatchGate(
     };
   }
 
+  return {
+    completeStateName: options.completeStateName,
+    locked: await claimDailyBatchLock(env, options),
+    completed: false,
+  };
+}
+
+/** Claims a short lock so overlapping runs do not process the same batch. */
+export async function claimDailyBatchLock(
+  env: Env,
+  options: { lockStateName: string; now: number; lockSeconds?: number },
+): Promise<boolean> {
   const lockSeconds = options.lockSeconds ?? 75;
   const result = await env.DB.prepare(
     `
@@ -40,9 +52,5 @@ export async function claimDailyBatchGate(
     .bind(options.lockStateName, options.now, options.now - lockSeconds)
     .run();
 
-  return {
-    completeStateName: options.completeStateName,
-    locked: Number(result.meta?.changes ?? 0) > 0,
-    completed: false,
-  };
+  return Number(result.meta?.changes ?? 0) > 0;
 }
