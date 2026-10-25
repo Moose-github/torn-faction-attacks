@@ -12,6 +12,8 @@ import {
 import {
   LIFESTYLE_STAT_KEYS,
   MAX_DAILY_XANTAKEN_DELTA,
+  STALE_STATS_RECHECK_AFTER_DAY_START_SECONDS,
+  STALE_STATS_RECHECK_MAX_ATTEMPTS,
   TORN_LIFESTYLE_STAT_KEYS,
   XANTAKEN_RECHECK_INITIAL_DELAY_SECONDS,
   XANTAKEN_RECHECK_MAX_ATTEMPTS,
@@ -40,6 +42,18 @@ type NeighborContext = {
   previous: SnapshotXanaxRow | null;
   next: SnapshotXanaxRow | null;
 };
+
+type StoredSnapshotStats = TimedLifestyleStats & {
+  member_name: string | null;
+  personal_ready: number;
+};
+
+// Stats that can lag behind the rest of a member's daily Torn snapshot.
+// daysbeendonator is left out: the bucket check already requires it to be current.
+const RECHECKED_STAT_KEYS = ["xantaken", "overdosed", "refills", "useractivity", "networth"] as const;
+type RecheckedStatKey = (typeof RECHECKED_STAT_KEYS)[number];
+// Cumulative counters only go up, so a lower re-fetched value is not fresher.
+const CUMULATIVE_STAT_KEYS = new Set<RecheckedStatKey>(["xantaken", "overdosed", "refills", "useractivity"]);
 
 type QueueRecheckInput = {
   memberId: number;
@@ -123,6 +137,65 @@ export async function queueImpossibleXantakenDeltaIfNeeded(
   return true;
 }
 
+/**
+ * Torn can return a member's daily snapshot with some stats still from the day
+ * before. A stat whose timestamp predates the day either did not change that day
+ * or has not caught up yet, so re-fetch the day once it is two days old.
+ * Does nothing when the day already has a recheck queued for another reason.
+ */
+export async function queueStaleStatsRecheckIfNeeded(
+  env: Env,
+  memberId: number,
+  snapshotDate: string,
+): Promise<boolean> {
+  const stored = await readStoredSnapshotStats(env, memberId, snapshotDate);
+  if (!stored || stored.personal_ready !== 1) {
+    return false;
+  }
+
+  const dayStart = timestampForDailyPoll(snapshotDate);
+  if (!RECHECKED_STAT_KEYS.some((key) => (stored[`${key}_timestamp`] ?? 0) < dayStart)) {
+    return false;
+  }
+
+  const now = nowSeconds();
+  const result = await env.DB.prepare(
+    `
+    INSERT INTO member_lifestyle_xantaken_rechecks (
+      member_id,
+      snapshot_date,
+      member_name,
+      status,
+      reason,
+      requested_at,
+      prior_xantaken,
+      current_xantaken,
+      next_xantaken,
+      attempts,
+      max_attempts,
+      next_check_at,
+      created_at,
+      updated_at
+    )
+    VALUES (?, ?, ?, 'pending', 'stale_stats_recheck', ?, NULL, ?, NULL, 0, ?, ?, ?, ?)
+    ON CONFLICT(member_id, snapshot_date) DO NOTHING
+    `,
+  )
+    .bind(
+      memberId,
+      snapshotDate,
+      stored.member_name,
+      dayStart,
+      stored.xantaken,
+      STALE_STATS_RECHECK_MAX_ATTEMPTS,
+      Math.max(now + XANTAKEN_RECHECK_INITIAL_DELAY_SECONDS, dayStart + STALE_STATS_RECHECK_AFTER_DAY_START_SECONDS),
+      now,
+      now,
+    )
+    .run();
+  return d1Changes(result) > 0;
+}
+
 export async function evaluateXantakenSnapshotForRechecks(
   env: Env,
   memberId: number,
@@ -130,6 +203,7 @@ export async function evaluateXantakenSnapshotForRechecks(
 ): Promise<void> {
   await queueXantakenRecheckIfNeeded(env, memberId, snapshotDate);
   await queueImpossibleXantakenDeltaIfNeeded(env, memberId, snapshotDate);
+  await queueStaleStatsRecheckIfNeeded(env, memberId, snapshotDate);
 }
 
 export async function processXantakenRechecks(
@@ -251,25 +325,39 @@ async function processXantakenRecheck(
     }
 
     const context = await readNeighborContext(env, row.member_id, row.snapshot_date);
+    const stored = await readStoredSnapshotStats(env, row.member_id, row.snapshot_date);
     const currentValue = context.current?.xantaken ?? row.current_xantaken;
-    if (currentValue !== null && stats.xantaken > currentValue) {
-      if (!fitsNeighborConstraints(stats.xantaken, context.previous?.xantaken ?? null, context.next?.xantaken ?? row.next_xantaken)) {
-        return await finishRecheck(env, row, {
-          status: "needs_repair",
-          now,
-          returnedBucketDate: stats.personalstats_bucket_date,
-          returnedXantaken: stats.xantaken,
-          keySource: stats.personalstats_key_source,
-          error: "Returned xantaken does not fit neighboring daily limits",
-        });
-      }
+    const xantakenIncreased = currentValue !== null && stats.xantaken > currentValue;
+    if (xantakenIncreased && !fitsNeighborConstraints(stats.xantaken, context.previous?.xantaken ?? null, context.next?.xantaken ?? row.next_xantaken)) {
+      return await finishRecheck(env, row, {
+        status: "needs_repair",
+        now,
+        returnedBucketDate: stats.personalstats_bucket_date,
+        returnedXantaken: stats.xantaken,
+        keySource: stats.personalstats_key_source,
+        error: "Returned xantaken does not fit neighboring daily limits",
+      });
+    }
 
+    const fixedKeys: RecheckedStatKey[] = [
+      ...(stored ? fresherStatKeys(stored, stats) : []),
+      ...(xantakenIncreased ? ["xantaken" as const] : []),
+    ];
+    if (fixedKeys.length > 0) {
+      // Only take the stats that are fresher than what was saved, so a stat that
+      // happens to come back behind on this fetch cannot overwrite a newer one.
+      const fixed = stored ? withRefreshedStats(stored, stats, fixedKeys) : stats;
       await upsertLifestyleSnapshotPersonalStats(env, {
         member_id: row.member_id,
         member_name: row.member_name,
         snapshot_date: row.snapshot_date,
-      }, stats);
-      await updateRecentPersonalStatsFromRecheck(env, row, stats);
+      }, fixed);
+      await updateRecentPersonalStatsFromRecheck(env, row, fixed);
+    }
+
+    // Xanax rechecks stay open until xantaken itself is settled, even if other
+    // stats were corrected on this fetch.
+    if (xantakenIncreased || (row.reason === "stale_stats_recheck" && fixedKeys.length > 0)) {
       await finishRecheck(env, row, {
         status: "auto_fixed",
         now,
@@ -284,6 +372,23 @@ async function processXantakenRecheck(
       const next = nextDate(row.snapshot_date);
       await queueImpossibleXantakenDeltaIfNeeded(env, row.member_id, next);
       return "auto_fixed";
+    }
+
+    if (fixedKeys.length > 0) {
+      await refreshMemberAchievementSummaries(env, row.snapshot_date);
+      await bumpMemberLifestyleCacheVersion(env);
+    }
+
+    if (row.reason === "stale_stats_recheck") {
+      // A day that is two days old and still unchanged did not change that day.
+      return await finishRecheck(env, row, {
+        status: "confirmed_zero",
+        now,
+        returnedBucketDate: stats.personalstats_bucket_date,
+        returnedXantaken: stats.xantaken,
+        keySource: stats.personalstats_key_source,
+        error: null,
+      });
     }
 
     if (row.reason === "impossible_delta") {
@@ -593,6 +698,75 @@ async function updateRecentPersonalStatsFromRecheck(
     )
     .run();
   return d1Changes(result);
+}
+
+async function readStoredSnapshotStats(
+  env: Env,
+  memberId: number,
+  snapshotDate: string,
+): Promise<StoredSnapshotStats | null> {
+  return (await env.DB.prepare(
+    `
+    SELECT
+      member_name,
+      personal_ready,
+      xantaken,
+      overdosed,
+      refills,
+      useractivity,
+      networth,
+      daysbeendonator,
+      xantaken_timestamp,
+      overdosed_timestamp,
+      refills_timestamp,
+      useractivity_timestamp,
+      networth_timestamp,
+      daysbeendonator_timestamp,
+      personalstats_bucket_date,
+      personalstats_requested_at,
+      personalstats_key_source
+    FROM member_lifestyle_stat_snapshots
+    WHERE member_id = ?
+      AND snapshot_date = ?
+    LIMIT 1
+    `,
+  )
+    .bind(memberId, snapshotDate)
+    .first<StoredSnapshotStats>()) ?? null;
+}
+
+/** Stats (other than xantaken) that Torn has since recorded a later change for. */
+export function fresherStatKeys(stored: TimedLifestyleStats, fetched: TimedLifestyleStats): RecheckedStatKey[] {
+  return RECHECKED_STAT_KEYS.filter((key) => {
+    if (key === "xantaken") return false;
+    const value = fetched[key];
+    const previous = stored[key];
+    if (value === null || value === previous) return false;
+    if ((fetched[`${key}_timestamp`] ?? 0) <= (stored[`${key}_timestamp`] ?? 0)) return false;
+    return !CUMULATIVE_STAT_KEYS.has(key) || previous === null || value > previous;
+  });
+}
+
+function withRefreshedStats(
+  stored: TimedLifestyleStats,
+  fetched: TimedLifestyleStats,
+  keys: RecheckedStatKey[],
+): TimedLifestyleStats {
+  const merged: TimedLifestyleStats = {
+    ...emptyTimedLifestyleStats(),
+    ...Object.fromEntries(LIFESTYLE_STAT_KEYS.flatMap((key) => [
+      [key, stored[key]],
+      [`${key}_timestamp`, stored[`${key}_timestamp`]],
+    ])),
+    personalstats_bucket_date: fetched.personalstats_bucket_date,
+    personalstats_requested_at: fetched.personalstats_requested_at,
+    personalstats_key_source: fetched.personalstats_key_source,
+  };
+  for (const key of keys) {
+    merged[key] = fetched[key];
+    merged[`${key}_timestamp`] = fetched[`${key}_timestamp`];
+  }
+  return merged;
 }
 
 function fitsNeighborConstraints(value: number, previous: number | null, next: number | null): boolean {

@@ -51,6 +51,12 @@ export const XANTAKEN_RECHECK_INITIAL_DELAY_SECONDS = 6 * 60 * 60;
 export const XANTAKEN_RECHECK_RETRY_DELAY_SECONDS = 6 * 60 * 60;
 export const XANTAKEN_RECHECK_PROCESS_LIMIT = 5;
 export const XANTAKEN_RECHECK_MAX_ATTEMPTS = 3;
+// Torn updates each member's stats for a day separately; stale values seen so
+// far were corrected about 48h after the day started, so re-fetch any day with
+// a stat that looked unchanged once it is two days old.
+export const STALE_STATS_RECHECK_AFTER_DAY_START_SECONDS = 48 * 60 * 60;
+// One re-fetch settles the day; the extra attempt only covers fetch failures.
+export const STALE_STATS_RECHECK_MAX_ATTEMPTS = 2;
 
 export type LifestyleStatKey = (typeof LIFESTYLE_STAT_KEYS)[number];
 export type GymContributorStatKey = (typeof GYM_CONTRIBUTOR_STAT_KEYS)[number];
@@ -179,7 +185,7 @@ export type DailyStatsAttention = {
 export type RepairJobStatus = "queued" | "running" | "completed" | "failed" | "cancelled";
 export type RepairItemStatus = "pending" | "running" | "completed" | "failed" | "skipped";
 export type XantakenRecheckStatus = "pending" | "confirmed_zero" | "auto_fixed" | "needs_repair" | "failed";
-export type XantakenRecheckReason = "zero_delta_recheck" | "impossible_delta";
+export type XantakenRecheckReason = "zero_delta_recheck" | "impossible_delta" | "stale_stats_recheck";
 
 export type LifestyleRepairJobRow = {
   id: string;

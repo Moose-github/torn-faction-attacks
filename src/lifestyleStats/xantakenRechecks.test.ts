@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Env } from "../types";
 import type {
   XantakenRecheckRow,
@@ -37,6 +37,7 @@ vi.mock("./internal", () => ({
 import {
   processXantakenRechecks,
   queueImpossibleXantakenDeltaIfNeeded,
+  queueStaleStatsRecheckIfNeeded,
   queueXantakenRecheckIfNeeded,
 } from "./xantakenRechecks";
 
@@ -54,6 +55,7 @@ type SnapshotRow = {
   member_name: string | null;
   xantaken: number | null;
   personal_ready: number;
+  [stat: string]: unknown;
 };
 
 class TestD1Database {
@@ -264,6 +266,145 @@ describe("xantaken rechecks", () => {
   });
 });
 
+describe("stale stat rechecks", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("queues a re-fetch two days after the day starts when a stat looked unchanged", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-10-24T06:10:00.000Z"));
+    const fixture = fixtureEnv({
+      snapshots: [savedDay("2026-10-23", { refills: { value: 120, day: "2026-10-21" } })],
+    });
+
+    await expect(queueStaleStatsRecheckIfNeeded(fixture.env, 3238283, "2026-10-23")).resolves.toBe(true);
+
+    expect(fixture.rechecks.get("3238283:2026-10-23")).toMatchObject({
+      status: "pending",
+      reason: "stale_stats_recheck",
+      requested_at: timestampForDailyPoll("2026-10-23"),
+      current_xantaken: 2300,
+      max_attempts: 2,
+      next_check_at: timestampForDailyPoll("2026-10-25"),
+    });
+  });
+
+  it("skips days where every stat changed that day", async () => {
+    const fixture = fixtureEnv({ snapshots: [savedDay("2026-10-23")] });
+
+    await expect(queueStaleStatsRecheckIfNeeded(fixture.env, 3238283, "2026-10-23")).resolves.toBe(false);
+    expect(fixture.rechecks.size).toBe(0);
+  });
+
+  it("leaves a day already queued for a Xanax recheck alone", async () => {
+    const fixture = fixtureEnv({
+      snapshots: [savedDay("2026-10-23", { refills: { value: 120, day: "2026-10-21" } })],
+      rechecks: [recheck({ snapshot_date: "2026-10-23", reason: "zero_delta_recheck" })],
+    });
+
+    await expect(queueStaleStatsRecheckIfNeeded(fixture.env, 3238283, "2026-10-23")).resolves.toBe(false);
+    expect(fixture.rechecks.get("3238283:2026-10-23")?.reason).toBe("zero_delta_recheck");
+  });
+
+  it("fixes only the stats Torn has since updated", async () => {
+    const fixture = fixtureEnv({
+      snapshots: [savedDay("2026-10-23", {
+        refills: { value: 120, day: "2026-10-21" },
+        networth: { value: 900000, day: "2026-10-22" },
+      })],
+      rechecks: [staleStatsRecheck()],
+    });
+    mocks.fetchTornPersonalStatsWithTimestamps.mockResolvedValue(fetchedDay("2026-10-23", {
+      refills: { value: 122, day: "2026-10-23" },
+      networth: { value: 880000, day: "2026-10-21" },
+    }));
+
+    const result = await processXantakenRechecks(fixture.env, { now: timestampForDailyPoll("2026-10-25"), limit: 5 });
+
+    expect(result).toMatchObject({ processed: 1, auto_fixed: 1 });
+    expect(fixture.rechecks.get("3238283:2026-10-23")?.status).toBe("auto_fixed");
+    expect(mocks.upsertLifestyleSnapshotPersonalStats).toHaveBeenCalledWith(
+      fixture.env,
+      expect.objectContaining({ snapshot_date: "2026-10-23" }),
+      expect.objectContaining({
+        refills: 122,
+        refills_timestamp: timestampForDailyPoll("2026-10-23"),
+        networth: 900000,
+        networth_timestamp: timestampForDailyPoll("2026-10-22"),
+        xantaken: 2300,
+        personalstats_key_source: "key_pool:test",
+      }),
+    );
+  });
+
+  it("keeps an impossible Xanax jump flagged even when other stats are corrected", async () => {
+    const fixture = fixtureEnv({
+      snapshots: [savedDay("2026-10-23", { refills: { value: 120, day: "2026-10-21" } })],
+      rechecks: [recheck({ snapshot_date: "2026-10-23", reason: "impossible_delta", current_xantaken: 2300 })],
+    });
+    mocks.fetchTornPersonalStatsWithTimestamps.mockResolvedValue(fetchedDay("2026-10-23", {
+      refills: { value: 122, day: "2026-10-23" },
+    }));
+
+    const result = await processXantakenRechecks(fixture.env, { now: timestampForDailyPoll("2026-10-25"), limit: 5 });
+
+    expect(result).toMatchObject({ processed: 1, needs_repair: 1, auto_fixed: 0 });
+    expect(mocks.upsertLifestyleSnapshotPersonalStats).toHaveBeenCalledWith(
+      fixture.env,
+      expect.anything(),
+      expect.objectContaining({ refills: 122, xantaken: 2300 }),
+    );
+  });
+
+  it("confirms an unchanged day after a single re-fetch", async () => {
+    const fixture = fixtureEnv({
+      snapshots: [savedDay("2026-10-23", { refills: { value: 120, day: "2026-10-21" } })],
+      rechecks: [staleStatsRecheck()],
+    });
+    mocks.fetchTornPersonalStatsWithTimestamps.mockResolvedValue(fetchedDay("2026-10-23", {
+      refills: { value: 120, day: "2026-10-21" },
+    }));
+
+    const result = await processXantakenRechecks(fixture.env, { now: timestampForDailyPoll("2026-10-25"), limit: 5 });
+
+    expect(result).toMatchObject({ processed: 1, confirmed_zero: 1 });
+    expect(fixture.rechecks.get("3238283:2026-10-23")).toMatchObject({ status: "confirmed_zero", attempts: 1 });
+    expect(mocks.upsertLifestyleSnapshotPersonalStats).not.toHaveBeenCalled();
+  });
+});
+
+function staleStatsRecheck(): XantakenRecheckRow {
+  return recheck({
+    snapshot_date: "2026-10-23",
+    reason: "stale_stats_recheck",
+    requested_at: timestampForDailyPoll("2026-10-23"),
+    prior_xantaken: null,
+    current_xantaken: 2300,
+    max_attempts: 2,
+    next_check_at: timestampForDailyPoll("2026-10-25"),
+  });
+}
+
+/** A Torn response for the day with every stat changed that day except the given ones. */
+function fetchedDay(
+  snapshotDate: string,
+  overrides: Partial<Record<string, { value: number; day: string }>> = {},
+): Record<string, { value: number; timestamp: number }> {
+  const stat = (key: string, value: number) => ({
+    value: overrides[key]?.value ?? value,
+    timestamp: timestampForDailyPoll(overrides[key]?.day ?? snapshotDate),
+  });
+  return {
+    xantaken: stat("xantaken", 2300),
+    overdosed: stat("overdosed", 4),
+    refills: stat("refills", 120),
+    timeplayed: stat("timeplayed", 5000),
+    networth: stat("networth", 900000),
+    daysbeendonator: stat("daysbeendonator", 300),
+  };
+}
+
 function fixtureEnv(options: {
   snapshots: SnapshotRow[];
   history?: Array<{ xantaken: number | null; previous_xantaken: number | null }>;
@@ -280,8 +421,8 @@ function fixtureEnv(options: {
       member_id: target.member_id,
       snapshot_date: target.snapshot_date,
       member_name: target.member_name ?? existing?.member_name ?? null,
+      ...stats,
       personal_ready: 1,
-      xantaken: stats.xantaken,
     });
   });
   const db = new TestD1Database((call) => {
@@ -298,6 +439,33 @@ function fixtureEnv(options: {
 
     if (call.method === "all" && call.sql.includes("WITH ordered AS")) {
       return history;
+    }
+
+    if (call.method === "first" && call.sql.includes("FROM member_lifestyle_stat_snapshots")) {
+      const [memberId, snapshotDate] = call.params;
+      return snapshots.get(`${memberId}:${snapshotDate}`) ?? null;
+    }
+
+    if (call.method === "run" && call.sql.includes("'stale_stats_recheck'")) {
+      const [memberId, snapshotDate, memberName, requestedAt, currentXantaken, maxAttempts, nextCheckAt, createdAt, updatedAt] = call.params;
+      const key = `${memberId}:${snapshotDate}`;
+      if (rechecks.has(key)) {
+        return d1Result(0);
+      }
+      rechecks.set(key, recheck({
+        member_id: Number(memberId),
+        snapshot_date: String(snapshotDate),
+        member_name: nullableString(memberName),
+        reason: "stale_stats_recheck",
+        requested_at: Number(requestedAt),
+        prior_xantaken: null,
+        current_xantaken: nullableNumber(currentXantaken),
+        max_attempts: Number(maxAttempts),
+        next_check_at: Number(nextCheckAt),
+        created_at: Number(createdAt),
+        updated_at: Number(updatedAt),
+      }));
+      return d1Result(1);
     }
 
     if (call.method === "run" && call.sql.includes("INSERT INTO member_lifestyle_xantaken_rechecks")) {
@@ -410,14 +578,49 @@ function fixtureEnv(options: {
   return { env: { DB: db } as unknown as Env, rechecks };
 }
 
-function snapshot(snapshotDate: string, xantaken: number | null): SnapshotRow {
+function snapshot(snapshotDate: string, xantaken: number | null, stats: Partial<SnapshotRow> = {}): SnapshotRow {
   return {
     member_id: 3238283,
     snapshot_date: snapshotDate,
     member_name: "M00SE",
     xantaken,
     personal_ready: 1,
+    overdosed: null,
+    refills: null,
+    useractivity: null,
+    networth: null,
+    daysbeendonator: null,
+    xantaken_timestamp: null,
+    overdosed_timestamp: null,
+    refills_timestamp: null,
+    useractivity_timestamp: null,
+    networth_timestamp: null,
+    daysbeendonator_timestamp: null,
+    personalstats_bucket_date: null,
+    personalstats_requested_at: null,
+    personalstats_key_source: null,
+    ...stats,
   };
+}
+
+/** A saved day where every stat except the given ones changed that day. */
+function savedDay(snapshotDate: string, unchanged: Partial<Record<string, { value: number; day: string }>> = {}): SnapshotRow {
+  const dayStart = timestampForDailyPoll(snapshotDate);
+  const stat = (key: string, value: number) => ({
+    [key]: unchanged[key]?.value ?? value,
+    [`${key}_timestamp`]: unchanged[key] ? timestampForDailyPoll(unchanged[key]!.day) : dayStart,
+  });
+  return snapshot(snapshotDate, null, {
+    ...stat("xantaken", 2300),
+    ...stat("overdosed", 4),
+    ...stat("refills", 120),
+    ...stat("useractivity", 5000),
+    ...stat("networth", 900000),
+    ...stat("daysbeendonator", 300),
+    personalstats_bucket_date: snapshotDate,
+    personalstats_requested_at: dayStart,
+    personalstats_key_source: "key_pool:first",
+  });
 }
 
 function recheck(overrides: Partial<XantakenRecheckRow> = {}): XantakenRecheckRow {

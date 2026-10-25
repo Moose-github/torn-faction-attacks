@@ -391,8 +391,12 @@ function personalStatsSubsystem(snapshot: DataHealthSnapshot): DataHealthSubsyst
       ...coverageMetrics,
       outstandingMetric,
       ...(acceptedCount > 0 ? [{ label: "Accepted gaps", value: String(acceptedCount) }] : []),
-      { label: "Xanax rechecks", value: String(snapshot.xantakenRechecks.pending_rechecks) },
-      { label: "Xanax fixed 24h", value: String(snapshot.xantakenRechecks.auto_fixed_24h) },
+      {
+        label: "Stat rechecks",
+        value: String(snapshot.xantakenRechecks.pending_rechecks),
+        title: "Member-days queued for a late re-fetch because a stat looked unchanged or a Xanax count looked wrong.",
+      },
+      { label: "Stats fixed 24h", value: String(snapshot.xantakenRechecks.auto_fixed_24h) },
       { label: "Xanax repair", value: String(snapshot.xantakenRechecks.needs_repair) },
     ],
   };

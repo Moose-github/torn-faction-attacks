@@ -412,8 +412,8 @@ describe("data health severity", () => {
         { label: "2025-12-30", value: "55/60" },
         { label: "2025-12-31", value: "60/60" },
         expect.objectContaining({ label: "Outstanding", value: "5" }),
-        { label: "Xanax rechecks", value: "0" },
-        { label: "Xanax fixed 24h", value: "0" },
+        expect.objectContaining({ label: "Stat rechecks", value: "0" }),
+        { label: "Stats fixed 24h", value: "0" },
         { label: "Xanax repair", value: "0" },
       ],
     });
@@ -531,8 +531,8 @@ describe("data health severity", () => {
         { label: "2025-12-30", value: "60/60" },
         { label: "2025-12-31", value: "55/60" },
         expect.objectContaining({ label: "Outstanding", value: "0" }),
-        { label: "Xanax rechecks", value: "0" },
-        { label: "Xanax fixed 24h", value: "0" },
+        expect.objectContaining({ label: "Stat rechecks", value: "0" }),
+        { label: "Stats fixed 24h", value: "0" },
         { label: "Xanax repair", value: "0" },
       ],
     });
