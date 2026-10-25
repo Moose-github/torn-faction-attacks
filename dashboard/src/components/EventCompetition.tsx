@@ -150,7 +150,8 @@ export function EventCompetitionPanel({ war, data, error, compact = false }: {
           : <div><span>Participating</span><strong>{members.filter(member => member.participation === "participating").length}</strong></div>}
         <div><span>Members captured</span><strong>{observed} / {members.length}</strong></div>
         {!halloween ? <div><span>Not participating</span><strong>{members.filter(member => member.participation === "not_participating").length}</strong></div> : null}
-        <div><span>{halloween && firstBaseline !== null ? "Tracked since" : "Collection started"}</span><span>{formatLongDateTime(firstBaseline ?? data.initialized_at)}</span></div>
+        <div><span>{halloween && firstBaseline !== null ? "Baseline captured" : "Collection started"}</span><span>{formatLongDateTime(firstBaseline ?? data.initialized_at)}</span></div>
+        {halloween ? <div><span>Event start</span><span>{formatLongDateTime(war.practical_start_time)}</span></div> : null}
         <div><span>Last reading</span><span>{lastUpdate ? formatLongDateTime(lastUpdate) : "Awaiting data"}</span></div>
         {halloween && war.status !== "ended" && data.next_refresh_at ? <div><span>Next collection</span><span>{formatLongDateTime(data.next_refresh_at)}</span></div> : null}
       </div>
@@ -162,7 +163,7 @@ export function EventCompetitionPanel({ war, data, error, compact = false }: {
       {!compact && halloween && data.history.length > 1 ? <div className="event-treat-chart" aria-label="Treats gained over time">
         <ResponsiveContainer width="100%" height="100%"><LineChart data={data.history} margin={{ top: 12, right: 20, bottom: 8, left: 8 }}>
           <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="3 3" vertical={false} />
-          <XAxis dataKey="observed_at" type="number" domain={["dataMin", "dataMax"]} tickFormatter={(value: number) => formatDate(value)} minTickGap={50} tick={{ fontSize: 12, fill: "var(--chart-axis)" }} />
+          <XAxis dataKey="observed_at" type="number" domain={[war.practical_start_time, "dataMax"]} tickFormatter={(value: number) => formatDate(value)} minTickGap={50} tick={{ fontSize: 12, fill: "var(--chart-axis)" }} />
           <YAxis allowDecimals={false} width={55} tick={{ fontSize: 12, fill: "var(--chart-axis)" }} />
           <Tooltip labelFormatter={value => formatLongDateTime(Number(value))} formatter={value => [formatNumber(Number(value)), "Treats gained"]} />
           <Line dataKey="treats_gained" type="stepAfter" stroke="var(--accent)" strokeWidth={2} dot={false} isAnimationActive={false} />

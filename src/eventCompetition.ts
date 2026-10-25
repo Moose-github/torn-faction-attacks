@@ -251,9 +251,11 @@ export function projectTreatReadings(samples: CompetitionSnapshot[], start: numb
     } else {
       members.set(sample.member_id, { baseline: sample, latest: sample });
     }
+    // Anchor pre-event baselines to the event start in the graph only.
+    const graphTime = Math.max(start, sample.observed_at);
     const previous = history[history.length - 1];
-    if (previous?.observed_at === sample.observed_at) previous.treats_gained = total;
-    else history.push({ observed_at: sample.observed_at, treats_gained: total });
+    if (previous?.observed_at === graphTime) previous.treats_gained = total;
+    else history.push({ observed_at: graphTime, treats_gained: total });
   }
   return { members, history, total };
 }

@@ -230,6 +230,8 @@ describe("event competition collection", () => {
     war("halloween", "scheduled", 12); member(); at(START - 3600);
     await ensureEventCompetitionStarted(env, 1);
     await collectInitialHalloweenBaseline(env, 1);
+    expect((await view()).history).toEqual([{ observed_at: START, treats_gained: 0 }]);
+    expect(db.prepare("SELECT observed_at FROM event_competition_snapshots").get()?.observed_at).toBe(START - 3600);
     at(START - 60);
     await rescheduleEventCompetition(env, 1, 12);
     expect((await view()).next_refresh_at).toBe(START);
@@ -241,6 +243,10 @@ describe("event competition collection", () => {
     at(START + 12 * 3600); vi.mocked(fetchTrackedTornJson).mockResolvedValue(halloween(1300));
     await runEventCompetitionCron(env);
     expect((await view()).total_treats_gained).toBe(300);
+    expect((await view()).history).toEqual([
+      { observed_at: START, treats_gained: 50 },
+      { observed_at: START + 12 * 3600, treats_gained: 300 },
+    ]);
   });
 
   it("shows unavailable instead of zero when a pre-event baseline fails, then recovers before start", async () => {
