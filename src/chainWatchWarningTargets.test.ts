@@ -138,6 +138,39 @@ describe("background target links", () => {
     expect(await readChainWatchState(db.env)).toMatchObject({ last_error: null, scheduled_alarm_stage: "warning_30" });
   });
 
+  it("posts the critical with the 60-second lookup's unshown targets and skips a second lookup", async () => {
+    vi.spyOn(Math, "random").mockReturnValue(0);
+    await fire(); await finishBackground();
+    expect(db.sqlite.prepare("SELECT target_ids FROM chain_watch_warning_cycles").get()?.target_ids).toBe("[1234,5678,9012]");
+    await fire(30); await finishBackground();
+    expect(vi.mocked(deliverChainWatchWarningAlert).mock.calls[1][1].actionRows).toEqual([{ type: 1, components: [
+      { type: 2, style: 5, label: "Attack 9012", url: "https://www.torn.com/page.php?sid=attack&user2ID=9012" },
+      { type: 2, style: 5, label: "Backup 1234", url: "https://www.torn.com/page.php?sid=attack&user2ID=1234" },
+    ] }]);
+    expect(fetchChainWatchTargets).toHaveBeenCalledOnce();
+    expect(background).toHaveLength(1);
+    expect(linkEdits()).toHaveLength(1);
+  });
+
+  it("keeps the 60-second targets for the critical when that card's link edit fails", async () => {
+    vi.mocked(editWatchDiscordMessage).mockResolvedValueOnce({ status: "failed", error: new Error("Discord unavailable") });
+    await fire(); await finishBackground();
+    await fire(30); await finishBackground();
+    expect(vi.mocked(deliverChainWatchWarningAlert).mock.calls[1][1].actionRows?.[0].components).toHaveLength(2);
+    expect(fetchChainWatchTargets).toHaveBeenCalledOnce();
+  });
+
+  it.each(["no 60-second targets", "an unreadable cache"])("posts the critical, then looks up targets, when there are %s", async reason => {
+    if (reason === "no 60-second targets") vi.mocked(fetchChainWatchTargets).mockResolvedValueOnce({ ...targets, target_ids: [], status: "no_targets" });
+    await fire(); await finishBackground();
+    if (reason === "an unreadable cache") db.sqlite.exec("UPDATE chain_watch_warning_cycles SET target_ids = 'not json'");
+    await fire(30); await finishBackground();
+    expect(vi.mocked(deliverChainWatchWarningAlert).mock.calls[1][1]).not.toHaveProperty("actionRows");
+    expect(await readChainWatchState(db.env)).toMatchObject({ warning_30_sent_at: start + 270, last_error: null });
+    expect(fetchChainWatchTargets).toHaveBeenCalledTimes(2);
+    expect(linkEdits().at(-1)?.[2]).toBe("chain_watch_critical-message");
+  });
+
   it("does not launch a lookup when warning delivery is skipped", async () => {
     vi.mocked(deliverChainWatchWarningAlert).mockResolvedValue({ status: "skipped", reason: "disabled" });
     await fire();
@@ -231,7 +264,9 @@ describe("late target results and cleanup", () => {
   it("cleans up the critical message and removes the earlier warning after both have links", async () => {
     await fire(); await finishBackground();
     await fire(30); await finishBackground();
-    expect(linkEdits()).toHaveLength(2);
+    // The 60-second card is edited; the critical is posted with its links.
+    expect(linkEdits()).toHaveLength(1);
+    expect(vi.mocked(deliverChainWatchWarningAlert).mock.calls[1][1].actionRows).toHaveLength(1);
     advance(start + 280); await hit(2, start + 280, 151);
     await refreshActiveChainWatchFromStoredAttacks(db.env, start + 280);
     expect(finalText()).toContain("Chain saved by Alice with 20 seconds remaining");

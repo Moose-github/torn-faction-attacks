@@ -200,6 +200,7 @@ CREATE TABLE chain_watch_warning_cycles (
   lease_token TEXT,
   lease_until INTEGER,
   last_error TEXT,
+  target_ids TEXT,
   PRIMARY KEY (faction_id, reset_at)
 );
 

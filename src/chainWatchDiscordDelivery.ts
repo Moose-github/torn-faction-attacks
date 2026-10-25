@@ -1,4 +1,4 @@
-import { createDiscordBotMessage, type DiscordAllowedMentions } from "./discord";
+import { createDiscordBotMessage, type DiscordActionRow, type DiscordAllowedMentions } from "./discord";
 import { discordNotificationChannelTargetId, readConfiguredDiscordNotificationChannel } from "./discordNotificationChannels";
 import { upsertDiscordAlertMessage } from "./discordAlertDelivery";
 import { isDiscordAlertEnabled } from "./discordAlertSettings";
@@ -79,7 +79,7 @@ export async function deliverChainWatchAlert(
 }
 
 export async function deliverChainWatchWarningAlert(
-  env: Env, options: { message: string; allowedMentions?: DiscordAllowedMentions },
+  env: Env, options: { message: string; allowedMentions?: DiscordAllowedMentions; actionRows?: DiscordActionRow[] },
   cardColor: number, alertKey: DiscordAlertKey, nonceKey: string,
 ): Promise<WatchDeliveryResult<{ messageId: string; channelId: string }, "disabled" | "no_route">> {
   try {
@@ -88,7 +88,7 @@ export async function deliverChainWatchWarningAlert(
     if (!route) return { status: "skipped", reason: "no_route" };
     const channelId = discordNotificationChannelTargetId(route);
     const messageId = await createDiscordBotMessage(env, channelId, options.message, options.allowedMentions,
-      { cardColor, nonce: await messageNonce(nonceKey) });
+      { cardColor, nonce: await messageNonce(nonceKey), actionRows: options.actionRows });
     if (!messageId) throw new Error("Discord did not return a chain warning message ID");
     return { status: "success", value: { messageId, channelId } };
   } catch (error) { return failed(error); }

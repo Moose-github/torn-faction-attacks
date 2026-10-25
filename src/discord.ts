@@ -43,11 +43,15 @@ type DiscordCardComponent = DiscordTextDisplay | {
   accent_color: number;
   components: DiscordTextDisplay[];
 };
+export type DiscordActionRow = {
+  type: 1;
+  components: Array<{ type: 2; style: 5; label: string; url: string }>;
+};
 type DiscordMessageContent = {
   content?: string;
   embeds?: DiscordEmbed[];
   flags?: number;
-  components?: DiscordCardComponent[];
+  components?: Array<DiscordCardComponent | DiscordActionRow>;
 };
 
 export async function createDiscordBotMessage(
@@ -55,14 +59,21 @@ export async function createDiscordBotMessage(
   channelId: string,
   message: string,
   allowedMentions?: DiscordAllowedMentions,
-  options?: Pick<DiscordPayloadOptions, "embedColor" | "embeds" | "cardColor"> & { nonce?: string },
+  options?: Pick<DiscordPayloadOptions, "embedColor" | "embeds" | "cardColor"> & {
+    nonce?: string;
+    /** Appended after a card's components; only used with `cardColor`. */
+    actionRows?: DiscordActionRow[];
+  },
 ): Promise<string | null> {
   const botToken = readDiscordBotToken(env);
+  const payload = discordPayload(message, allowedMentions, options);
+  if (options?.cardColor !== undefined && options.actionRows?.length) {
+    payload.components = [...(payload.components ?? []), ...options.actionRows];
+  }
   const response = await postDiscordBotJsonAndRead<DiscordMessage>(
     botToken,
     discordChannelMessagesPath(channelId),
-    { ...discordPayload(message, allowedMentions, options),
-      ...(options?.nonce ? { nonce: options.nonce, enforce_nonce: true } : {}) },
+    { ...payload, ...(options?.nonce ? { nonce: options.nonce, enforce_nonce: true } : {}) },
   );
 
   return discordMessageId(response);

@@ -44,6 +44,18 @@ describe("chain watch Discord delivery outcomes", () => {
     expect(JSON.parse(fetcher.mock.calls[2][1].body).nonce).not.toBe(bodies[0].nonce);
   });
 
+  it("posts attack buttons after the warning card and its mentions in the same message", async () => {
+    const actionRows = [{ type: 1 as const, components: [
+      { type: 2 as const, style: 5 as const, label: "Attack 9012", url: "https://www.torn.com/page.php?sid=attack&user2ID=9012" },
+    ] }];
+    await deliverChainWatchWarningAlert(env, { message: "Chain Watch CRITICAL\nChain 150\n<@123456>",
+      allowedMentions: { users: ["123456"] }, actionRows }, 0xff0000, "chain_watch_critical", "critical");
+    const body = JSON.parse(fetcher.mock.calls[0][1].body);
+    expect(body).toMatchObject({ flags: 32768, allowed_mentions: { users: ["123456"] } });
+    expect(body.components.map((component: { type: number }) => component.type)).toEqual([17, 10, 1]);
+    expect(body.components[2]).toEqual(actionRows[0]);
+  });
+
   it("does not record warning delivery when disabled, unrouted or failed", async () => {
     const send = () => deliverChainWatchWarningAlert(env, { message: "Warning" }, 0xffa500, "chain_watch_warning", "warning");
     vi.mocked(isDiscordAlertEnabled).mockResolvedValueOnce(false);

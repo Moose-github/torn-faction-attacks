@@ -7,7 +7,9 @@ import {
 import { type DiscordAllowedMentions } from "./discord";
 import { deliverChainWatchAlert, deliverChainWatchDroppedStatus, deliverChainWatchWarningAlert, type WatchDeliveryResult } from "./chainWatchDiscordDelivery";
 import { recordChainWatchWarning, reconcileChainWatchWarningMessages } from "./chainWatchWarningCleanup";
-import { enrichChainWatchWarningTargets, type ChainWatchWarningTargetJob } from "./chainWatchWarningTargets";
+import {
+  chainWatchTargetActionRow, enrichChainWatchWarningTargets, readCachedCriticalTargets, type ChainWatchWarningTargetJob,
+} from "./chainWatchWarningTargets";
 import { DISCORD_ALERT_KEYS, type DiscordAlertKey } from "./discordAlerts";
 import { formatDiscordAlertMessage, readDiscordAlertMentions } from "./discordMentions";
 import { fetchTrackedTornJson } from "./external/torn";
@@ -546,10 +548,13 @@ async function sendWarningIfDue(
       timeoutAt: confirmedState.timeout_at,
       lastHit: confirmedState,
     });
+  // Reuse the 60-second lookup so the critical posts with links rather than
+  // waiting for a second search during its last 30 seconds.
+  const cachedTargets = stage === "warning_30" ? await readCachedCriticalTargets(env, confirmedState) : [];
   const current = await readChainWatchState(env);
   if (!current || current.enabled !== 1 || current.timer_version !== confirmedState.timer_version || current[warningColumn] !== null) return;
   const delivery = await deliverChainWatchWarningAlert(
-    env, message,
+    env, cachedTargets.length ? { ...message, actionRows: [chainWatchTargetActionRow(cachedTargets)] } : message,
     stage === "warning_60" ? CHAIN_WATCH_WARNING_COLOR : CHAIN_WATCH_CRITICAL_COLOR,
     chainWatchWarningAlertKey(stage),
     `chain-warning:${confirmedState.faction_id}:${confirmedState.reset_at}:${stage}`,
@@ -582,7 +587,7 @@ async function sendWarningIfDue(
       confirmedState.timer_version,
     )
     .run();
-  if (delivery.status === "success" && confirmedState.reset_at !== null) {
+  if (delivery.status === "success" && confirmedState.reset_at !== null && !cachedTargets.length) {
     return {
       factionId: confirmedState.faction_id, resetAt: confirmedState.reset_at,
       timeoutAt: confirmedState.timeout_at, chainLength: Number(confirmedState.current_chain),
