@@ -891,7 +891,7 @@ async function readDuplicateTornKey(
     .first<{ id: string; submitted_by_torn_user_id: number | null }>()) ?? null;
 }
 
-async function readFallbackKeyCandidates(env: Env, feature: TornKeyPoolFeature): Promise<TornKeyPoolCandidate[]> {
+export async function readFallbackKeyCandidates(env: Env, feature: TornKeyPoolFeature): Promise<TornKeyPoolCandidate[]> {
   if (!FALLBACK_KEY_FEATURES.includes(feature)) return [];
 
   const fallbackBindings: Array<{ id: string; keySource: string; binding?: string | SecretsStoreSecret }> = [
