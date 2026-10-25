@@ -28,9 +28,15 @@ import {
   rebuildWarStatsFromRaw,
   refreshOpenWarChainBonusAdjustmentsFromRaw,
 } from "../warStats";
-import type { Env, TornFactionMember } from "../types";
 import { runMonthlyXanaxCompetitionDiscordReminder } from "../xanaxCompetition";
 import type { CronJobDefinition } from "./model";
+import { claimCronSlot, cronSlot, runOncePerSlot } from "./slots";
+
+// Jobs pinned to a slot run in its first few minutes so a skipped cron minute
+// is caught up by the next run, and each slot is claimed so it runs only once.
+const QUARTER_HOUR_SLOT = cronSlot(15);
+const HOURLY_SLOT = cronSlot(60);
+const LIFESTYLE_SLOT = cronSlot(6 * 60, 10);
 
 export const CRON_JOB_DEFINITIONS: CronJobDefinition[] = [
   {
@@ -43,11 +49,12 @@ export const CRON_JOB_DEFINITIONS: CronJobDefinition[] = [
   },
   {
     label: "Cron faction armory inventory",
-    cadence: "15m",
+    cadence: "15m, catching up within 5m",
     category: "maintenance",
     purpose: "Refresh medical, weapons and armor inventory even with the page closed, and fill missing equipment details.",
-    shouldRun: (date) => date.getUTCMinutes() % 15 === 0,
-    run: (env) => runArmoryCron(env),
+    shouldRun: QUARTER_HOUR_SLOT.isDue,
+    run: (env, scheduledTime) =>
+      runOncePerSlot(env, "armory_inventory", QUARTER_HOUR_SLOT, scheduledTime, () => runArmoryCron(env)),
   },
   {
     label: "Cron medical armory stock alerts",
@@ -87,7 +94,7 @@ export const CRON_JOB_DEFINITIONS: CronJobDefinition[] = [
     category: "attacks",
     purpose: "Import recent attacks every minute, refresh the shared faction Chain Watch, then run the hourly exact rebuild when due.",
     shouldRun: () => true,
-    fullWarStatsRebuild: shouldRunHourlyExactWarSummaries,
+    fullWarStatsRebuild: HOURLY_SLOT.isDue,
     run: async (env, scheduledTime) => {
       try {
         await runIngestion(env, "cron", { scheduledTime });
@@ -96,7 +103,11 @@ export const CRON_JOB_DEFINITIONS: CronJobDefinition[] = [
         // It can use stored hits and the existing live-confirmation fallback.
         await runChainWatchCron(env, scheduledTime);
       }
-      if (shouldRunHourlyExactWarSummaries(new Date(scheduledTime))) {
+      // Claimed after ingestion so a failed feed leaves the slot for the next run.
+      if (
+        HOURLY_SLOT.isDue(new Date(scheduledTime)) &&
+        await claimCronSlot(env, "hourly_war_summaries", HOURLY_SLOT.slotStart(scheduledTime))
+      ) {
         const result = await rebuildWarStatsFromRaw(env, { scope: "open-wars", reason: "cron" });
         if (!result.wars_skipped) {
           await markOpenWarMemberStatsRebuildComplete(env, Math.floor(scheduledTime / 1000));
@@ -107,34 +118,37 @@ export const CRON_JOB_DEFINITIONS: CronJobDefinition[] = [
   },
   {
     label: "Cron targeted chain bonus correction",
-    cadence: "15m active, excluding hourly rebuild",
+    cadence: "15m active, excluding hourly rebuild, catching up within 5m",
     category: "attacks",
     purpose: "Refresh chain-bonus adjusted respect for only members with chain bonuses between hourly exact summary rebuilds.",
-    shouldRun: (date) => date.getUTCMinutes() % 15 === 0 && date.getUTCMinutes() !== 0,
-    run: (env) => refreshOpenWarChainBonusAdjustmentsFromRaw(env),
+    shouldRun: (date) => QUARTER_HOUR_SLOT.isDue(date) && !HOURLY_SLOT.isDue(date),
+    run: (env, scheduledTime) =>
+      runOncePerSlot(env, "chain_bonus_correction", QUARTER_HOUR_SLOT, scheduledTime, () =>
+        refreshOpenWarChainBonusAdjustmentsFromRaw(env)),
   },
   {
-    label: "Cron enemy tracking maintenance window",
-    cadence: "15m",
+    label: "Cron scheduled maintenance",
+    cadence: "15m, catching up within 5m",
     category: "maintenance",
-    purpose: "Refresh enemy tracking, pass any fetched enemy members to heatmap sampling, and run independent maintenance tasks.",
-    shouldRun: (date) => date.getUTCMinutes() % 15 === 0,
-    run: (env, scheduledTime) => runEnemyTrackingAndMaintenance(env, scheduledTime),
+    purpose: "Run membership sync, heatmap sampling, ranked war reports, achievements, API usage rollups and retention cleanup.",
+    shouldRun: QUARTER_HOUR_SLOT.isDue,
+    run: (env, scheduledTime) =>
+      runOncePerSlot(env, "scheduled_maintenance", QUARTER_HOUR_SLOT, scheduledTime, () => runScheduledMaintenance(env)),
   },
   {
     label: "Cron heatmap sampling retry",
-    cadence: "Once at +1m after each 15m slot",
+    cadence: "Once at +5m after each 15m slot",
     category: "maintenance",
-    purpose: "Retry missing home and enemy heatmap samples once, preserving samples already saved.",
-    shouldRun: (date) => date.getUTCMinutes() % 15 === 1,
+    purpose: "Retry missing home and enemy heatmap samples once after the maintenance catch-up window, preserving samples already saved.",
+    shouldRun: (date) => date.getUTCMinutes() % 15 === 5,
     run: (env, scheduledTime) => runHeatmapSamplingRetry(env, scheduledTime),
   },
   {
     label: "Cron enemy scouting tick",
-    cadence: "1m live / 5m pre-live, excluding 15m",
+    cadence: "1m live / 5m pre-live",
     category: "enemy-tracking",
     purpose: "Refresh enemy tracking on the war-room cadence and fill scouting stats using shared current-war and latch reads.",
-    shouldRun: (date) => date.getUTCMinutes() % 15 !== 0,
+    shouldRun: () => true,
     run: (env, scheduledTime) =>
       runEnemyScoutingCronTick(env, {
         trackingSchedule: "war-room",
@@ -143,13 +157,13 @@ export const CRON_JOB_DEFINITIONS: CronJobDefinition[] = [
   },
   {
     label: "Cron personal lifestyle stats",
-    cadence: "4x daily at 00:10/06:10/12:10/18:10 UTC",
+    cadence: "4x daily at 00:10/06:10/12:10/18:10 UTC, catching up within 5m",
     category: "daily",
     purpose: "Fill recent personal stats queue and project daily lifestyle snapshots through the daily batch gate.",
-    shouldRun: (date) =>
-      date.getUTCMinutes() === 10 &&
-      [0, 6, 12, 18].includes(date.getUTCHours()),
-    run: (env) => refreshDailyMemberLifestyleStats(env, { limit: 40, useLock: true }),
+    shouldRun: LIFESTYLE_SLOT.isDue,
+    run: (env, scheduledTime) =>
+      runOncePerSlot(env, "personal_lifestyle_stats", LIFESTYLE_SLOT, scheduledTime, () =>
+        refreshDailyMemberLifestyleStats(env, { limit: 40, useLock: true })),
   },
   {
     label: "Cron gym lifestyle stats",
@@ -189,10 +203,6 @@ export const CRON_JOB_DEFINITIONS: CronJobDefinition[] = [
   },
 ];
 
-function shouldRunHourlyExactWarSummaries(date: Date): boolean {
-  return date.getUTCMinutes() === 0;
-}
-
 export function shouldRunMonthlyXanaxCompetitionDiscordReminder(date: Date): boolean {
   return (
     date.getUTCDate() === 1 &&
@@ -200,24 +210,4 @@ export function shouldRunMonthlyXanaxCompetitionDiscordReminder(date: Date): boo
     date.getUTCMinutes() >= 10 &&
     date.getUTCMinutes() < 20
   );
-}
-
-async function runEnemyTrackingAndMaintenance(env: Env, scheduledTime: number): Promise<void> {
-  const prefetchedHeatmapMembersByFaction = new Map<number, TornFactionMember[]>();
-
-  try {
-    const tick = await runEnemyScoutingCronTick(env, {
-      trackingSchedule: "war-room",
-      scheduledTime,
-      includeMembers: true,
-    });
-    if (tick.tracking.factionId && tick.tracking.members) {
-      prefetchedHeatmapMembersByFaction.set(tick.tracking.factionId, tick.tracking.members);
-    }
-  } catch (err: any) {
-    console.error("Cron enemy scouting maintenance tick failed:", err?.message || err);
-    console.error(err);
-  }
-
-  await runScheduledMaintenance(env, { prefetchedHeatmapMembersByFaction });
 }

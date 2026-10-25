@@ -15,6 +15,9 @@ vi.mock("./lifestyleStats", () => ({
   refreshDailyGymStats: vi.fn(),
   refreshDailyMemberLifestyleStats: vi.fn(),
 }));
+vi.mock("./lifestyleStats/dailyPersonal", () => ({
+  refreshDailyMemberLifestyleStats: vi.fn(),
+}));
 vi.mock("./maintenance", () => ({
   markOpenWarMemberStatsRebuildComplete: vi.fn(),
   runHeatmapSamplingRetry: vi.fn(),
@@ -42,20 +45,56 @@ import {
 import { runChainWatchCron } from "./chainWatch";
 import { runArmoryCron, runMedicalStockAlertsCron } from "./armory";
 import { runIngestion } from "./ingestion";
+import { refreshDailyMemberLifestyleStats } from "./lifestyleStats/dailyPersonal";
 import { markOpenWarMemberStatsRebuildComplete, runHeatmapSamplingRetry, runScheduledMaintenance } from "./maintenance";
 import { syncRetaliationDiscordBoard } from "./retaliations";
 import type { Env } from "./types";
-import { rebuildWarStatsFromRaw } from "./warStats";
+import { rebuildWarStatsFromRaw, refreshOpenWarChainBonusAdjustmentsFromRaw } from "./warStats";
 
 beforeEach(() => {
   vi.clearAllMocks();
 });
 
-it("refreshes all armory inventory on quarter hours and checks saved stock alerts every minute", async () => {
-  const env = {} as Env;
+/** Env whose DB emulates the sync_state slot claim used by catch-up jobs. */
+function slotEnv(): Env {
+  const claims = new Map<string, number>();
+  return {
+    DB: {
+      prepare: () => ({
+        bind: (name: string, slotStart: number) => ({
+          first: async () => {
+            if ((claims.get(name) ?? -1) >= slotStart) return null;
+            claims.set(name, slotStart);
+            return { name };
+          },
+        }),
+      }),
+    },
+  } as unknown as Env;
+}
+
+const SLOT_JOB_LABELS = [
+  "Cron faction armory inventory",
+  "Cron ingestion",
+  "Cron targeted chain bonus correction",
+  "Cron scheduled maintenance",
+  "Cron personal lifestyle stats",
+];
+
+/** Runs only the slot-gated jobs (and ingestion, which owns the hourly rebuild). */
+async function runMinutes(env: Env, minutes: number[], hour = 1): Promise<void> {
+  for (const minute of minutes) {
+    const jobs = buildCronPlan(env, Date.UTC(2026, 8, 27, hour, minute))
+      .filter((job) => SLOT_JOB_LABELS.includes(job.label));
+    for (const job of jobs) await job.run();
+  }
+}
+
+it("refreshes all armory inventory once per quarter hour and checks saved stock alerts every minute", async () => {
+  const env = slotEnv();
   for (let minute = 0; minute < 60; minute++) {
     const jobs = buildCronPlan(env, Date.UTC(2026, 8, 27, 1, minute)).filter(job => job.label.includes("armory"));
-    expect(jobs.map(job => job.label)).toEqual(minute % 15 === 0
+    expect(jobs.map(job => job.label)).toEqual(minute % 15 < 5
       ? ["Cron faction armory inventory", "Cron medical armory stock alerts"]
       : ["Cron medical armory stock alerts"]);
     for (const job of jobs) await job.run();
@@ -66,7 +105,7 @@ it("refreshes all armory inventory on quarter hours and checks saved stock alert
 });
 
 describe("heatmap sampling retry cron", () => {
-  it("schedules exactly one retry at +1 minute for every quarter-hour slot", () => {
+  it("schedules exactly one retry after the catch-up window of every quarter-hour slot", () => {
     for (let hour = 0; hour < 24; hour += 1) {
       const retryMinutes: number[] = [];
       for (let minute = 0; minute < 60; minute += 1) {
@@ -75,13 +114,13 @@ describe("heatmap sampling retry cron", () => {
           retryMinutes.push(minute);
         }
       }
-      expect(retryMinutes).toEqual([1, 16, 31, 46]);
+      expect(retryMinutes).toEqual([5, 20, 35, 50]);
     }
   });
 
   it("runs only the heatmap retry with the scheduled time", async () => {
     const env = {} as Env;
-    const scheduledTime = Date.UTC(2026, 8, 16, 0, 1);
+    const scheduledTime = Date.UTC(2026, 8, 16, 0, 5);
     const job = buildCronPlan(env, scheduledTime).find((item) => item.label === "Cron heatmap sampling retry");
 
     expect(job).toBeDefined();
@@ -125,7 +164,7 @@ describe("monthly Xanax competition cron", () => {
     });
 
     const scheduledTime = Date.UTC(2026, 5, 1, 6, 0, 0);
-    const ingestionJob = buildCronPlan({} as Env, scheduledTime)
+    const ingestionJob = buildCronPlan(slotEnv(), scheduledTime)
       .find((job) => job.label === "Cron ingestion");
 
     await ingestionJob?.run();
@@ -202,5 +241,62 @@ describe("monthly Xanax competition cron", () => {
       .map((job) => job.label);
 
     expect(labels).toContain("Cron monthly Xanax competition Discord reminder");
+  });
+});
+
+describe("catch-up for skipped cron minutes", () => {
+  it("runs quarter-hour jobs on the next minute when the slot minute is skipped, and only once", async () => {
+    const env = slotEnv();
+
+    // 01:15 never fired; 01:16 and 01:17 did.
+    await runMinutes(env, [16, 17]);
+
+    expect(runArmoryCron).toHaveBeenCalledTimes(1);
+    expect(runScheduledMaintenance).toHaveBeenCalledTimes(1);
+    expect(refreshOpenWarChainBonusAdjustmentsFromRaw).toHaveBeenCalledTimes(1);
+  });
+
+  it("gives up on a slot after the catch-up window", async () => {
+    const env = slotEnv();
+
+    await runMinutes(env, [20, 21]);
+
+    expect(runArmoryCron).not.toHaveBeenCalled();
+    expect(runScheduledMaintenance).not.toHaveBeenCalled();
+  });
+
+  it("never runs the chain bonus correction in the hourly rebuild window", async () => {
+    await runMinutes(slotEnv(), [0, 1, 2, 3, 4]);
+
+    expect(refreshOpenWarChainBonusAdjustmentsFromRaw).not.toHaveBeenCalled();
+    expect(rebuildWarStatsFromRaw).toHaveBeenCalledTimes(1);
+  });
+
+  it("retries the hourly rebuild on the next minute when ingestion fails", async () => {
+    const env = slotEnv();
+    vi.mocked(rebuildWarStatsFromRaw).mockResolvedValue({ wars_rebuilt: 1, combat_bucket_rows: 0 } as never);
+    vi.mocked(runIngestion).mockRejectedValueOnce(new Error("Feed unavailable"));
+
+    const failed = buildCronPlan(env, Date.UTC(2026, 8, 27, 1, 0)).find((job) => job.label === "Cron ingestion");
+    await expect(failed!.run()).rejects.toThrow("Feed unavailable");
+    await runMinutes(env, [1, 2]);
+
+    expect(rebuildWarStatsFromRaw).toHaveBeenCalledTimes(1);
+  });
+
+  it("catches up a skipped six-hourly lifestyle import", async () => {
+    const env = slotEnv();
+
+    // 06:10 never fired.
+    await runMinutes(env, [11, 12, 15], 6);
+
+    expect(refreshDailyMemberLifestyleStats).toHaveBeenCalledTimes(1);
+  });
+
+  it("runs the enemy scouting tick every minute", () => {
+    for (let minute = 0; minute < 60; minute += 1) {
+      expect(buildCronPlan({} as Env, Date.UTC(2026, 8, 27, 1, minute)).map((job) => job.label))
+        .toContain("Cron enemy scouting tick");
+    }
   });
 });
