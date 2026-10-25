@@ -35,6 +35,10 @@ type ScheduledMaintenanceOptions = {
 
 const METRICS_RETENTION_SECONDS = 14 * 24 * 60 * 60;
 const TORN_API_CALL_LOG_RETENTION_SECONDS = 7 * 24 * 60 * 60;
+// Key pool rate limiting only reads the current minute's window.
+const TORN_API_KEY_USAGE_WINDOW_RETENTION_SECONDS = 24 * 60 * 60;
+// Bounded so the first run after a long backlog stays within D1 statement limits.
+const TORN_API_KEY_USAGE_WINDOW_DELETE_LIMIT = 100_000;
 const METRICS_RETENTION_STATE_NAME = "scheduled_metrics_retention";
 const MEMBER_STAT_CORRECTION_INTERVAL_SECONDS = 60 * 60;
 const MEMBER_STAT_CORRECTION_STATE_NAME = "open_war_member_stats_rebuild";
@@ -410,6 +414,20 @@ async function cleanupOldMetrics(env: Env): Promise<MaintenanceTaskMetrics> {
   )
     .bind(tornApiCallLogCutoff)
     .run();
+  const tornApiKeyUsageWindowCutoff = now - TORN_API_KEY_USAGE_WINDOW_RETENTION_SECONDS;
+  const tornApiKeyUsageWindowDelete = await env.DB.prepare(
+    `
+    DELETE FROM torn_api_key_usage_windows
+    WHERE rowid IN (
+      SELECT rowid
+      FROM torn_api_key_usage_windows
+      WHERE window_start < ?
+      LIMIT ?
+    )
+    `,
+  )
+    .bind(tornApiKeyUsageWindowCutoff, TORN_API_KEY_USAGE_WINDOW_DELETE_LIMIT)
+    .run();
 
   await upsertSyncTimestamp(env, METRICS_RETENTION_STATE_NAME, now);
 
@@ -417,14 +435,16 @@ async function cleanupOldMetrics(env: Env): Promise<MaintenanceTaskMetrics> {
   const deletedMaintenanceRuns = d1Changes(maintenanceDelete);
   const deletedIngestionRuns = d1Changes(ingestionDelete);
   const deletedTornApiCallLogs = d1Changes(tornApiCallLogDelete);
+  const deletedTornApiKeyUsageWindows = d1Changes(tornApiKeyUsageWindowDelete);
 
   return {
-    writeStatements: 5,
+    writeStatements: 6,
     changedRows:
       deletedMaintenanceTasks +
       deletedMaintenanceRuns +
       deletedIngestionRuns +
       deletedTornApiCallLogs +
+      deletedTornApiKeyUsageWindows +
       1,
     details: {
       cutoff,
@@ -435,6 +455,8 @@ async function cleanupOldMetrics(env: Env): Promise<MaintenanceTaskMetrics> {
       deleted_maintenance_runs: deletedMaintenanceRuns,
       deleted_ingestion_runs: deletedIngestionRuns,
       deleted_torn_api_call_logs: deletedTornApiCallLogs,
+      torn_api_key_usage_window_cutoff: tornApiKeyUsageWindowCutoff,
+      deleted_torn_api_key_usage_windows: deletedTornApiKeyUsageWindows,
     },
   };
 }

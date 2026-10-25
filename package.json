@@ -32,6 +32,8 @@
 		"discord:commands:global": "node scripts/register-discord-commands.mjs --global",
 		"discord:commands:guild": "node scripts/register-discord-commands.mjs --guild",
 		"deploy": "wrangler deploy",
+		"deploy:all": "npm run deploy && npm run deploy:stock-worker && npm run deploy:enemy-hospital-monitor",
+		"deploy:enemy-hospital-monitor": "npm --prefix workers/enemy-hospital-monitor run deploy",
 		"deploy:stock-worker": "npm --prefix workers/stock-market run deploy",
 		"dev": "npm run seedLocalD1 && wrangler dev",
 		"migrate:local": "wrangler d1 migrations apply DB --local",

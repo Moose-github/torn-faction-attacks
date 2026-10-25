@@ -1459,12 +1459,6 @@ CREATE INDEX idx_attacks_retaliation_enemy_recent
 CREATE INDEX idx_attacks_retaliation_claim_recent
   ON attacks(defender_id, attacker_faction_id, started DESC, id DESC);
 
-CREATE INDEX idx_attacks_retaliation_enemy_list
-  ON attacks(defender_faction_id, started DESC, id DESC);
-
-CREATE INDEX idx_attacks_retaliation_claim_lookup
-  ON attacks(defender_id, attacker_faction_id, started DESC, id DESC);
-
 CREATE INDEX idx_attacks_defender_faction_war
   ON attacks(defender_faction_id, war_id, started DESC);
 
