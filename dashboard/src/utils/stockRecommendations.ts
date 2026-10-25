@@ -123,6 +123,8 @@ export type StockBuyRecommendationInput = {
   affordableOnly: boolean;
   minimumRoi: number | null;
   lockedStockIds?: ReadonlySet<number>;
+  /** Exclude purchase candidates without removing their valuation as sale sources. */
+  excludedPurchaseRowIds?: ReadonlySet<string>;
   fhgTciHybridBaselineShares?: ReadonlyMap<number, number>;
   fhgTciHybridReservedShares?: ReadonlyMap<number, number>;
 };
@@ -446,6 +448,7 @@ export function recommendStockBuys(input: StockBuyRecommendationInput, limit = 5
   const baselineShares = fhgTciHybridBaselineShares(input);
   const reservedShares = fhgTciHybridReservedShares(input);
   const recommendations = input.rows
+    .filter((row) => !input.excludedPurchaseRowIds?.has(row.row_id))
     .map((row) => stockBuyRecommendationFromRow(row, {
       ownedShares,
       hasOwnedSnapshot: input.ownedSnapshot !== null,
@@ -1301,7 +1304,7 @@ function buildStrategySalePlan(
     const chunk = sources
       .map(nextStrategySaleChunk)
       .filter((saleChunk): saleChunk is StockStrategySaleChunk => Boolean(saleChunk))
-      .sort(compareStrategySaleChunks)[0] ?? null;
+      .sort((left, right) => compareStrategySaleChunks(left, right, remainingCashNeeded))[0] ?? null;
     if (!chunk) {
       break;
     }
@@ -1325,7 +1328,7 @@ function buildStrategySalePlan(
       remainingCashNeeded -= chunk.sale_value;
     } else {
       const netPricePerShare = netSaleValue(chunk.source.priceRow.latest_price);
-      const sellShares = chunk.current_annual_return <= 0 && chunk.sale_value > remainingCashNeeded
+      const sellShares = chunk.sale_value > remainingCashNeeded
         ? Math.min(chunk.shares, Math.ceil(remainingCashNeeded / netPricePerShare))
         : chunk.shares;
       if (sellShares <= 0) {
@@ -1440,8 +1443,12 @@ function nextStrategySaleChunk(source: StockStrategySaleSource): StockStrategySa
   } else if (totalShares > highestCoveredThreshold) {
     sellShares = Math.min(shares, totalShares - highestCoveredThreshold);
   } else {
-    sellShares = 1;
-    lostAnnualReturn = currentAnnualReturn - coveredAnnualReturn(source.ownedRows, totalShares - 1);
+    // Breaking the active block releases its entire tranche down to the next
+    // retained block. Compare that capital, not the price of the first share;
+    // execution still sells only enough shares to cover the funding gap.
+    const retainedThreshold = highestCoveredStockThreshold(source.ownedRows, totalShares - 1) ?? 0;
+    sellShares = Math.min(shares, totalShares - retainedThreshold);
+    lostAnnualReturn = currentAnnualReturn - coveredAnnualReturn(source.ownedRows, totalShares - sellShares);
   }
 
   if (sellShares <= 0) {
@@ -1459,9 +1466,11 @@ function nextStrategySaleChunk(source: StockStrategySaleSource): StockStrategySa
   };
 }
 
-function compareStrategySaleChunks(left: StockStrategySaleChunk, right: StockStrategySaleChunk): number {
-  const leftLossRatio = left.sale_value > 0 ? left.current_annual_return / left.sale_value : Number.POSITIVE_INFINITY;
-  const rightLossRatio = right.sale_value > 0 ? right.current_annual_return / right.sale_value : Number.POSITIVE_INFINITY;
+function compareStrategySaleChunks(left: StockStrategySaleChunk, right: StockStrategySaleChunk, cashNeeded: number): number {
+  const leftUsableValue = Math.min(left.sale_value, cashNeeded);
+  const rightUsableValue = Math.min(right.sale_value, cashNeeded);
+  const leftLossRatio = leftUsableValue > 0 ? left.current_annual_return / leftUsableValue : Number.POSITIVE_INFINITY;
+  const rightLossRatio = rightUsableValue > 0 ? right.current_annual_return / rightUsableValue : Number.POSITIVE_INFINITY;
   if (leftLossRatio !== rightLossRatio) {
     return leftLossRatio - rightLossRatio;
   }

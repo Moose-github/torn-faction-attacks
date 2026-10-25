@@ -19,7 +19,8 @@ import { CollapsiblePanel, EmptyState, PanelHeader } from "../components/Common"
 import { formatDate, formatNumber, formatRelativeTime } from "../utils/format";
 import { parseNumber } from "../utils/numberInput";
 import { buildStockStrategyTimeline, type StockStrategySavingsTarget, type StockStrategyTiming } from "../utils/stockStrategyTimeline";
-import { applyImportedCityBankReturn, bankReturnProtectedStockIds, cityBankValuation } from "../utils/cityBankValuation";
+import { applyImportedCityBankReturn, cityBankValuation } from "../utils/cityBankValuation";
+import { stockBankPlannerContext } from "../utils/stockBankPlannerContext";
 import { importOwnedStockPortfolio, type OwnedStockImportProgress } from "../utils/ownedStockImport";
 import { MAX_PLANNER_FILE_BYTES, parseStockPlannerFile, serializeStockPlannerExport, stockPlannerReplayAsOf, type StockPlannerExport } from "../utils/stockPlannerTransfer";
 import {
@@ -499,8 +500,8 @@ function StockInvestmentPlanner({ imported, onImport, onExitImport, isImporting 
     () => effectiveOwnedSharesMap(loadedOwnedShares, investmentRows, manualOwnedRowIds),
     [loadedOwnedShares, investmentRows, manualOwnedRowIds],
   );
-  const recommendationRows = React.useMemo(() => investmentRows.filter((row) => !bankInvestment || !isBankInterestBonusRow(row)), [investmentRows, bankInvestment]);
-  const plannerLockedStockIds = React.useMemo(() => new Set([...lockedStockIds, ...bankReturnProtectedStockIds(investmentRows, bankInvestment)]), [lockedStockIds, investmentRows, bankInvestment]);
+  const bankPlannerContext = React.useMemo(() => stockBankPlannerContext({ rows: investmentRows, cityBankActive, bankInvestment, lockedStockIds }),
+    [investmentRows, cityBankActive, bankInvestment, lockedStockIds]);
   const hasOwnershipState = ownedSnapshot !== null || manualOwnedRowIds.size > 0 || cityBankActive || activePrivateIslandRentalCount > 0;
   const effectiveOwnedSnapshot = React.useMemo<OwnedStockSnapshot | null>(
     () => ownedSnapshotWithShares(ownedSnapshot, ownedShares, manualOwnedRowIds.size > 0),
@@ -564,26 +565,23 @@ function StockInvestmentPlanner({ imported, onImport, onExitImport, isImporting 
   });
   const rows = sortStockRoiRows(filteredRows, roiSort, ownedShares, hasOwnershipState, effectiveFhgTciHybridActive, fhgTciHybridBaselineShares, fhgTciHybridReservedShares);
   const bestBuyRecommendation = React.useMemo(() => recommendBestStockBuy({
-    rows: recommendationRows,
+    ...bankPlannerContext,
     ownedSnapshot: effectiveOwnedSnapshot,
-    cityBankActive,
     fhgTciHybridActive: effectiveFhgTciHybridActive,
     budget,
     affordableOnly: false,
     minimumRoi: null,
-  }), [recommendationRows, effectiveOwnedSnapshot, cityBankActive, effectiveFhgTciHybridActive, budget]);
+  }), [bankPlannerContext, effectiveOwnedSnapshot, effectiveFhgTciHybridActive, budget]);
   const rebalanceRecommendations = React.useMemo(() => buildStockRebalanceRecommendations({
-    rows: recommendationRows,
+    ...bankPlannerContext,
     ownedSnapshot: effectiveOwnedSnapshot,
-    cityBankActive,
     fhgTciHybridActive: effectiveFhgTciHybridActive,
     budget,
     affordableOnly: false,
     minimumRoi: null,
-    lockedStockIds: plannerLockedStockIds,
-  }, 5), [recommendationRows, effectiveOwnedSnapshot, cityBankActive, effectiveFhgTciHybridActive, budget, plannerLockedStockIds]);
+  }, 5), [bankPlannerContext, effectiveOwnedSnapshot, effectiveFhgTciHybridActive, budget]);
   const ownedInvestmentSummary = React.useMemo(() => buildOwnedInvestmentSummary({
-    rows: investmentRows,
+    rows: bankPlannerContext.rows,
     ownedShares,
     hasOwnershipState,
     cityBankActive,
@@ -592,7 +590,7 @@ function StockInvestmentPlanner({ imported, onImport, onExitImport, isImporting 
     fhgTciHybridReservedShares,
     privateIslandRow: effectivePrivateIslandRow,
     privateIslandCount: activePrivateIslandRentalCount,
-  }), [investmentRows, ownedShares, hasOwnershipState, cityBankActive, effectiveFhgTciHybridActive, fhgTciHybridBaselineShares, fhgTciHybridReservedShares, effectivePrivateIslandRow, activePrivateIslandRentalCount]);
+  }), [bankPlannerContext, ownedShares, hasOwnershipState, cityBankActive, effectiveFhgTciHybridActive, fhgTciHybridBaselineShares, fhgTciHybridReservedShares, effectivePrivateIslandRow, activePrivateIslandRentalCount]);
   const weeklyAdditionalIncome = nonNegativeMoneyInputValue(strategyCashInputs.additionalIncomePerWeek) ?? 0;
   const invalidStrategyCashInputs = [strategyCashInputs.cashAvailable, strategyCashInputs.additionalIncomePerWeek]
     .some((value) => value.trim() !== "" && nonNegativeMoneyInputValue(value) === null);

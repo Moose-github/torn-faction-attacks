@@ -1,7 +1,8 @@
 import { cityBankPrincipal, type OwnedStockSnapshot } from "./ownedStocks";
 import { applyImportedCityBankReturn, bankReturnProtectedStockIds } from "./cityBankValuation";
+import { isNonCashStockBenefit } from "./stockBenefitCash";
 import {
-  DEFAULT_STOCK_STRATEGY_STEP_LIMIT, isFhgTciHybridRow, nextScheduledStockStrategyStep, recommendStockBuys,
+  DEFAULT_STOCK_STRATEGY_STEP_LIMIT, STOCK_SELL_FEE_RATE, isFhgTciHybridRow, nextScheduledStockStrategyStep, recommendStockBuys,
   type StockBuyRecommendation, type StockBuyRecommendationInput, type StockInvestmentRecommendationRow, type StockStrategySale, type StockStrategyStep,
 } from "./stockRecommendations";
 
@@ -77,6 +78,40 @@ export function annualIncomeToWeekly(annualIncome: number): number { return annu
 
 /** Schedule payout events, retain surplus cash and select sales only at execution. */
 export function buildStockStrategyTimeline(input: StockStrategyTimelineInput, limit = DEFAULT_STOCK_STRATEGY_STEP_LIMIT): StockStrategyForecast {
+  let exclusions = new Map<string, ReadonlySet<string>>();
+  let result = simulateStockStrategyTimeline(input, limit, exclusions);
+  // Re-plan from the original holdings, so skipping a round trip also restores
+  // its fees, payout progress and the correct cost of completing later blocks.
+  for (let pass = 0; pass < limit; pass++) {
+    let improved = false;
+    for (const { purchaseIndex, saleIndex } of unproductiveStockPurchases(result, input.rows)) {
+      const purchase = result.timeline[purchaseIndex];
+      const replacement = result.timeline[saleIndex];
+      const prefix = strategyPurchasePrefix(result.timeline.slice(0, purchaseIndex).map(entry => entry.step));
+      const trialExclusions = new Map(exclusions);
+      trialExclusions.set(prefix, new Set([...(exclusions.get(prefix) ?? []), purchase.step.recommendation.row.row_id]));
+      const trial = simulateStockStrategyTimeline(input, limit, trialExclusions);
+      const direct = trial.timeline.slice(purchaseIndex).find(entry => entry.status === "scheduled"
+        && entry.step.recommendation.row.row_id === replacement.step.recommendation.row.row_id);
+      // Keep an intermediary when skipping it delays the destination or sacrifices
+      // income. A higher annual ROI alone does not make a short-lived buy useful.
+      if (!direct || direct.purchase_at! > replacement.purchase_at! + EPSILON
+        || direct.weekly_investment_income_after! + EPSILON < replacement.weekly_investment_income_after!) continue;
+      exclusions = trialExclusions;
+      result = trial;
+      improved = true;
+      break;
+    }
+    if (!improved) break;
+  }
+  return finishStockStrategyForecast(result);
+}
+
+function simulateStockStrategyTimeline(
+  input: StockStrategyTimelineInput,
+  limit: number,
+  exclusions: ReadonlyMap<string, ReadonlySet<string>>,
+): StockStrategyForecast {
   const snapshot = input.ownedSnapshot;
   const result: StockStrategyForecast = { as_of: snapshot?.refreshed_at || null, issues: [], warnings: [], weekly_investment_income: null, timeline: [], savings_target: null };
   if (!snapshot || snapshot.refreshed_at <= 0 || utcDay(snapshot.refreshed_at) !== utcDay(input.asOf) || snapshot.refreshed_at > input.asOf) {
@@ -85,7 +120,10 @@ export function buildStockStrategyTimeline(input: StockStrategyTimelineInput, li
   }
   if (snapshot.city_bank === undefined) result.issues.push("Refresh owned stocks to load City Bank details before forecasting; the bank request may have failed.");
   if (input.cityBankActive && snapshot.city_bank === null) result.issues.push("City Bank is marked active, but the API reports no deposit. Clear the active setting or refresh owned stocks.");
-  const rows = input.rows.filter((row) => !isFhgTciHybridRow(row)).map((row) => applyImportedCityBankReturn(row, snapshot.city_bank));
+  const nonCashRowIds = new Set(input.rows.filter(isNonCashStockBenefit).map(row => row.row_id));
+  const rows = input.rows.filter((row) => !isFhgTciHybridRow(row)).map((row) => nonCashRowIds.has(row.row_id)
+    ? { ...row, benefit_value: 0, annual_return: 0, roi_percent: 0, days_to_break_even: Infinity }
+    : applyImportedCityBankReturn(row, snapshot.city_bank));
   const protectedIds = bankReturnProtectedStockIds(rows, snapshot.city_bank);
   const lockedStockIds = new Set([...(input.lockedStockIds ?? []), ...protectedIds]);
   const stockRows = new Map<number, StockRow[]>();
@@ -124,6 +162,7 @@ export function buildStockStrategyTimeline(input: StockStrategyTimelineInput, li
   for (const position of snapshot.stocks) {
     const group = stockRows.get(position.stock_id);
     if (!group) continue; // Unvalued/passive benefits are not cash sources in the ROI table.
+    if (nonCashRowIds.has(group[0].row_id)) continue;
     if (importedBank && group[0].benefit_key === TCI) continue; // The imported bank return already contains any applied bonuses.
     const count = coveredIncrement(position.stock_id);
     if (!count) continue;
@@ -133,6 +172,10 @@ export function buildStockStrategyTimeline(input: StockStrategyTimelineInput, li
     const frequency = bonus?.frequency ?? (ready ? (passive ? 7 : group[0].frequency_days) : null);
     if (!bonus || (!passive && (bonus.increment === null || bonus.increment <= 0 || bonus.increment > count)) || frequency === null || frequency <= 0
       || (!ready && (bonus.progress === null || bonus.progress < 0 || bonus.progress >= frequency || (!passive && bonus.available === null)))) {
+      if (passive) {
+        result.warnings.push(`${group[0].acronym ?? group[0].name}: activation timing is unavailable; future bank estimates exclude this bonus.`);
+        continue;
+      }
       result.issues.push(`${group[0].acronym ?? group[0].name}: payout timing is missing or incompatible with these holdings. Refresh owned stocks and clear conflicting manual ownership.`);
       continue;
     }
@@ -144,6 +187,7 @@ export function buildStockStrategyTimeline(input: StockStrategyTimelineInput, li
   }
   if (input.rows.some(isFhgTciHybridRow) || input.fhgTciHybridActive) result.warnings.push("The FHG/TCI hybrid is excluded. FHG rewards and bank returns are modelled separately.");
   if (rentalAnnual > 0) result.warnings.push("Private Island rent is an averaged estimate; stock rewards and bank interest use payout dates.");
+  if (nonCashRowIds.size > 0) result.warnings.push("Energy, nerve, happiness and ammunition rewards are not cash. Their personal values are excluded from cash income and strategy purchases; unlocked shares can still be sold.");
   if (importedBank && protectedIds.some((id) => (holdings.get(id) ?? 0) > 0)) result.warnings.push("The bank forecast repeats your imported return without adding TCI again. Owned TCI is kept while assuming the same bank bonuses.");
   if (result.issues.length) return result;
 
@@ -221,7 +265,16 @@ export function buildStockStrategyTimeline(input: StockStrategyTimelineInput, li
   while (result.timeline.length < limit) {
     processPayouts();
     const currentSnapshot: OwnedStockSnapshot = { ...snapshot, stocks: [...holdings].map(([stock_id, shares]) => ({ stock_id, shares, bonus: null })) };
-    const stepInput = { ...input, rows: bank && !importedBank ? rows : rows.filter((row) => row.benefit_key !== TCI), lockedStockIds,
+    const excludedPurchaseRowIds = new Set([
+      ...(input.excludedPurchaseRowIds ?? []), ...nonCashRowIds, ...(exclusions.get(strategyPurchasePrefix(completed)) ?? []),
+    ]);
+    if (!bank || importedBank) for (const row of rows) {
+      if (row.benefit_key === TCI) excludedPurchaseRowIds.add(row.row_id);
+    }
+    // TCI earns no return without a deposit, but unlocked shares remain saleable.
+    const saleRows = bank ? rows : rows.map((row) => row.benefit_key === TCI
+      ? { ...row, benefit_value: 0, annual_return: 0, roi_percent: 0, days_to_break_even: Infinity } : row);
+    const stepInput = { ...input, rows: saleRows, lockedStockIds, excludedPurchaseRowIds,
       ownedSnapshot: currentSnapshot, cityBankActive: bank !== null, budget: cash, fhgTciHybridActive: false,
       fhgTciHybridBaselineShares: undefined, fhgTciHybridReservedShares: undefined };
     const proposed = nextScheduledStockStrategyStep(stepInput, completed, limit);
@@ -289,6 +342,51 @@ export function buildStockStrategyTimeline(input: StockStrategyTimelineInput, li
     payouts = [];
     sources = new Map();
   }
+  return result;
+}
+
+function strategyPurchasePrefix(steps: StockStrategyStep[]): string {
+  return JSON.stringify(steps.map(step => step.recommendation.row.row_id));
+}
+
+/** Find blocks sold before their additional rewards have covered trading fees. */
+function unproductiveStockPurchases(
+  forecast: StockStrategyForecast,
+  rows: StockInvestmentRecommendationRow[],
+): { purchaseIndex: number; saleIndex: number }[] {
+  const candidates: { purchaseIndex: number; saleIndex: number }[] = [];
+  for (let purchaseIndex = 0; purchaseIndex < forecast.timeline.length; purchaseIndex++) {
+    const purchase = forecast.timeline[purchaseIndex];
+    const recommendation = purchase.step.recommendation;
+    const stockId = recommendation.row.stock_id;
+    if (purchase.status !== "scheduled" || stockId === null || recommendation.target_shares === null
+      || recommendation.row.benefit_key === TCI) continue;
+    const addedBlocks = rows.filter(row => row.stock_id === stockId && row.total_shares_required !== null
+      && row.total_shares_required > recommendation.owned_shares && row.total_shares_required <= recommendation.target_shares!);
+    let earned = 0;
+    for (let saleIndex = purchaseIndex + 1; saleIndex < forecast.timeline.length; saleIndex++) {
+      const later = forecast.timeline[saleIndex];
+      if (later.status !== "scheduled") break;
+      // A further purchase in the same stock needs a separate comparison of the
+      // combined blocks; do not attribute that purchase's rewards to this one.
+      if (later.step.recommendation.row.stock_id === stockId) break;
+      for (const payout of later.funding?.payouts ?? []) {
+        if (payout.id !== `stock:${stockId}`) continue;
+        earned += addedBlocks.filter(row => row.increment !== null && row.increment <= payout.reward_count)
+          .reduce((sum, row) => sum + row.benefit_value, 0);
+      }
+      const sale = later.step.sales.find(sale => sale.stock_id === stockId);
+      if (!sale || (sale.retained_shares ?? 0) >= recommendation.target_shares) continue;
+      const fees = purchase.step.sales.reduce((sum, sale) => sum + sale.sale_fee, 0)
+        + Math.min(sale.shares, recommendation.shares_needed ?? 0) * (recommendation.row.latest_price ?? 0) * STOCK_SELL_FEE_RATE;
+      if (earned <= fees + EPSILON) candidates.push({ purchaseIndex, saleIndex });
+      break;
+    }
+  }
+  return candidates;
+}
+
+function finishStockStrategyForecast(result: StockStrategyForecast): StockStrategyForecast {
   groupSavingsMilestones(result.timeline);
   // Classify with the full lookahead first so a small repurchase (such as TCT)
   // is not counted as the second milestone before its larger target is known.
