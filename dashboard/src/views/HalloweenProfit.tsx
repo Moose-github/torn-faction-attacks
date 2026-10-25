@@ -52,25 +52,25 @@ export function HalloweenProfit() {
   const [loadingPrices, setLoadingPrices] = React.useState(true);
   const [priceError, setPriceError] = React.useState<string | null>(null);
   const [priceSnapshot, setPriceSnapshot] = React.useState<HalloweenPriceSnapshot | null>(null);
-  const [priceNotice, setPriceNotice] = React.useState<string | null>(null);
+  // Prices come from a Weav3r snapshot, the annual lows, or the user's own edits.
+  const [customPrices, setCustomPrices] = React.useState(false);
   const priceRequest = React.useRef<AbortController | null>(null);
   const resetPrices = () => {
     priceRequest.current?.abort(); priceRequest.current = null;
-    setLoadingPrices(false); setPriceError(null); setPriceSnapshot(null);
+    setLoadingPrices(false); setPriceError(null); setPriceSnapshot(null); setCustomPrices(false);
     setPrices(ENERGY_DRINK_TIERS.map(tier => tier.price));
     setNumbers(current => ({ ...current, fhcPrice: String(DEFAULT_HALLOWEEN.fhcPrice) }));
-    setPriceNotice("FHC and can prices reset to annual lows.");
   };
   const useWeav3rPrices = React.useCallback(async (automatic = false) => {
     priceRequest.current?.abort();
     const controller = new AbortController(); priceRequest.current = controller;
-    setLoadingPrices(true); setPriceError(null); setPriceNotice(null);
+    setLoadingPrices(true); setPriceError(null);
     try {
       const snapshot = await getHalloweenPrices(controller.signal);
       if (controller.signal.aborted) return;
       setPrices(ENERGY_DRINK_TIERS.map(tier => String(snapshot.cans.find(can => can.energy === tier.energy)!.price)));
       setNumbers(current => ({ ...current, fhcPrice: String(snapshot.fhc.price) }));
-      setPriceSnapshot(snapshot);
+      setPriceSnapshot(snapshot); setCustomPrices(false);
     } catch (error) {
       if (!controller.signal.aborted) setPriceError(`${error instanceof Error ? error.message : "Unable to load Weav3r prices."} ${automatic ? "Annual low prices are being used instead." : "Your prices have not been changed."}`);
     } finally {
@@ -81,7 +81,9 @@ export function HalloweenProfit() {
     void useWeav3rPrices(true);
     return () => priceRequest.current?.abort();
   }, [useWeav3rPrices]);
-  const clearPriceSource = () => { setPriceSnapshot(null); setPriceNotice(null); setPriceError(null); };
+  const clearPriceSource = () => { setPriceSnapshot(null); setCustomPrices(true); setPriceError(null); };
+  const priceSource = priceSnapshot ? `Weav3r market prices · snapshot ${new Date(priceSnapshot.generatedAt * 1000).toLocaleString()}`
+    : customPrices ? "Your own prices" : "Annual low prices";
   const panel = React.useRef<HTMLElement>(null);
   React.useEffect(() => {
     if (!popout) return;
@@ -190,7 +192,7 @@ export function HalloweenProfit() {
       if (key !== "donor") setUpgradesEdited(true);
       change(key, event.target.checked);
     }} />{label}</label>;
-  const reset = () => { resetPrices(); setPriceNotice(null); setOptions(DEFAULT_HALLOWEEN); setNumbers(initialNumbers());
+  const reset = () => { resetPrices(); setOptions(DEFAULT_HALLOWEEN); setNumbers(initialNumbers());
     setUpgradesEdited(false);
     void useWeav3rPrices(true);
     setXanaxPerDay(String(24 / DEFAULT_HALLOWEEN.drugInterval));
@@ -229,7 +231,7 @@ export function HalloweenProfit() {
             {toggle("freebie", "Freebie")}
             {toggle("cashback", "Cashback")}
             <p className="halloween-wide">Mortal Coil adds one treat per hour. Dark Power returns 5E per treat exchanged. Freebie adds one bonus exchange for every 10 treats, rounded down. Cashback returns 10% of the original batch, rounded down before Freebie is added.</p>
-            <p className="halloween-wide">Price per treat assumes Freebie is enabled. Turning it off divides the reward value by 1.1; your entered price is preserved. All other basket upgrades remain assumed purchased; Cat in Hell and Inflation are excluded.</p>
+            <p className="halloween-wide">Price per treat includes Freebie; turning Freebie off values each treat at that price ÷ 1.1. All other basket upgrades are assumed purchased, except Cat in Hell and Inflation.</p>
           </>}
           {popout === "Energy & drugs" && <>
             {toggle("donor", "Donator regeneration")}
@@ -252,17 +254,11 @@ export function HalloweenProfit() {
               <button type="button" className="book-strategy-popout-button" disabled={loadingPrices} onClick={() => void useWeav3rPrices()}>{loadingPrices ? "Loading Weav3r prices…" : "Use Weav3r prices"}</button>
               <button type="button" className="book-strategy-popout-button" onClick={resetPrices}><RotateCcw size={14} />Use annual low pricing</button>
             </div>
-            <p className="halloween-wide">Applies to FHCs and all six can tiers. Uses Weav3r's reported market prices and the cheaper can where a tier has two variants. Prices can be edited after loading.</p>
-            {priceSnapshot && <p className="halloween-wide" role="status">Weav3r prices applied. Oldest snapshot: {new Date(priceSnapshot.generatedAt * 1000).toLocaleString()}. Market values may lag current listings.</p>}
-            {priceNotice && <p className="halloween-wide" role="status">{priceNotice}</p>}
+            <p className="halloween-wide" role="status">Using: <strong>{loadingPrices ? "Loading Weav3r prices…" : priceSource}</strong></p>
             {field("fhcPrice", "Price per FHC", "$", undefined, loadingPrices)}
             {ENERGY_DRINK_TIERS.map((tier, index) => <NumberField key={tier.energy} label={`${tier.energy}E can price`} title={tier.name} suffix="$" value={prices[index]}
               disabled={loadingPrices} onChange={value => { clearPriceSource(); setPrices(current => current.map((price, i) => i === index ? value : price)); }} />)}
-            <p className="halloween-wide">Default can prices are Weav3r's reported market prices.<br />
-              <strong>Annual low prices are the lowest observed prices from this year.</strong><br />
-              Enter your own purchase prices for custom values.<br />
-              Owned boosters still have a cost.
-            </p>
+            <p className="halloween-wide">Weav3r prices are reported market values, which may lag current listings; where a can tier has two variants, the cheaper one is used. Annual lows are the lowest prices seen this year. Edit any price to use your own. Owned boosters are still costed at these prices.</p>
           </>}
           {popout === "Company" && <>
             <label className="book-strategy-field halloween-wide"><span>Company specials</span><select value={options.company} onChange={event => change("company", event.target.value as HalloweenSettings["company"])}>
@@ -273,10 +269,8 @@ export function HalloweenProfit() {
           </>}
         </div>
       </div>}
-      <p className="halloween-note">Price per treat is a flat valuation of exchanged rewards. The $750,000 default is a planning estimate; changing it updates every strategy.</p>
-      {selected && !settings.freebie && <p className="halloween-note">Freebie is disabled: rewards use ${selected.effectiveTreatPrice.toLocaleString(undefined, { maximumFractionDigits: 2 })} per treat (your entered price ÷ 1.1). The break-even price is quoted in the same units as the price input, with Freebie included.</p>}
-      <p className="halloween-note"><strong>Default item prices are Weav3r's reported market prices fetched from the Weav3r API.</strong></p>
-      {loadingPrices && <p className="halloween-note" role="status">Loading Weav3r prices… Annual low prices are used until loading completes.</p>}
+      <p className="halloween-note" role="status">Item prices: <strong>{loadingPrices ? `Loading Weav3r prices… (${priceSource} meanwhile)` : priceSource}</strong>. Price per treat is your own flat estimate of each exchanged reward.</p>
+      {selected && !settings.freebie && <p className="halloween-note">Freebie is disabled, so each treat is valued at ${selected.effectiveTreatPrice.toLocaleString(undefined, { maximumFractionDigits: 2 })}. Break-even is still quoted with Freebie included.</p>}
       {priceError && <p className="halloween-note halloween-error" role="alert">{priceError}</p>}
     </section>
 
@@ -304,8 +298,7 @@ export function HalloweenProfit() {
       </div>} />
         {refining && <p className="halloween-note" role="status">Refining all strategies to 1,024 simulations · {currentJob?.completed ?? 0} / {currentJob?.total ?? 40} complete. Showing the current 128-run estimates until finished.</p>}
         {refinementError && <p className="halloween-error" role="alert">Refinement failed. Your 128-run estimates are still shown. {refinementError}</p>}
-        <p className="halloween-note">{ranked.length} strategies · Select a row to inspect its profit and energy breakdown. Smaller figures show the difference from no book and no paid boosters, with the same weapon and energy settings. Figures average {displayedRuns.toLocaleString()} repeatable simulations with whole attacks, random whole-treat drops and Revitalize rolls where applicable.</p>
-        <p className="halloween-note">Net profit shows the average and a likely range covering the middle 80% of simulated outcomes. Strategies are ranked by average profit.</p>
+        <p className="halloween-note">{ranked.length} strategies ranked by average net profit across {displayedRuns.toLocaleString()} simulated events; the likely range covers the middle 80% of outcomes. Smaller figures are the difference from no book and no paid boosters. Select a row for its breakdown.</p>
         <div className="halloween-table-scroll"><table className="halloween-table"><thead><tr><th>Book / booster</th><th>Boosters</th><th>Attacks</th><th>Treats exchanged</th><th>Reward value</th><th>Total spent</th><th>Average net profit</th></tr></thead>
           <tbody>{rows.map(row => <tr key={row.id} className={row.id === selected.id ? "selected" : ""} onClick={() => setSelectedId(row.id)}>
             <td><button type="button" aria-pressed={row.id === selected.id} onClick={() => setSelectedId(row.id)}>{bookName(row.book)}<small>{boosterName(row.booster)}</small></button></td>
@@ -348,7 +341,7 @@ export function HalloweenProfit() {
       {selectedNoBook && <HalloweenStrategyBreakdown selected={selected} baseline={baseline} noBook={selectedNoBook} settings={settings} />}
     </div>}
     <HalloweenProgression settings={inputSettings} pricesLoading={loadingPrices}
-      priceSource={priceSnapshot ? `Weav3r prices · snapshot ${new Date(priceSnapshot.generatedAt * 1000).toLocaleString()}` : priceNotice || priceError?.includes("Annual low prices are being used") ? "Annual low prices" : "Current price inputs"} />
+      priceSource={priceSource} />
     <section className="panel halloween-method"><details><summary>How the estimate works</summary>
       {selected && alternativeWeapon && <p><strong>Simulated treats per attack</strong><br />
         {basket.name} basket: {basket.treatChance}% base treat chance, fixed throughout the event.<br />
