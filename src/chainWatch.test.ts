@@ -152,6 +152,22 @@ describe("chain watch alarm selection", () => {
     })).toEqual({ stage: "drop", alarmAt: 1300 });
   });
 
+  it.each([
+    [null, 1250, "warning_60"],
+    [1250, 1275, "warning_30"],
+  ] as const)("does not delay a due warning after a failed live check (60s sent at %s)", (warning60SentAt, now, stage) => {
+    expect(selectNextChainWatchAlarm({
+      currentChain: 101,
+      resetAt: 1000,
+      timeoutAt: 1300,
+      warning60SentAt,
+      warning30SentAt: null,
+      dropSentAt: null,
+      lastError: "Torn unavailable",
+      now,
+    })).toEqual({ stage, alarmAt: now });
+  });
+
   it("does not schedule after the drop alert has been sent", () => {
     expect(selectNextChainWatchAlarm({
       currentChain: 101,

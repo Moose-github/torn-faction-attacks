@@ -674,9 +674,14 @@ describe("per-chain persistent status messages", () => {
     expect(await readChainWatchState(db.env)).toMatchObject({
       current_chain: 9114, timeout_at: start + 300, timer_version: before.timer_version,
       discord_message_id: before.discord_message_id, drop_sent_at: null, source: "stale",
-      scheduled_alarm_at: start + 274 + CHAIN_WATCH_DROP_RETRY_SECONDS,
+      // A backwards count delays nothing: the next warning stage stays due now.
+      scheduled_alarm_at: start + 274,
     });
-    expect(upsertDiscordAlertMessage).not.toHaveBeenCalled();
+    // The alarm still warns from the known 9114 timer; nothing is dropped or restarted.
+    const calls = vi.mocked(upsertDiscordAlertMessage).mock.calls;
+    expect(calls.map(call => call[1])).toEqual(source === "alarm" ? ["chain_watch_warning"] : []);
+    if (source === "alarm") expect(calls[0][3]).toContain("Chain 9114");
+    // Threshold history is only recorded from a successful confirmation.
     expect(db.sqlite.prepare("SELECT * FROM chain_watch_threshold_events").all()).toEqual([]);
   });
 
@@ -718,26 +723,51 @@ describe("per-chain persistent status messages", () => {
     expect(upsertDiscordAlertMessage).not.toHaveBeenCalled();
   });
 
-  it("keeps warning delivery and history pending when live confirmation regresses", async () => {
+  it("warns from the known timer when live confirmation regresses, without recording history", async () => {
     await watch(); await hit(1, start, { chain: 9114 }); await tick();
     advance(start + 240);
     vi.mocked(fetchTrackedTornJson).mockResolvedValue({ chain: { current: 9113, timeout: 50 } });
     vi.mocked(upsertDiscordAlertMessage).mockClear();
     await handleChainWatchAlarm(db.env, HOME_FACTION_ID);
-    expect(upsertDiscordAlertMessage).not.toHaveBeenCalled();
+    const calls = vi.mocked(upsertDiscordAlertMessage).mock.calls;
+    expect(calls.map(call => call[1])).toEqual(["chain_watch_warning"]);
+    expect(calls[0][3]).toContain("Chain 9114");
     expect(await readChainWatchState(db.env)).toMatchObject({
-      current_chain: 9114, timeout_at: start + 300, warning_60_sent_at: null,
-      scheduled_alarm_at: start + 255, source: "stale",
+      current_chain: 9114, timeout_at: start + 300, warning_60_sent_at: start + 240, last_error: null,
+      scheduled_alarm_stage: "warning_30", scheduled_alarm_at: start + 270, discord_message_id: "message",
     });
-    // Recovery delivers one warning on the original timer and original status.
-    advance(start + 255);
-    vi.mocked(fetchTrackedTornJson).mockResolvedValue({ chain: { current: 9114, timeout: 45 } });
-    await handleChainWatchAlarm(db.env, HOME_FACTION_ID);
-    expect(await readChainWatchState(db.env)).toMatchObject({
-      current_chain: 9114, warning_60_sent_at: start + 255, discord_message_id: "message", last_error: null,
-    });
-    expect(vi.mocked(upsertDiscordAlertMessage).mock.calls.filter(call => call[1] === "chain_watch_warning")).toHaveLength(1);
+    expect(db.sqlite.prepare("SELECT * FROM chain_watch_threshold_events").all()).toEqual([]);
+    expect(calls.some(call => call[3].includes("DROPPED"))).toBe(false);
+  });
+
+  it("sends both warnings through a Torn outage but waits for confirmation before a drop", async () => {
+    await watch(); await hit(1, start); await tick();
+    vi.mocked(upsertDiscordAlertMessage).mockClear();
+    vi.mocked(fetchTrackedTornJson).mockRejectedValue(new Error("Torn unavailable"));
+    for (const offset of [240, 270, 300]) { advance(start + offset); await handleChainWatchAlarm(db.env, HOME_FACTION_ID); }
+    expect(vi.mocked(upsertDiscordAlertMessage).mock.calls.map(call => call[1]).filter(key => key !== "chain_watch"))
+      .toEqual(["chain_watch_warning", "chain_watch_critical"]);
     expect(vi.mocked(upsertDiscordAlertMessage).mock.calls.some(call => call[3].includes("DROPPED"))).toBe(false);
+    expect(await readChainWatchState(db.env)).toMatchObject({
+      warning_60_sent_at: start + 240, warning_30_sent_at: start + 270, drop_sent_at: null,
+      scheduled_alarm_stage: "drop", scheduled_alarm_at: start + 300 + CHAIN_WATCH_DROP_RETRY_SECONDS,
+    });
+    vi.mocked(fetchTrackedTornJson).mockResolvedValue({ chain: { current: 0, timeout: 0 } });
+    advance(start + 315); await handleChainWatchAlarm(db.env, HOME_FACTION_ID);
+    expect(vi.mocked(upsertDiscordAlertMessage).mock.calls.at(-1)![3]).toContain("Chain Watch DROPPED");
+    expect(await readChainWatchState(db.env)).toMatchObject({ drop_sent_at: start + 315 });
+  });
+
+  it.each([
+    ["saved (timer moved later)", { current: 151, timeout: 300 }],
+    ["ended", { current: 0, timeout: 0 }],
+  ])("still cancels a warning when Torn shows the chain %s", async (_reason, chain) => {
+    await watch(); await hit(1, start); await tick();
+    vi.mocked(upsertDiscordAlertMessage).mockClear();
+    vi.mocked(fetchTrackedTornJson).mockResolvedValue({ chain });
+    advance(start + 240); await handleChainWatchAlarm(db.env, HOME_FACTION_ID);
+    expect(vi.mocked(upsertDiscordAlertMessage).mock.calls.map(call => call[1])).not.toContain("chain_watch_warning");
+    expect((await readChainWatchState(db.env))?.warning_60_sent_at).toBeNull();
   });
 
   it.each([{}, { chain: {} }, { chain: { current: "invalid", timeout: 0 } }, { chain: { current: 9114 } },

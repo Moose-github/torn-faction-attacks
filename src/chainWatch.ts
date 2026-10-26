@@ -212,20 +212,19 @@ export function selectNextChainWatchAlarm(input: {
     };
   }
 
-  // An unconfirmed warning also needs backoff: keeping its overdue deadline
-  // would otherwise make stale live readings fire the alarm continuously.
-  const earliestAlarmAt = input.lastError ? input.now + CHAIN_WATCH_DROP_RETRY_SECONDS : input.now;
+  // Warnings need no error backoff: a failed or backwards live check still
+  // sends them from the known timer, so a due warning cannot re-fire in a loop.
   if (input.warning60SentAt === null) {
     return {
       stage: "warning_60",
-      alarmAt: Math.max(earliestAlarmAt, input.resetAt + CHAIN_WATCH_WARNING_60_OFFSET_SECONDS),
+      alarmAt: Math.max(input.now, input.resetAt + CHAIN_WATCH_WARNING_60_OFFSET_SECONDS),
     };
   }
 
   if (input.warning30SentAt === null) {
     return {
       stage: "warning_30",
-      alarmAt: Math.max(earliestAlarmAt, input.resetAt + CHAIN_WATCH_WARNING_30_OFFSET_SECONDS),
+      alarmAt: Math.max(input.now, input.resetAt + CHAIN_WATCH_WARNING_30_OFFSET_SECONDS),
     };
   }
 
@@ -569,8 +568,11 @@ async function sendWarningIfDue(
     };
     captureThreshold(thresholdJob);
   });
-  if (!chainWatchWarningDue(confirmedState, stage, sentAt) ||
-    confirmedState.source !== "live_confirm" || confirmedState.last_error !== null) return;
+  // Only positive live evidence (a later timer or an ended chain) cancels a
+  // warning. A failed, incomplete or backwards live check is not evidence the
+  // chain was saved, so warn from the known timer rather than hold the alert.
+  // Threshold events above still require a successful confirmation.
+  if (!chainWatchWarningDue(confirmedState, stage, sentAt)) return;
 
   // A new message is required for mention notifications. Keep the live status
   // message's ID separate so later refreshes do not overwrite this alert.

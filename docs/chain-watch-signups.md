@@ -61,9 +61,12 @@ timer, message ID and warning history. Attacks finishing in the same second are
 ordered by chain count before attack ID. Warning cleanup also ignores lower
 counts inside the warned timer.
 
-Incomplete live responses cannot confirm a drop or authorize a warning. Failed
-or stale warning confirmations retry after 15 seconds without sending a new
-alert or recording a threshold event. If Torn cannot be reached to confirm a drop, the check retries every 15
+Incomplete live responses cannot confirm a drop. Warnings are never held back
+waiting for Torn: only positive live evidence (a later timer or an ended chain)
+cancels one. If the live check fails, is incomplete or returns a backwards
+count, the warning is sent on schedule from the last known timer and chain
+count, but no threshold event is recorded without a successful confirmation.
+If Torn cannot be reached to confirm a drop, the check retries every 15
 seconds (and on each minute cron) rather than immediately, so an outage cannot
 spin the alarm or drain the Torn key pool. The next chain gets a new status
 message once it exceeds 100 hits.
