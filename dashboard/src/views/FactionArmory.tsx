@@ -224,6 +224,10 @@ function EquipmentRows({ group, category, tornPositions }: { group: ArmoryGroup;
 
 function CopyRow({ item, category, start, child = false }: { item: ArmoryCopy; category: ArmoryCategory; start: number; child?: boolean }) {
   const kind = weaponClass(item);
+  const loanTimeClass = item.loaned && item.loan_first_seen_at
+    ? item.loaned.id === item.owner?.id ? "armory-loan-owner"
+      : Date.now() / 1000 - item.loan_first_seen_at > 86_400 ? "armory-loan-overdue" : undefined
+    : undefined;
   return <tr className={child ? "armory-copy-child" : undefined}><td><div className="armory-weapon"><EquipmentImage item={item} category={category} start={start} /><div><strong><EquipmentName name={item.name} category={category} start={start} /></strong><small>{item.type}</small><CopyUid uid={item.uid} /></div></div></td>
     <td data-rarity={item.details?.rarity ?? undefined}>
       {kind === "special" ? <span className="armory-stat-label">{item.details?.rarity} rarity</span>
@@ -233,7 +237,7 @@ function CopyRow({ item, category, start, child = false }: { item: ArmoryCopy; c
     <td>{item.loaned ? <ArmoryBorrower borrower={item.loaned} /> : <span className="armory-available">Available</span>}</td>
     <td><ArmoryOwner item={item} category={category} /></td>
     <td className="armory-loan-time">{!item.loaned ? "—" : item.loan_first_seen_at
-      ? <>{loanElapsed(item.loan_first_seen_at)} since first observed<small><time dateTime={new Date(item.loan_first_seen_at * 1000).toISOString()}>{tct(item.loan_first_seen_at)}</time></small></>
+      ? <><span className={loanTimeClass}>{loanElapsed(item.loan_first_seen_at)} since first observed</span><small><time dateTime={new Date(item.loan_first_seen_at * 1000).toISOString()}>{tct(item.loan_first_seen_at)}</time></small></>
       : <span title="Tracking starts on the next successful inventory refresh.">Awaiting observation</span>}</td></tr>;
 }
 
