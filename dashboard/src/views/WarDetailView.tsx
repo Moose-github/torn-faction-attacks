@@ -459,7 +459,7 @@ export function WarDetailView({
                 </CollapsiblePanel>
               ) : null}
 
-              {competition.enabled ? <EventCompetitionPanel key={selectedWar.id} war={selectedWar} data={competition.data} error={competition.error} /> : null}
+              {competition.enabled ? <EventCompetitionPanel key={selectedWar.id} war={selectedWar} data={competition.data} error={competition.error} memberStats={warDetail?.war.id === selectedWar.id ? members : []} /> : null}
 
               {showFactionActivity ? (
                 <CollapsiblePanel

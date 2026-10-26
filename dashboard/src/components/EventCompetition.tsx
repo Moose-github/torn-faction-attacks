@@ -2,7 +2,7 @@ import { startPolling, type PollContext } from "../utils/polling";
 import React from "react";
 import { ArrowDown, ArrowUp, Candy, Flag, RefreshCw, Shield } from "lucide-react";
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import type { WarSummary } from "../api";
+import type { MemberStats, WarSummary } from "../api";
 import { getEventCompetition, updateEliminationTeamStatus, type CompetitionMember, type EventCompetition } from "../api/competition";
 import { EmptyState, PanelHeader } from "./Common";
 import { formatDate, formatLongDateTime, formatNumber } from "../utils/format";
@@ -103,12 +103,15 @@ export function EventRoomCompetition({ war }: { war: WarSummary }) {
   return state.enabled ? <EventCompetitionPanel key={war.id} war={war} data={state.data} error={state.error} compact /> : null;
 }
 
-export function EventCompetitionPanel({ war, data, error, compact = false }: {
-  war: WarSummary; data: EventCompetition | null; error: string | null; compact?: boolean;
+type CompetitionSortKey = "name" | "team" | "treats" | "attacks" | "respect" | "eliminated";
+
+export function EventCompetitionPanel({ war, data, error, compact = false, memberStats = [] }: {
+  war: WarSummary; data: EventCompetition | null; error: string | null; compact?: boolean; memberStats?: MemberStats[];
 }) {
   const halloween = war.event_type === "halloween";
   const [team, setTeam] = React.useState("all");
-  const [sort, setSort] = React.useState<{ key: "name" | "team" | "treats" | "eliminated"; descending: boolean }>({ key: halloween ? "treats" : "eliminated", descending: halloween });
+  const [sort, setSort] = React.useState<{ key: CompetitionSortKey; descending: boolean }>({ key: halloween ? "treats" : "eliminated", descending: halloween });
+  const statsByMember = new Map(memberStats.map(member => [member.member_id, member]));
   const members = data?.members ?? [];
   const teams = [...new Set(members.map(competitionTeam))].sort();
   const visible = members.filter(member => halloween || (team === "all"
@@ -121,10 +124,15 @@ export function EventCompetitionPanel({ war, data, error, compact = false }: {
     if (!halloween && sort.key === "team") {
       return (sort.descending ? -1 : 1) * competitionTeam(a).localeCompare(competitionTeam(b)) || a.member_name.localeCompare(b.member_name);
     }
-    if (halloween && sort.key === "treats") {
-      if (a.treats_gained === null) return b.treats_gained === null ? a.member_name.localeCompare(b.member_name) : 1;
-      if (b.treats_gained === null) return -1;
-      return (sort.descending ? -1 : 1) * (a.treats_gained - b.treats_gained) || a.member_name.localeCompare(b.member_name);
+    if (halloween && (sort.key === "treats" || sort.key === "attacks" || sort.key === "respect")) {
+      const metric = (member: CompetitionMember) => sort.key === "treats" ? member.treats_gained
+        : sort.key === "attacks" ? statsByMember.get(member.member_id)?.attacks_vs_enemy_successful
+        : statsByMember.get(member.member_id)?.respect_gained;
+      const aValue = metric(a);
+      const bValue = metric(b);
+      if (aValue == null) return bValue == null ? a.member_name.localeCompare(b.member_name) : 1;
+      if (bValue == null) return -1;
+      return (sort.descending ? -1 : 1) * (aValue - bValue) || a.member_name.localeCompare(b.member_name);
     }
     return (sort.descending && sort.key === "name" ? -1 : 1) * a.member_name.localeCompare(b.member_name);
   });
@@ -133,10 +141,10 @@ export function EventCompetitionPanel({ war, data, error, compact = false }: {
   const lastUpdate = Math.max(0, ...members.map(member => member.updated_at ?? 0));
   const baselines = members.flatMap(member => member.baseline_at === null ? [] : [member.baseline_at]);
   const firstBaseline = baselines.length ? Math.min(...baselines) : null;
-  function changeSort(key: "name" | "team" | "treats" | "eliminated") {
-    setSort(current => ({ key, descending: current.key === key ? !current.descending : key === "treats" }));
+  function changeSort(key: CompetitionSortKey) {
+    setSort(current => ({ key, descending: current.key === key ? !current.descending : key === "treats" || key === "attacks" || key === "respect" }));
   }
-  const sortIcon = (key: "name" | "team" | "treats" | "eliminated") => sort.key !== key ? null : sort.descending ? <ArrowDown size={13} /> : <ArrowUp size={13} />;
+  const sortIcon = (key: CompetitionSortKey) => sort.key !== key ? null : sort.descending ? <ArrowDown size={13} /> : <ArrowUp size={13} />;
   return <section className="panel event-competition-panel">
     <PanelHeader icon={halloween ? <Candy size={17} /> : <Flag size={17} />}
       title={halloween ? "Halloween treats" : "Elimination participation"}
@@ -176,16 +184,27 @@ export function EventCompetitionPanel({ war, data, error, compact = false }: {
         <div className="table-scroll"><table className="event-competition-table">
           <thead><tr>
             <th aria-sort={sort.key === "name" ? sort.descending ? "descending" : "ascending" : "none"}><button type="button" onClick={() => changeSort("name")}>Member {sortIcon("name")}</button></th>
-            {halloween ? <><th>Starting treats</th><th aria-sort={sort.key === "treats" ? sort.descending ? "descending" : "ascending" : "none"}><button type="button" onClick={() => changeSort("treats")}>Treats gained {sortIcon("treats")}</button></th><th>Basket</th><th>Baseline captured</th></> : <th aria-sort={sort.key === "team" ? sort.descending ? "descending" : "ascending" : "none"}><button type="button" onClick={() => changeSort("team")}>Team {sortIcon("team")}</button></th>}
-            {halloween ? <th>Last reading</th> : <th aria-sort={sort.key === "eliminated" ? sort.descending ? "descending" : "ascending" : "none"}><button type="button" onClick={() => changeSort("eliminated")}>Eliminated {sortIcon("eliminated")}</button></th>}<th>Status</th>
+            {halloween ? <>
+              <th>Starting treats</th>
+              <th aria-sort={sort.key === "treats" ? sort.descending ? "descending" : "ascending" : "none"}><button type="button" onClick={() => changeSort("treats")}>Treats gained {sortIcon("treats")}</button></th>
+              <th aria-sort={sort.key === "attacks" ? sort.descending ? "descending" : "ascending" : "none"}><button type="button" onClick={() => changeSort("attacks")}>Successful attacks {sortIcon("attacks")}</button></th>
+              <th aria-sort={sort.key === "respect" ? sort.descending ? "descending" : "ascending" : "none"}><button type="button" title="Adjusted respect, with chain bonus hits counted at the member's average hit value." onClick={() => changeSort("respect")}>Respect gained {sortIcon("respect")}</button></th>
+            </> : <th aria-sort={sort.key === "team" ? sort.descending ? "descending" : "ascending" : "none"}><button type="button" onClick={() => changeSort("team")}>Team {sortIcon("team")}</button></th>}
+            {!halloween ? <th aria-sort={sort.key === "eliminated" ? sort.descending ? "descending" : "ascending" : "none"}><button type="button" onClick={() => changeSort("eliminated")}>Eliminated {sortIcon("eliminated")}</button></th> : null}<th>Status</th>
+            {halloween ? <th>Basket</th> : null}
           </tr></thead>
           <tbody>{visible.map(member => <tr key={member.member_id}
             className={eliminationRowStatus(data, member) ? "event-inactive-row" : undefined}>
             <td><a className="member-link" href={`https://www.torn.com/profiles.php?XID=${member.member_id}`} target="_blank" rel="noreferrer">{member.member_name}</a></td>
-            {halloween ? <><td>{member.baseline_treats == null ? "Unavailable" : formatNumber(member.baseline_treats)}</td><td>{member.treats_gained === null ? "Unavailable" : formatNumber(member.treats_gained)}</td><td>{member.basket_name ?? (member.baseline_at !== null ? "No basket" : "Unavailable")}</td><td>{member.baseline_at ? formatLongDateTime(member.baseline_at) : "Awaiting baseline"}</td></> : <td>{competitionTeam(member)}</td>}
-            {halloween ? <td>{member.updated_at ? formatLongDateTime(member.updated_at) : "Awaiting data"}</td>
-              : <td>{eliminationRowStatus(data, member) === "Eliminated" ? "Yes" : member.participation === "participating" ? "No" : "-"}</td>}
+            {halloween ? <>
+              <td title={`Baseline captured: ${member.baseline_at ? formatLongDateTime(member.baseline_at) : "Awaiting baseline"}`}>{member.baseline_treats == null ? "Unavailable" : formatNumber(member.baseline_treats)}</td>
+              <td title={`Last reading: ${member.updated_at ? formatLongDateTime(member.updated_at) : "Awaiting data"}`}>{member.treats_gained === null ? "Unavailable" : formatNumber(member.treats_gained)}</td>
+              <td>{statsByMember.get(member.member_id)?.attacks_vs_enemy_successful == null ? "Unavailable" : formatNumber(statsByMember.get(member.member_id)!.attacks_vs_enemy_successful)}</td>
+              <td>{statsByMember.get(member.member_id)?.respect_gained == null ? "Unavailable" : formatNumber(statsByMember.get(member.member_id)!.respect_gained)}</td>
+            </> : <td>{competitionTeam(member)}</td>}
+            {!halloween ? <td>{eliminationRowStatus(data, member) === "Eliminated" ? "Yes" : member.participation === "participating" ? "No" : "-"}</td> : null}
             <td title={member.last_error ?? undefined}>{eliminationRowStatus(data, member) ?? (member.status === "complete" ? "Captured" : member.status === "tracking" ? halloween && war.status === "scheduled" ? "Baseline saved" : "Tracking" : member.status === "pending" ? "Pending" : member.status === "finishing" ? "Final pending" : member.status === "stale" ? "Stale" : member.status === "incomplete" ? "Incomplete" : "Unavailable")}</td>
+            {halloween ? <td>{member.basket_name?.replace(/^Halloween Basket\s*:\s*/i, "") ?? (member.baseline_at !== null ? "No basket" : "Unavailable")}</td> : null}
           </tr>)}</tbody>
         </table></div>
         {!visible.length ? <EmptyState text="No members to show" /> : null}
