@@ -53,8 +53,17 @@ The 60-second warning and 30-second critical warning each post a new Discord
 message. When a chain drops, its existing live status message is edited to show
 **Chain Watch DROPPED**. Its ID and final chain details are retained until that
 edit succeeds; failed edits retry without creating a replacement post. This also
-applies when a cron detects the drop or a lower chain count reveals a replacement
-chain. If Torn cannot be reached to confirm a drop, the check retries every 15
+applies when a cron confirms the drop or a lower chain count has a new hit after
+the previous chain's timeout, establishing a replacement chain. A lower count
+whose hit belongs to the previous timer is treated as stale, even if it arrives
+later or its returned timer has expired. The monitor retains the latest count,
+timer, message ID and warning history. Attacks finishing in the same second are
+ordered by chain count before attack ID. Warning cleanup also ignores lower
+counts inside the warned timer.
+
+Incomplete live responses cannot confirm a drop or authorize a warning. Failed
+or stale warning confirmations retry after 15 seconds without sending a new
+alert or recording a threshold event. If Torn cannot be reached to confirm a drop, the check retries every 15
 seconds (and on each minute cron) rather than immediately, so an outage cannot
 spin the alarm or drain the Torn key pool. The next chain gets a new status
 message once it exceeds 100 hits.

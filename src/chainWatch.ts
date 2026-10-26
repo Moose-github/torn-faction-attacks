@@ -212,17 +212,20 @@ export function selectNextChainWatchAlarm(input: {
     };
   }
 
+  // An unconfirmed warning also needs backoff: keeping its overdue deadline
+  // would otherwise make stale live readings fire the alarm continuously.
+  const earliestAlarmAt = input.lastError ? input.now + CHAIN_WATCH_DROP_RETRY_SECONDS : input.now;
   if (input.warning60SentAt === null) {
     return {
       stage: "warning_60",
-      alarmAt: Math.max(input.now, input.resetAt + CHAIN_WATCH_WARNING_60_OFFSET_SECONDS),
+      alarmAt: Math.max(earliestAlarmAt, input.resetAt + CHAIN_WATCH_WARNING_60_OFFSET_SECONDS),
     };
   }
 
   if (input.warning30SentAt === null) {
     return {
       stage: "warning_30",
-      alarmAt: Math.max(input.now, input.resetAt + CHAIN_WATCH_WARNING_30_OFFSET_SECONDS),
+      alarmAt: Math.max(earliestAlarmAt, input.resetAt + CHAIN_WATCH_WARNING_30_OFFSET_SECONDS),
     };
   }
 
@@ -239,12 +242,19 @@ export function parseTornChainResponse(data: unknown, now: number): ParsedTornCh
     return null;
   }
 
-  const current = Math.floor(Number(chain.current ?? chain.chain ?? 0));
-  if (!Number.isFinite(current) || current <= 0) {
+  const currentValue = chain.current ?? chain.chain;
+  if ((typeof currentValue !== "number" && typeof currentValue !== "string") ||
+    (typeof currentValue === "string" && !currentValue.trim())) return null;
+  const current = Number(currentValue);
+  if (!Number.isInteger(current) || current < 0) return null;
+  if (current === 0) {
     return { current: 0, timeoutAt: null, active: false };
   }
 
-  const timeoutValue = finiteNumber(chain.timeout ?? chain.timeout_at ?? chain.timeoutAt);
+  const rawTimeout = chain.timeout ?? chain.timeout_at ?? chain.timeoutAt;
+  const timeoutValue = typeof rawTimeout === "number" || (typeof rawTimeout === "string" && rawTimeout.trim())
+    ? finiteNumber(rawTimeout) : null;
+  if (timeoutValue !== null && timeoutValue < 0) return null;
   const timeoutAt = timeoutValue === null
     ? null
     : timeoutValue > 1_000_000_000
@@ -355,7 +365,7 @@ export async function refreshChainWatch(
   options: { scheduleAlarm?: boolean; confirmDrop?: boolean } = {},
 ): Promise<ChainWatchStateRow | null> {
   return retryChainWatchObservation(env, checkedAt, async (existing, observedAt) => {
-    const observation = await observeChainWatch(env, observedAt, {
+    const observation = await observeChainWatch(env, observedAt, existing, {
       confirmDrop: options.confirmDrop ?? false,
     });
     let saved = await saveChainWatchObservation(env, HOME_FACTION_ID, existing, observation, observedAt);
@@ -393,6 +403,7 @@ async function retryChainWatchObservation(
 async function observeChainWatch(
   env: Env,
   checkedAt: number,
+  existing: ChainWatchStateRow | null,
   options: { confirmDrop: boolean },
 ): Promise<ChainWatchObservation> {
   const latestHit = await readLatestQualifyingChainHit(env, checkedAt);
@@ -403,7 +414,7 @@ async function observeChainWatch(
   }
 
   if (!latestHit || !storedObservationValue || options.confirmDrop) {
-    const live = await readTornChain(env, checkedAt).catch((err: any) => ({
+    const live = await readTornChain(env, checkedAt, existing).catch((err: any) => ({
       error: err?.message || String(err),
       chain: null,
     }));
@@ -439,10 +450,10 @@ async function observeChainWatch(
     }
   }
 
-  return {
-    ...storedObservation(latestHit),
-    source: "stale",
-  };
+  // Reaching here means the live endpoint explicitly confirmed inactivity.
+  // Keep the last hit for the final message, but distinguish this from stale
+  // stored data, which is not evidence that the chain ended.
+  return { ...storedObservation(latestHit), source: "dropped" };
 }
 
 async function observeStoredChainWatch(
@@ -558,7 +569,8 @@ async function sendWarningIfDue(
     };
     captureThreshold(thresholdJob);
   });
-  if (!chainWatchWarningDue(confirmedState, stage, sentAt)) return;
+  if (!chainWatchWarningDue(confirmedState, stage, sentAt) ||
+    confirmedState.source !== "live_confirm" || confirmedState.last_error !== null) return;
 
   // A new message is required for mention notifications. Keep the live status
   // message's ID separate so later refreshes do not overwrite this alert.
@@ -645,7 +657,7 @@ async function observeChainWatchWarning(
   checkedAt: number,
   onConfirmed: (state: ChainWatchStateRow, observedAt: number) => void,
 ): Promise<ChainWatchStateRow | null> {
-  const live = await readTornChain(env, checkedAt).catch((err: any) => ({
+  const live = await readTornChain(env, checkedAt, state).catch((err: any) => ({
     error: err?.message || String(err),
     chain: null,
   }));
@@ -768,6 +780,15 @@ async function finishChainWatchDiscordMessage(
     throw new ChainWatchObservationConflict("Chain watch changed before its dropped message update.");
   }
   const delivery = await deliverChainWatchDroppedStatus(env, state.discord_message_id!, message, CHAIN_WATCH_DROP_COLOR);
+  if (delivery.status !== "success") {
+    // Preserve confirmation separately from delivery. If the edit fails, a
+    // replacement chain can arrive before the old estimated deadline; its
+    // lower count must not erase the pending finalization or be rejected as stale.
+    await env.DB.prepare(`UPDATE faction_chain_watch_state SET source = 'dropped'
+      WHERE faction_id = ? AND enabled = 1 AND timer_version = ?
+        AND discord_message_id = ? AND last_checked_at IS ?`)
+      .bind(state.faction_id, state.timer_version, state.discord_message_id, state.last_checked_at).run();
+  }
   // A missing route is not a completed edit either. Retain both the ID and old
   // chain details so a cron/alarm retry cannot overwrite them with a new chain.
   await requireChainWatchAlertDelivery(env, state, delivery.status === "skipped"
@@ -874,8 +895,17 @@ async function saveChainWatchObservation(
     observation.resetAt !== null &&
     observation.timeoutAt !== null &&
     observation.timeoutAt > checkedAt;
-  if (existing?.discord_message_id && observation.lastError !== null && !activeObservation) {
+  if (existing && observation.lastError !== null && !activeObservation) {
     return updateChainWatchLiveCheckStatus(env, existing, checkedAt, "stale", observation.lastError);
+  }
+  // A smaller count alone is not a replacement chain. Torn's live endpoint
+  // and attack feed can lag independently, even when this request is newer.
+  // Require the replacement hit to follow the previous timeout, or an explicit
+  // confirmed drop, before releasing the status and resetting alert history.
+  if (existing && observation.source !== "dropped" &&
+    isRegressiveChainCount(existing, observation.currentChain, observation.resetAt)) {
+    return updateChainWatchLiveCheckStatus(env, existing, checkedAt, "stale",
+      `Ignored older chain count ${observation.currentChain}; latest count is ${existing.current_chain}.`);
   }
   // Finalize the old chain before a confirmed drop or lower replacement count
   // can erase its message ID, hit details, or final chain length.
@@ -1017,7 +1047,7 @@ export async function readLatestQualifyingChainHit(
       AND (a.defender_faction_id IS NULL OR a.defender_faction_id != ?)
       AND a.result IN (${POSITIVE_RESULTS_SQL})
       AND COALESCE(a.ended, a.started) <= ?
-    ORDER BY COALESCE(a.ended, a.started) DESC, a.id DESC
+    ORDER BY COALESCE(a.ended, a.started) DESC, a.chain DESC, a.id DESC
     LIMIT 1
   `).bind(HOME_FACTION_ID, HOME_FACTION_ID, checkedAt).first<ChainWatchAttackRow>();
 }
@@ -1025,6 +1055,7 @@ export async function readLatestQualifyingChainHit(
 async function readTornChain(
   env: Env,
   now: number,
+  existing: ChainWatchStateRow | null,
 ): Promise<{ chain: ParsedTornChain | null; error: string | null }> {
   const data = await withTornKeyPool(env, {
     feature: "war_live_data",
@@ -1048,7 +1079,23 @@ async function readTornChain(
     ),
   });
 
-  return { chain: parseTornChainResponse(data, now), error: null };
+  const chain = parseTornChainResponse(data, now);
+  if (!chain || (chain.current > 0 && chain.timeoutAt === null)) {
+    return { chain: null, error: "Torn chain response is missing a valid count or timeout." };
+  }
+  // Check positive counts even when their returned timer has expired. An old
+  // smaller chain with timeout=0 must not become confirmation of a new drop.
+  if (chain.current > 0 && isRegressiveChainCount(existing, chain.current,
+    chain.timeoutAt === null ? null : chain.timeoutAt - CHAIN_WATCH_TIMEOUT_SECONDS)) {
+    return { chain: null, error: `Ignored older live chain count ${chain.current}; latest count is ${existing!.current_chain}.` };
+  }
+  return { chain, error: null };
+}
+
+function isRegressiveChainCount(state: ChainWatchStateRow | null, currentChain: number | null, resetAt: number | null): boolean {
+  return state !== null && state.source !== "dropped" && state.drop_sent_at === null &&
+    state.current_chain !== null && currentChain !== null && currentChain < state.current_chain &&
+    (state.timeout_at === null || resetAt === null || resetAt < state.timeout_at);
 }
 
 async function syncChainWatchStatusDiscordMessage(
@@ -1060,7 +1107,7 @@ async function syncChainWatchStatusDiscordMessage(
   const current = await readChainWatchState(env);
   if (!current || current.enabled !== 1 || current.timer_version !== state.timer_version) return current ?? state;
   if (current.last_checked_at !== state.last_checked_at || current.drop_sent_at !== state.drop_sent_at) return current;
-  if (!chainWatchAlertEligible(state.current_chain) || state.source === "dropped" ||
+  if (!chainWatchAlertEligible(state.current_chain) || state.source === "dropped" || state.last_error !== null ||
     state.drop_sent_at !== null || state.timeout_at === null || state.timeout_at <= checkedAt) return state;
   const chainWindowChanged =
     previous === null ||

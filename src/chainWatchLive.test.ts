@@ -153,6 +153,12 @@ describe("independent faction chain monitor", () => {
     expect(await readLatestQualifyingChainHit(db.env, start)).toMatchObject({ id: 9 });
   });
 
+  it("uses the highest chain count when attacks finish in the same second", async () => {
+    await hit(1, start, { chain: 9132 });
+    await hit(2, start, { chain: 9131 });
+    expect(await readLatestQualifyingChainHit(db.env, start)).toMatchObject({ id: 1, chain: 9132 });
+  });
+
   it("shares state between a war and watch, and disabling the war leaves the watch running", async () => {
     await watch(); await war(); await hit(1, start - 10); await tick();
     const before = await readChainWatchState(db.env);
@@ -652,6 +658,102 @@ describe("chain watch threshold event history", () => {
 });
 
 describe("per-chain persistent status messages", () => {
+  it.each([
+    { source: "cron", timeout: 22 }, { source: "alarm", timeout: 22 },
+    { source: "cron", timeout: 0 }, { source: "alarm", timeout: 0 },
+  ])("ignores the incident's backwards live count during a $source refresh (timeout $timeout)", async ({ source, timeout }) => {
+    await watch();
+    vi.mocked(fetchTrackedTornJson).mockResolvedValue({ chain: { current: 9114, timeout: 35 } });
+    await tick(start + 265);
+    const before = (await readChainWatchState(db.env))!;
+    vi.mocked(upsertDiscordAlertMessage).mockClear();
+    vi.mocked(fetchTrackedTornJson).mockResolvedValue({ chain: { current: 9113, timeout } });
+    advance(start + 274);
+    if (source === "cron") await tick(start + 274);
+    else await handleChainWatchAlarm(db.env, HOME_FACTION_ID);
+    expect(await readChainWatchState(db.env)).toMatchObject({
+      current_chain: 9114, timeout_at: start + 300, timer_version: before.timer_version,
+      discord_message_id: before.discord_message_id, drop_sent_at: null, source: "stale",
+      scheduled_alarm_at: start + 274 + CHAIN_WATCH_DROP_RETRY_SECONDS,
+    });
+    expect(upsertDiscordAlertMessage).not.toHaveBeenCalled();
+    expect(db.sqlite.prepare("SELECT * FROM chain_watch_threshold_events").all()).toEqual([]);
+  });
+
+  it.each(["cron", "stored"])("preserves a newer live timer across repeated delayed %s observations", async source => {
+    await watch();
+    vi.mocked(fetchTrackedTornJson).mockResolvedValue({ chain: { current: 9114, timeout: 300 } });
+    await tick();
+    const before = (await readChainWatchState(db.env))!;
+    await hit(1, start - 20, { chain: 9113 });
+    vi.mocked(upsertDiscordAlertMessage).mockClear();
+    for (const offset of [1, 2, 3]) {
+      advance(start + offset);
+      if (source === "cron") await tick(start + offset);
+      else await refreshActiveChainWatchFromStoredAttacks(db.env, start + offset);
+    }
+    expect(await readChainWatchState(db.env)).toMatchObject({
+      current_chain: 9114, timeout_at: start + 300, timer_version: before.timer_version,
+      discord_message_id: before.discord_message_id, drop_sent_at: null,
+    });
+    expect(upsertDiscordAlertMessage).not.toHaveBeenCalled();
+    // A current observation can still advance this chain normally.
+    await hit(2, start + 4, { chain: 9115 }); await tick(start + 4);
+    expect(await readChainWatchState(db.env)).toMatchObject({
+      current_chain: 9115, timeout_at: start + 304, discord_message_id: before.discord_message_id, last_error: null,
+    });
+  });
+
+  it("does not treat an old lower count as a restart just because the previous deadline has passed", async () => {
+    await watch();
+    vi.mocked(fetchTrackedTornJson).mockResolvedValue({ chain: { current: 9114, timeout: 35 } });
+    await tick(start + 265);
+    vi.mocked(upsertDiscordAlertMessage).mockClear();
+    vi.mocked(fetchTrackedTornJson).mockResolvedValue({ chain: { current: 9113, timeout: 10 } });
+    await tick(start + 310);
+    expect(await readChainWatchState(db.env)).toMatchObject({
+      current_chain: 9114, timeout_at: start + 300, discord_message_id: "message", drop_sent_at: null,
+      source: "stale", last_error: expect.any(String),
+    });
+    expect(upsertDiscordAlertMessage).not.toHaveBeenCalled();
+  });
+
+  it("keeps warning delivery and history pending when live confirmation regresses", async () => {
+    await watch(); await hit(1, start, { chain: 9114 }); await tick();
+    advance(start + 240);
+    vi.mocked(fetchTrackedTornJson).mockResolvedValue({ chain: { current: 9113, timeout: 50 } });
+    vi.mocked(upsertDiscordAlertMessage).mockClear();
+    await handleChainWatchAlarm(db.env, HOME_FACTION_ID);
+    expect(upsertDiscordAlertMessage).not.toHaveBeenCalled();
+    expect(await readChainWatchState(db.env)).toMatchObject({
+      current_chain: 9114, timeout_at: start + 300, warning_60_sent_at: null,
+      scheduled_alarm_at: start + 255, source: "stale",
+    });
+    // Recovery delivers one warning on the original timer and original status.
+    advance(start + 255);
+    vi.mocked(fetchTrackedTornJson).mockResolvedValue({ chain: { current: 9114, timeout: 45 } });
+    await handleChainWatchAlarm(db.env, HOME_FACTION_ID);
+    expect(await readChainWatchState(db.env)).toMatchObject({
+      current_chain: 9114, warning_60_sent_at: start + 255, discord_message_id: "message", last_error: null,
+    });
+    expect(vi.mocked(upsertDiscordAlertMessage).mock.calls.filter(call => call[1] === "chain_watch_warning")).toHaveLength(1);
+    expect(vi.mocked(upsertDiscordAlertMessage).mock.calls.some(call => call[3].includes("DROPPED"))).toBe(false);
+  });
+
+  it.each([{}, { chain: {} }, { chain: { current: "invalid", timeout: 0 } }, { chain: { current: 9114 } },
+    { chain: { current: 9114, timeout: false } }, { chain: { current: 9114, timeout: -1 } }])(
+    "does not confirm a drop from an incomplete live response %j", async response => {
+      await watch(); await hit(1, start, { chain: 9114 }); await tick();
+      vi.mocked(upsertDiscordAlertMessage).mockClear();
+      vi.mocked(fetchTrackedTornJson).mockResolvedValue(response);
+      await tick(start + 300);
+      expect(await readChainWatchState(db.env)).toMatchObject({
+        current_chain: 9114, discord_message_id: "message", drop_sent_at: null, source: "stale", last_error: expect.any(String),
+      });
+      expect(upsertDiscordAlertMessage).not.toHaveBeenCalled();
+    },
+  );
+
   it("keeps live-only chain details when Torn fails and finalizes them after confirmation recovers", async () => {
     await watch();
     vi.mocked(fetchTrackedTornJson).mockResolvedValueOnce({ chain: { current: 150, timeout: 300 } });
@@ -773,6 +875,17 @@ describe("per-chain persistent status messages", () => {
     expect((await readChainWatchState(db.env))?.discord_message_id).toBe("replacement-chain");
   });
 
+  it("accepts a live replacement count when its new hit follows the previous chain's deadline", async () => {
+    await watch(); await hit(1, start, { chain: 500 }); await tick();
+    vi.mocked(upsertDiscordAlertMessage).mockClear().mockImplementation(async (_env, _key, id) => id ?? "replacement-chain");
+    vi.mocked(fetchTrackedTornJson).mockResolvedValue({ chain: { current: 101, timeout: 300 } });
+    await tick(start + 310);
+    expect(vi.mocked(upsertDiscordAlertMessage).mock.calls.map(call => call[2])).toEqual(["message", null]);
+    expect(await readChainWatchState(db.env)).toMatchObject({
+      current_chain: 101, timeout_at: start + 610, discord_message_id: "replacement-chain", last_error: null,
+    });
+  });
+
   it("keeps the same message when a failed live check is followed by a continuing chain", async () => {
     await watch(); await hit(1, start); await tick();
     vi.mocked(upsertDiscordAlertMessage).mockClear();
@@ -887,6 +1000,17 @@ describe("warning message cleanup", () => {
     await hit(3, start + 280, { chain: 545 }); await tick(start + 281);
     expect(editWatchDiscordMessage).not.toHaveBeenCalled();
     await savingHit(start + 261); await tick(start + 282);
+    expect(editedSummary()).toMatchObject({ components: [{ type: 10, content: "Chain saved by M00SE with 39 seconds remaining" }] });
+  });
+
+  it("ignores a delayed lower hit inside the warned timer instead of declaring the warning dropped", async () => {
+    await warnings(false);
+    await hit(99, start + 1, { chain: 542 });
+    await tick(start + 241);
+    expect(editWatchDiscordMessage).not.toHaveBeenCalled();
+    expect(await db.env.DB.prepare("SELECT outcome_text FROM chain_watch_warning_cycles").first())
+      .toMatchObject({ outcome_text: null });
+    await savingHit(start + 261); await tick(start + 262);
     expect(editedSummary()).toMatchObject({ components: [{ type: 10, content: "Chain saved by M00SE with 39 seconds remaining" }] });
   });
 

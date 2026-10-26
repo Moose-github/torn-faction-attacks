@@ -37,13 +37,15 @@ export async function recordChainWatchWarning(
 async function resolveOutcome(env: Env, cycle: WarningCycle, state: ChainWatchStateRow | null, now: number): Promise<string | null> {
   // Ingestion can contain several hits. The first hit after the warned timer,
   // not the most recently ingested hit or polling time, identifies the saver.
+  // A lower count inside that timer is an out-of-order observation, not a drop.
   const hit = await env.DB.prepare(`SELECT attacker_name, chain, COALESCE(ended, started) AS hit_at
     FROM attacks WHERE attacker_faction_id = ?
       AND (defender_faction_id IS NULL OR defender_faction_id != ?)
       AND result IN (${POSITIVE_RESULTS_SQL}) AND chain > 0 AND chain != ?
       AND COALESCE(ended, started) > ? AND COALESCE(ended, started) <= ?
+      AND (chain > ? OR COALESCE(ended, started) >= ?)
     ORDER BY COALESCE(ended, started), id LIMIT 1`)
-    .bind(cycle.faction_id, cycle.faction_id, cycle.chain_length, cycle.reset_at, now)
+    .bind(cycle.faction_id, cycle.faction_id, cycle.chain_length, cycle.reset_at, now, cycle.chain_length, cycle.timeout_at)
     .first<{ attacker_name: string | null; chain: number; hit_at: number }>();
   if (hit && hit.chain === cycle.chain_length + 1 && hit.hit_at < cycle.timeout_at) {
     const name = hit.attacker_name?.replace(/\s+/g, " ").trim() || "Unknown attacker";
@@ -54,9 +56,8 @@ async function resolveOutcome(env: Env, cycle: WarningCycle, state: ChainWatchSt
   if (hit && hit.chain > cycle.chain_length) return null;
   const confirmedDrop = state && state.last_error === null &&
     state.last_checked_at !== null && state.last_checked_at >= cycle.reset_at &&
-    (Number(state.current_chain) < cycle.chain_length ||
-      (Number(state.current_chain) === cycle.chain_length &&
-        (state.source === "dropped" || (state.timeout_at !== null && state.timeout_at <= now && state.last_checked_at >= cycle.timeout_at))));
+    ((state.source === "dropped" && Number(state.current_chain) <= cycle.chain_length) ||
+      (Number(state.current_chain) < cycle.chain_length && state.reset_at !== null && state.reset_at >= cycle.timeout_at));
   return (hit && hit.chain < cycle.chain_length) || confirmedDrop
     ? `Chain length ${cycle.chain_length} was dropped` : null;
 }
