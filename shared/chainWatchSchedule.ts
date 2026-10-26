@@ -24,6 +24,8 @@ export type ChainWatchSlot = {
   member_name: string | null;
   cancelled: number;
   check_in_confirmed_at: number | null;
+  // Included only by the authenticated admin schedule API.
+  threshold_counts?: { warning_60: number; warning_30: number };
 };
 
 export type ChainWatchScheduleResponse = {

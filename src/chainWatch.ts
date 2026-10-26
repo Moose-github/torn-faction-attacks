@@ -7,6 +7,7 @@ import {
 import { type DiscordAllowedMentions } from "./discord";
 import { deliverChainWatchAlert, deliverChainWatchDroppedStatus, deliverChainWatchWarningAlert, type WatchDeliveryResult } from "./chainWatchDiscordDelivery";
 import { recordChainWatchWarning, reconcileChainWatchWarningMessages } from "./chainWatchWarningCleanup";
+import { recordChainWatchThresholdEvents, type ChainWatchThresholdAssignment, type ChainWatchThresholdEventJob } from "./chainWatchThresholdEvents";
 import {
   chainWatchTargetActionRow, enrichChainWatchWarningTargets, readCachedCriticalTargets, type ChainWatchWarningTargetJob,
 } from "./chainWatchWarningTargets";
@@ -510,22 +511,30 @@ export async function handleChainWatchAlarm(
     return;
   }
 
-  let targetJob: ChainWatchWarningTargetJob | undefined;
-  if (stateBefore.scheduled_alarm_stage === "warning_60") {
-    targetJob = await sendWarningIfDue(env, state, "warning_60", now);
-  } else if (stateBefore.scheduled_alarm_stage === "warning_30") {
-    targetJob = await sendWarningIfDue(env, state, "warning_30", now);
-  } else {
-    await sendDroppedIfDue(env, state, now);
-  }
+  const thresholdJobs: ChainWatchThresholdEventJob[] = [];
+  const captureThreshold = (job: ChainWatchThresholdEventJob) => { thresholdJobs.push(job); };
+  try {
+    let targetJob: ChainWatchWarningTargetJob | undefined;
+    if (stateBefore.scheduled_alarm_stage === "warning_60") {
+      targetJob = await sendWarningIfDue(env, state, "warning_60", now, captureThreshold);
+    } else if (stateBefore.scheduled_alarm_stage === "warning_30") {
+      targetJob = await sendWarningIfDue(env, state, "warning_30", now, captureThreshold);
+    } else {
+      await sendDroppedIfDue(env, state, now);
+    }
 
-  const updated = await readChainWatchState(env);
-  if (updated) {
-    await scheduleChainWatchAlarmForState(env, updated, now);
+    const updated = await readChainWatchState(env);
+    if (updated) {
+      await scheduleChainWatchAlarmForState(env, updated, now);
+    }
+    // The original alert and next alarm are complete before any target work starts.
+    // The Durable Object retains the task; never await it on the warning path.
+    if (targetJob && waitUntil) waitUntil(enrichChainWatchWarningTargets(env, targetJob));
+  } finally {
+    // Also retain recording after a failed Discord attempt. Logging must never
+    // delay delivery, next-alarm scheduling or propagation of delivery failures.
+    if (waitUntil) for (const job of thresholdJobs) waitUntil(recordChainWatchThresholdEvents(env, job));
   }
-  // The original alert and next alarm are complete before any target work starts.
-  // The Durable Object retains the task; never await it on the warning path.
-  if (targetJob && waitUntil) waitUntil(enrichChainWatchWarningTargets(env, targetJob));
 }
 
 async function sendWarningIfDue(
@@ -533,11 +542,22 @@ async function sendWarningIfDue(
   state: ChainWatchStateRow,
   stage: "warning_60" | "warning_30",
   sentAt: number,
+  captureThreshold: (job: ChainWatchThresholdEventJob) => void,
 ): Promise<ChainWatchWarningTargetJob | undefined> {
   const warningColumn = stage === "warning_60" ? "warning_60_sent_at" : "warning_30_sent_at";
   if (!chainWatchWarningDue(state, stage, sentAt)) return;
 
-  const confirmedState = await confirmChainWatchWarningWithLiveChain(env, stage, sentAt);
+  let thresholdJob: ChainWatchThresholdEventJob | undefined;
+  const confirmedState = await confirmChainWatchWarningWithLiveChain(env, stage, sentAt, (confirmed, observedAt) => {
+    if (confirmed.enabled !== 1 || confirmed.source !== "live_confirm" || confirmed.last_error !== null ||
+      confirmed.reset_at === null || confirmed.timeout_at === null || !chainWatchAlertEligible(confirmed.current_chain) ||
+      confirmed.timeout_at <= observedAt || confirmed.timeout_at - 60 > observedAt) return;
+    thresholdJob = {
+      factionId: confirmed.faction_id, resetAt: confirmed.reset_at, timeoutAt: confirmed.timeout_at,
+      chainLength: Number(confirmed.current_chain), observedAt,
+    };
+    captureThreshold(thresholdJob);
+  });
   if (!chainWatchWarningDue(confirmedState, stage, sentAt)) return;
 
   // A new message is required for mention notifications. Keep the live status
@@ -547,7 +567,7 @@ async function sendWarningIfDue(
       currentChain: Number(confirmedState.current_chain),
       timeoutAt: confirmedState.timeout_at,
       lastHit: confirmedState,
-    });
+    }, thresholdJob);
   // Reuse the 60-second lookup so the critical posts with links rather than
   // waiting for a second search during its last 30 seconds.
   const cachedTargets = stage === "warning_30" ? await readCachedCriticalTargets(env, confirmedState) : [];
@@ -611,10 +631,11 @@ async function confirmChainWatchWarningWithLiveChain(
   env: Env,
   stage: "warning_60" | "warning_30",
   checkedAt: number,
+  onConfirmed: (state: ChainWatchStateRow, observedAt: number) => void,
 ): Promise<ChainWatchStateRow | null> {
   return retryChainWatchObservation(env, checkedAt, async (state, observedAt) => {
     if (!chainWatchWarningDue(state, stage, observedAt)) return null;
-    return observeChainWatchWarning(env, state, observedAt);
+    return observeChainWatchWarning(env, state, observedAt, onConfirmed);
   });
 }
 
@@ -622,6 +643,7 @@ async function observeChainWatchWarning(
   env: Env,
   state: ChainWatchStateRow,
   checkedAt: number,
+  onConfirmed: (state: ChainWatchStateRow, observedAt: number) => void,
 ): Promise<ChainWatchStateRow | null> {
   const live = await readTornChain(env, checkedAt).catch((err: any) => ({
     error: err?.message || String(err),
@@ -666,12 +688,15 @@ async function observeChainWatchWarning(
       lastHit: null,
       lastError: null,
     }, checkedAt);
+    onConfirmed(updated, checkedAt);
     updated = await syncChainWatchStatusDiscordMessage(env, state, updated, checkedAt);
 
     return timeoutMovedLater ? null : updated;
   }
 
-  return await updateChainWatchLiveCheckStatus(env, state, checkedAt, "live_confirm", null);
+  const confirmed = await updateChainWatchLiveCheckStatus(env, state, checkedAt, "live_confirm", null);
+  onConfirmed(confirmed, checkedAt);
+  return confirmed;
 }
 
 async function sendDroppedIfDue(
@@ -1180,8 +1205,9 @@ async function chainWatchWarningDiscordMessage(
     timeoutAt: number;
     lastHit: ChainWatchStateRow | ChainWatchAttackRow | null;
   },
+  thresholdJob?: ChainWatchThresholdEventJob,
 ): Promise<{ message: string; allowedMentions?: DiscordAllowedMentions }> {
-  return chainWatchAlertDiscordMessage(env, chainWatchWarningAlertKey(options.stage), chainWatchWarningMessage(options));
+  return chainWatchAlertDiscordMessage(env, chainWatchWarningAlertKey(options.stage), chainWatchWarningMessage(options), thresholdJob);
 }
 
 async function chainWatchDroppedDiscordMessage(
@@ -1195,9 +1221,9 @@ async function chainWatchDroppedDiscordMessage(
   return chainWatchAlertDiscordMessage(env, DISCORD_ALERT_KEYS.chainWatchDrop, chainWatchDroppedMessage(options));
 }
 
-async function chainWatchAlertDiscordMessage(env: Env, alertKey: DiscordAlertKey, message: string) {
+async function chainWatchAlertDiscordMessage(env: Env, alertKey: DiscordAlertKey, message: string, thresholdJob?: ChainWatchThresholdEventJob) {
   const mentions = await readDiscordAlertMentions(env, alertKey);
-  const watcherId = await readCurrentChainWatcherDiscordId(env);
+  const watcherId = await readCurrentChainWatcherDiscordId(env, thresholdJob);
   const allowedMentions = mentions.allowedMentions ?? { users: [], roles: [] };
   const users = allowedMentions.users ?? [];
   const appendWatcher = watcherId !== null && !users.includes(watcherId);
@@ -1208,18 +1234,23 @@ async function chainWatchAlertDiscordMessage(env: Env, alertKey: DiscordAlertKey
   };
 }
 
-async function readCurrentChainWatcherDiscordId(env: Env): Promise<string | null> {
-  const now = nowSeconds();
+async function readCurrentChainWatcherDiscordId(env: Env, thresholdJob?: ChainWatchThresholdEventJob): Promise<string | null> {
+  const now = thresholdJob?.observedAt ?? nowSeconds();
   try {
     const watcher = await env.DB.prepare(`
-      SELECT links.discord_user_id FROM chain_watch_slots slot
+      SELECT links.discord_user_id, watch.id AS watch_id, slot.start_at AS slot_start_at,
+        slot.assigned_to, slot.check_in_revision AS assignment_revision FROM chain_watch_slots slot
       JOIN chain_watch_schedules watch ON watch.id = slot.watch_id
-      JOIN home_faction_members member ON member.member_id = slot.assigned_to AND member.is_current = 1
-      JOIN discord_member_links links ON links.torn_user_id = slot.assigned_to
+      LEFT JOIN home_faction_members member ON member.member_id = slot.assigned_to AND member.is_current = 1
+      LEFT JOIN discord_member_links links ON links.torn_user_id = member.member_id
       WHERE watch.is_open = 1 AND watch.start_at <= ? AND (watch.finish_at IS NULL OR watch.finish_at > ?)
         AND slot.start_at = ? AND slot.cancelled = 0
       LIMIT 1
-    `).bind(now, now, Math.floor(now / WATCH_HOUR) * WATCH_HOUR).first<{ discord_user_id: string }>();
+    `).bind(now, now, Math.floor(now / WATCH_HOUR) * WATCH_HOUR).first<ChainWatchThresholdAssignment & { discord_user_id: string | null }>();
+    if (thresholdJob) thresholdJob.assignment = watcher ? {
+      watch_id: watcher.watch_id, slot_start_at: watcher.slot_start_at,
+      assigned_to: watcher.assigned_to, assignment_revision: watcher.assignment_revision,
+    } : null;
     const id = watcher?.discord_user_id?.trim();
     return id && /^\d{5,32}$/.test(id) ? id : null;
   } catch (err: any) {

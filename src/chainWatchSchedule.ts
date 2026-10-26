@@ -218,6 +218,22 @@ export async function readWatch(env: Env, id?: string | null): Promise<ChainWatc
   return { ok: true, now, watch, sheets: sheets.results as ChainWatchSheet[], slots: publicSlots, members: members.results as ChainWatchScheduleResponse["members"] };
 }
 
+// Keep private history out of the member API and all Discord roster reads.
+export async function readAdminWatch(env: Env, id?: string | null): Promise<ChainWatchScheduleResponse> {
+  const data = await readWatch(env, id);
+  if (!data.watch) return data;
+  const counts = await env.DB.prepare(`SELECT slot_start_at,
+      SUM(CASE WHEN stage = 'warning_60' THEN 1 ELSE 0 END) AS warning_60,
+      SUM(CASE WHEN stage = 'warning_30' THEN 1 ELSE 0 END) AS warning_30
+    FROM chain_watch_threshold_events WHERE watch_id = ? AND slot_start_at IS NOT NULL
+    GROUP BY slot_start_at`).bind(data.watch.id)
+    .all<{ slot_start_at: number; warning_60: number; warning_30: number }>();
+  const byHour = new Map(counts.results.map(row => [row.slot_start_at, { warning_60: row.warning_60, warning_30: row.warning_30 }]));
+  return { ...data, slots: data.slots.map(slot => ({ ...slot,
+    threshold_counts: byHour.get(slot.start_at) ?? { warning_60: 0, warning_30: 0 },
+  })) };
+}
+
 export async function changeWatchSlots(env: Env, input: {
   watchId: string; starts: unknown; actorId: number; targetId: number | null; admin: boolean;
   selectionId?: string;

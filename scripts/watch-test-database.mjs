@@ -4,6 +4,7 @@ import { DatabaseSync } from "node:sqlite";
 export const watchAnnouncementsMigration = readFileSync(new URL("../migrations/0154_add_chain_watch_announcements.sql", import.meta.url), "utf8");
 export const watchSummaryRevisionsMigration = readFileSync(new URL("../migrations/0159_refresh_corrected_chain_watch_summaries.sql", import.meta.url), "utf8");
 export const watchCheckInMessagesMigration = readFileSync(new URL("../migrations/0160_merge_chain_watch_check_in_messages.sql", import.meta.url), "utf8");
+export const watchThresholdEventsMigration = readFileSync(new URL("../migrations/0185_record_chain_watch_threshold_events.sql", import.meta.url), "utf8");
 
 // Real SQLite (including the production triggers), with D1's transactional batch
 // contract. No mocks of assignment or scheduling rules.

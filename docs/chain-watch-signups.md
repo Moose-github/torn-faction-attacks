@@ -200,6 +200,49 @@ legacy monitor's message ID and warning markers. Legacy per-war alarms retire
 after the Worker upgrade; the next ingestion tick schedules the faction alarm.
 The old state table remains available for historical war reads.
 
+## Threshold event history
+
+Migration `0185_record_chain_watch_threshold_events.sql` adds an internal event
+log for confirmed 60-second warnings and 30-second critical thresholds. Recording
+starts after deployment; no historical counts are inferred. The page's hourly
+slots show **Warnings (60s)** and **Critical (30s)** columns to admins, including
+on finished watches. These are totals for each watch/hour, including unassigned
+coverage and earlier assignments; they do not reattribute the underlying events
+to a replacement watcher. Zero means no recorded events, not evidence of full
+monitoring before recording began. Counts refresh with the roster.
+
+Only authenticated `/api/admin/chain-watch` reads and mutation responses include
+the counts. Member endpoints and Discord roster reads omit them. There are no
+changes to Discord messages or watch summaries.
+
+Each row in `chain_watch_threshold_events` stores the faction, timer reset and
+expiry, chain length, level and observation time, plus a snapshot of the active
+watch, hourly slot, assigned Torn user and assignment revision. The snapshot uses
+the time of live confirmation, including at hourly handovers, rather than an
+estimated earlier threshold crossing. Later reassignment, check-in changes and
+message cleanup do not rewrite history. An unfilled slot retains its watch/slot
+with no assigned user; events outside an active, non-cancelled slot have no watch
+attribution. Discord linking and check-in are not required for attribution.
+
+The existing watcher lookup captures the assignment without an extra awaited
+database request. Persistence starts in a retained background task after the
+Discord attempt and next-alarm scheduling; a failed send also retains the task.
+Slow or failed history writes never hold up alerts. Writes retry up to three
+times independently, then log a failure; an extended database outage can leave
+gaps in this history. If the watcher lookup itself fails, the background task
+attempts attribution for the observation's hour using the then-available roster.
+
+The log follows the existing monitor's eligibility (chains above 100 hits).
+Only successful live timer confirmations with time remaining are recorded;
+failed Torn requests and already-expired timers do not infer missed events.
+Discord permissions, routes, delivery failures and muted alerts do not control
+recording. Each faction/timer-reset/level has one row; the earliest confirmed
+observation wins even if background writes complete out of order. If a delayed
+confirmation first sees 30 seconds or less, both levels are recorded, even when
+the warning delivery is still retrying. A saving hit starts a new timer cycle, so
+two warning cycles and one critical threshold produce three rows. Apply the
+migration before deploying the Worker.
+
 ## Discord commands
 
 New watches post a rules/info embed in the invoking channel or thread before

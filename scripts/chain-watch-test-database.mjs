@@ -14,6 +14,7 @@ export function chainWatchDatabase(now, migrate = true) {
     db.sqlite.exec(readFileSync(new URL("../migrations/0158_version_chain_watch_timers.sql", import.meta.url), "utf8"));
     db.sqlite.exec(readFileSync(new URL("../migrations/0173_track_chain_watch_warning_cleanup.sql", import.meta.url), "utf8"));
     db.sqlite.exec(readFileSync(new URL("../migrations/0184_cache_chain_watch_warning_targets.sql", import.meta.url), "utf8"));
+    db.sqlite.exec(readFileSync(new URL("../migrations/0185_record_chain_watch_threshold_events.sql", import.meta.url), "utf8"));
   };
   if (migrate) applyMigration();
   return { ...db, applyMigration };

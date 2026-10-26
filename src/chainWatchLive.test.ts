@@ -19,6 +19,10 @@ vi.mock("./external/torn", () => ({ fetchTrackedTornJson: vi.fn() }));
 vi.mock("./tornKeyPool", () => ({ withTornKeyPool: (_env: unknown, options: { run: (key: unknown) => Promise<unknown> }) => options.run({ key: "test", keySource: "test" }) }));
 vi.mock("./discordAlertSettings", () => ({ isDiscordAlertEnabled: vi.fn().mockResolvedValue(true) }));
 vi.mock("./discordAlertDelivery", () => ({ upsertDiscordAlertMessage: vi.fn().mockResolvedValue("message") }));
+vi.mock("./chainWatchWarningTargets", async importOriginal => ({
+  ...await importOriginal<typeof import("./chainWatchWarningTargets")>(),
+  enrichChainWatchWarningTargets: vi.fn().mockResolvedValue(undefined),
+}));
 vi.mock("./chainWatchDiscordDelivery", async importOriginal => ({
   ...await importOriginal<typeof import("./chainWatchDiscordDelivery")>(),
   // Keep the existing alert transport spy for the monitor's concurrency tests;
@@ -455,6 +459,198 @@ describe("versioned chain timers", () => {
   });
 });
 
+describe("chain watch threshold event history", () => {
+  const events = () => db.sqlite.prepare("SELECT * FROM chain_watch_threshold_events ORDER BY observed_at, stage DESC").all();
+  async function assign(watchId: string, at = start, memberId = 1) {
+    await db.env.DB.prepare("UPDATE chain_watch_slots SET assigned_to = ?, admin_override = 1 WHERE watch_id = ? AND start_at = ?")
+      .bind(memberId, watchId, at).run();
+  }
+  async function fire(at: number, remaining: number, chain = 150) {
+    advance(at);
+    vi.mocked(fetchTrackedTornJson).mockResolvedValue({ chain: { current: chain, timeout: remaining } });
+    const background: Promise<void>[] = [];
+    try { await handleChainWatchAlarm(db.env, HOME_FACTION_ID, task => { background.push(task); }); }
+    finally { await Promise.all(background); }
+  }
+
+  function beforeThresholdWrite(beforeWrite: () => Promise<void>) {
+    const prepare = db.env.DB.prepare.bind(db.env.DB);
+    vi.spyOn(db.env.DB, "prepare").mockImplementation(sql => {
+      const statement = prepare(sql);
+      if (!sql.includes("INSERT INTO chain_watch_threshold_events")) return statement;
+      const bind = statement.bind.bind(statement);
+      vi.spyOn(statement, "bind").mockImplementation((...values) => {
+        const bound = bind(...values);
+        const run = bound.run.bind(bound);
+        vi.spyOn(bound, "run").mockImplementation(async () => {
+          await beforeWrite();
+          return run();
+        });
+        return bound;
+      });
+      return statement;
+    });
+  }
+
+  it("sends and schedules both alerts while a history write is blocked, retaining the original watcher", async () => {
+    const schedule = await watch(); await assign(schedule.id); await assign(schedule.id, start + 3600, 2);
+    await hit(1, start + 3330); await tick(start + 3330);
+    vi.mocked(upsertDiscordAlertMessage).mockClear();
+    const writing = gate(), release = gate();
+    let writes = 0;
+    beforeThresholdWrite(async () => {
+      if (++writes !== 1) return;
+      expect(vi.mocked(upsertDiscordAlertMessage).mock.calls.some(call => call[1] === "chain_watch_warning")).toBe(true);
+      expect(db.sqlite.prepare("SELECT scheduled_alarm_stage FROM faction_chain_watch_state").get()?.scheduled_alarm_stage).toBe("warning_30");
+      writing.resolve(); await release.promise;
+    });
+    const background: Promise<void>[] = [];
+    advance(start + 3570);
+    vi.mocked(fetchTrackedTornJson).mockResolvedValue({ chain: { current: 150, timeout: 60 } });
+    let alarmFinished = false;
+    const handling = handleChainWatchAlarm(db.env, HOME_FACTION_ID, task => { background.push(task); })
+      .then(() => { alarmFinished = true; });
+    try {
+      await writing.promise;
+      await vi.waitFor(() => expect(alarmFinished).toBe(true));
+      expect(events()).toEqual([]);
+      // The critical and its history complete before the warning history does.
+      await fire(start + 3600, 30);
+      expect(vi.mocked(upsertDiscordAlertMessage).mock.calls.filter(call => /chain_watch_(warning|critical)/.test(call[1]))).toHaveLength(2);
+      expect((await readChainWatchState(db.env))?.scheduled_alarm_stage).toBe("drop");
+      await assign(schedule.id, start, 2);
+      await hit(2, start + 3601, { chain: 151 }); await tick(start + 3601);
+    } finally {
+      release.resolve();
+      await handling; await Promise.all(background);
+    }
+    expect(events().map(event => [event.stage, event.slot_start_at, event.assigned_to, event.observed_at]))
+      .toEqual([["warning_60", start, 1, start + 3570], ["warning_30", start + 3600, 2, start + 3600]]);
+  });
+
+  it.each([false, true])("keeps history write failures separate from alerts (persistent: %s)", async persistent => {
+    const schedule = await watch(); await assign(schedule.id); await hit(1, start); await tick();
+    vi.mocked(upsertDiscordAlertMessage).mockClear();
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+    let writes = 0;
+    beforeThresholdWrite(async () => {
+      writes++;
+      if (persistent || writes === 1) throw new Error("History database unavailable");
+    });
+    await fire(start + 240, 60);
+    expect(writes).toBe(persistent ? 3 : 2);
+    expect(events()).toHaveLength(persistent ? 0 : 1);
+    expect(vi.mocked(upsertDiscordAlertMessage).mock.calls.filter(call => call[1] === "chain_watch_warning")).toHaveLength(1);
+    expect(await readChainWatchState(db.env)).toMatchObject({ last_error: null, warning_60_sent_at: start + 240, scheduled_alarm_stage: "warning_30" });
+    if (persistent) expect(warning).toHaveBeenCalledWith("Chain Watch threshold recording failed after 3 attempts");
+  });
+
+  it("records two warnings and one critical as three immutable events for the assigned watcher", async () => {
+    const schedule = await watch(); await assign(schedule.id); await hit(1, start); await tick();
+    await fire(start + 240, 60);
+    await fire(start + 270, 30);
+    await hit(2, start + 280, { chain: 151 }); await tick(start + 280);
+    await fire(start + 520, 60, 151);
+    const recorded = events();
+    expect(recorded).toHaveLength(3);
+    expect(recorded.map(event => event.stage)).toEqual(["warning_60", "warning_30", "warning_60"]);
+    expect(recorded.map(event => event.reset_at)).toEqual([start, start, start + 280]);
+    expect(recorded[0]).toMatchObject({ faction_id: HOME_FACTION_ID, watch_id: schedule.id,
+      slot_start_at: start, assigned_to: 1, assignment_revision: expect.any(Number),
+      observed_at: start + 240, timeout_at: start + 300, chain_length: 150 });
+    expect(recorded.every(event => event.assigned_to === 1)).toBe(true);
+    await assign(schedule.id, start, 2);
+    await tick(start + 521);
+    expect(events()).toEqual(recorded);
+  });
+
+  it("records both levels despite failed warning delivery, without counting retries again", async () => {
+    const schedule = await watch(); await assign(schedule.id); await hit(1, start); await tick();
+    vi.mocked(upsertDiscordAlertMessage).mockRejectedValue(new Error("Discord HTTP 403"));
+    await expect(fire(start + 240, 60)).rejects.toThrow("403");
+    expect(events()).toHaveLength(1);
+    await expect(fire(start + 241, 59)).rejects.toThrow("403");
+    await expect(fire(start + 270, 30)).rejects.toThrow("403");
+    const recorded = events();
+    expect(recorded.map(event => event.stage)).toEqual(["warning_60", "warning_30"]);
+    expect(recorded.map(event => event.observed_at)).toEqual([start + 240, start + 270]);
+    vi.mocked(upsertDiscordAlertMessage).mockResolvedValue("recovered");
+    await fire(start + 271, 29);
+    await fire(start + 272, 28);
+    expect(events()).toEqual(recorded);
+  });
+
+  it.each(["muted", "unrouted"])("records events when Discord is %s", async reason => {
+    const schedule = await watch(); await assign(schedule.id); await hit(1, start); await tick();
+    if (reason === "muted") vi.mocked(isDiscordAlertEnabled).mockResolvedValue(false);
+    else vi.mocked(upsertDiscordAlertMessage).mockResolvedValue(null);
+    await fire(start + 240, 60);
+    await fire(start + 270, 30);
+    expect(events().map(event => event.stage)).toEqual(["warning_60", "warning_30"]);
+    expect(events().every(event => event.assigned_to === 1)).toBe(true);
+  });
+
+  it("attributes a warning and critical on opposite sides of a handover to their respective watchers", async () => {
+    const schedule = await watch(); await assign(schedule.id); await assign(schedule.id, start + 3600, 2);
+    await hit(1, start + 3330); await tick(start + 3330);
+    await fire(start + 3570, 60);
+    await fire(start + 3600, 30);
+    expect(events().map(event => [event.stage, event.slot_start_at, event.assigned_to]))
+      .toEqual([["warning_60", start, 1], ["warning_30", start + 3600, 2]]);
+  });
+
+  it("records both reached levels on a late first confirmation", async () => {
+    const schedule = await watch(); await assign(schedule.id); await hit(1, start); await tick();
+    await fire(start + 280, 20);
+    expect(events().map(event => [event.stage, event.observed_at]))
+      .toEqual([["warning_60", start + 280], ["warning_30", start + 280]]);
+  });
+
+  it("does not duplicate events when alarm invocations overlap", async () => {
+    const schedule = await watch(); await assign(schedule.id); await hit(1, start); await tick();
+    await Promise.all([fire(start + 240, 60), fire(start + 240, 60)]);
+    expect(events()).toHaveLength(1);
+    expect(events()[0]).toMatchObject({ stage: "warning_60", assigned_to: 1 });
+  });
+
+  it.each(["unassigned", "cancelled", "unlinked", "no watch"])("keeps truthful attribution with %s", async reason => {
+    let watchId: string | null = null;
+    if (reason === "no watch") await war();
+    else {
+      watchId = (await watch()).id;
+      if (reason !== "unassigned") await assign(watchId);
+      if (reason === "cancelled") db.sqlite.exec("UPDATE chain_watch_slots SET cancelled = 1");
+      if (reason === "unlinked") db.sqlite.exec("DELETE FROM discord_member_links");
+    }
+    await hit(1, start); await tick(); await fire(start + 240, 60);
+    expect(events()).toHaveLength(1);
+    expect(events()[0]).toMatchObject({
+      watch_id: reason === "cancelled" ? null : watchId,
+      slot_start_at: reason === "cancelled" || reason === "no watch" ? null : start,
+      assigned_to: reason === "unlinked" ? 1 : null,
+    });
+  });
+
+  it.each(["failed", "missing timeout"])("does not record a threshold from a %s live confirmation", async reason => {
+    const schedule = await watch(); await assign(schedule.id); await hit(1, start); await tick();
+    if (reason === "failed") vi.mocked(fetchTrackedTornJson).mockRejectedValue(new Error("Torn unavailable"));
+    else vi.mocked(fetchTrackedTornJson).mockResolvedValue({ chain: { current: 150 } });
+    const background: Promise<void>[] = [];
+    advance(start + 240);
+    await handleChainWatchAlarm(db.env, HOME_FACTION_ID, task => { background.push(task); });
+    await Promise.all(background);
+    expect(events()).toEqual([]);
+  });
+
+  it.each([{ remaining: 0, chain: 0 }, { remaining: 300, chain: 151 }, { remaining: 60, chain: 100 }])(
+    "does not invent events for a dropped, saved or ineligible chain ($chain/$remaining)", async ({ remaining, chain }) => {
+      const schedule = await watch(); await assign(schedule.id); await hit(1, start); await tick();
+      await fire(start + 240, remaining, chain);
+      expect(events()).toEqual([]);
+    },
+  );
+});
+
 describe("per-chain persistent status messages", () => {
   it("keeps live-only chain details when Torn fails and finalizes them after confirmation recovers", async () => {
     await watch();
@@ -876,7 +1072,7 @@ describe("assigned watcher alert mentions", () => {
     const schedule = await watch(); await assign(schedule.id); await hit(1, start); await tick();
     const prepare = db.env.DB.prepare.bind(db.env.DB);
     vi.spyOn(db.env.DB, "prepare").mockImplementation((sql) => {
-      if (sql.includes("SELECT links.discord_user_id FROM chain_watch_slots")) throw new Error("lookup unavailable");
+      if (sql.includes("SELECT links.discord_user_id")) throw new Error("lookup unavailable");
       return prepare(sql);
     });
     const warning = vi.spyOn(console, "warn").mockImplementation(() => {});

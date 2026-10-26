@@ -86,7 +86,7 @@ describe("background target links", () => {
     delivery.resolve({ status: "success", value: { messageId: "warning", channelId: "channel" } });
     await alarm;
     await vi.waitFor(() => expect(fetchChainWatchTargets).toHaveBeenCalledOnce());
-    expect(background).toHaveLength(1);
+    expect(background).toHaveLength(2);
     expect(editWatchDiscordMessage).not.toHaveBeenCalled();
     expect(await readChainWatchState(db.env)).toMatchObject({ warning_60_sent_at: start + 240, scheduled_alarm_at: start + 270 });
     lookup.resolve(targets);
@@ -148,7 +148,7 @@ describe("background target links", () => {
       { type: 2, style: 5, label: "Backup 1234", url: "https://www.torn.com/page.php?sid=attack&user2ID=1234" },
     ] }]);
     expect(fetchChainWatchTargets).toHaveBeenCalledOnce();
-    expect(background).toHaveLength(1);
+    expect(background).toHaveLength(3);
     expect(linkEdits()).toHaveLength(1);
   });
 
@@ -174,7 +174,7 @@ describe("background target links", () => {
   it("does not launch a lookup when warning delivery is skipped", async () => {
     vi.mocked(deliverChainWatchWarningAlert).mockResolvedValue({ status: "skipped", reason: "disabled" });
     await fire();
-    expect(background).toHaveLength(0);
+    expect(background).toHaveLength(1); // Threshold history still records muted alerts.
     expect(fetchChainWatchTargets).not.toHaveBeenCalled();
   });
 });

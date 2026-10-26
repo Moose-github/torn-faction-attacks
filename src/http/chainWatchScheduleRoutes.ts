@@ -2,7 +2,7 @@ import { readAuthenticatedUserId } from "../auth";
 import { getChainWatchLive } from "../chainWatch";
 import { fetchChainWatchTargets } from "../chainWatchTargets";
 import { readJsonObject } from "../backend/request";
-import { changeWatchSlots, readWatch, readWatchHistory, setWatchFinish, WatchError } from "../chainWatchSchedule";
+import { changeWatchSlots, readAdminWatch, readWatch, readWatchHistory, setWatchFinish, WatchError } from "../chainWatchSchedule";
 import { syncWatchBoardsSafely } from "../chainWatchScheduleDiscord";
 import { json } from "../utils";
 import { requireActionCooldown, withAdmin, withMember, type RouteContext, type RouteResult } from "./context";
@@ -16,6 +16,7 @@ export async function routeWatchScheduleApi(context: RouteContext): Promise<Rout
   const history = url.pathname === `${base}/history`;
   if (!live && !targets && !history && url.pathname !== base && url.pathname !== `${base}/slots` && url.pathname !== `${base}/finish`) return null;
   return (admin ? withAdmin : withMember)(context, async () => {
+    const readSchedule = admin ? readAdminWatch : readWatch;
     try {
       if (targets) {
         if (request.method !== "POST") return json({ ok: false, error: "Method not allowed" }, 405);
@@ -27,7 +28,7 @@ export async function routeWatchScheduleApi(context: RouteContext): Promise<Rout
       }
       if (live) return request.method === "GET" ? await getChainWatchLive(env) : json({ ok: false, error: "Method not allowed" }, 405);
       if (history) return request.method === "GET" ? json(await readWatchHistory(env)) : json({ ok: false, error: "Method not allowed" }, 405);
-      if (request.method === "GET" && url.pathname === base) return json(await readWatch(env, url.searchParams.get("watch")));
+      if (request.method === "GET" && url.pathname === base) return json(await readSchedule(env, url.searchParams.get("watch")));
       if (request.method !== "POST") return json({ ok: false, error: "Method not allowed" }, 405);
       const actorId = await readAuthenticatedUserId(request, env);
       if (!actorId) return json({ ok: false, error: "Sign in to manage your slots." }, 401);
@@ -44,7 +45,7 @@ export async function routeWatchScheduleApi(context: RouteContext): Promise<Rout
         await setWatchFinish(env, body.watch_id, body.finish);
       } else return json({ ok: false, error: "Route not found" }, 404);
       ctx.waitUntil(syncWatchBoardsSafely(env));
-      return json(await readWatch(env, body.watch_id));
+      return json(await readSchedule(env, body.watch_id));
     } catch (error) {
       if (error instanceof WatchError) return json({ ok: false, error: error.message }, error.status);
       console.error("Chain watch API failed", error);

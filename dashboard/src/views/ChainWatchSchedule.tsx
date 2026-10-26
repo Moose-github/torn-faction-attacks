@@ -39,12 +39,12 @@ export function ChainWatchSchedule({ currentUserId, isAdmin }: { currentUserId: 
     if (busyRef.current) return;
     const version = ++requestVersion.current;
     try {
-      const next = await getChainWatchSchedule(requestedId, signal);
+      const next = await getChainWatchSchedule(requestedId, signal, isAdmin);
       if (version !== requestVersion.current) return;
       accept(next);
       setLoadError(null);
     } catch (err) { if (version === requestVersion.current) setLoadError(err instanceof Error ? err.message : String(err)); }
-  }, [requestedId]);
+  }, [requestedId, isAdmin]);
 
   React.useEffect(() => {
     const poll = startPolling(({ signal }) => refresh(signal), {
@@ -62,7 +62,14 @@ export function ChainWatchSchedule({ currentUserId, isAdmin }: { currentUserId: 
     setBusy(true);
     setError(null);
     setNotice("");
-    try { accept(await action()); setNotice(message); }
+    try {
+      const next = await action();
+      // Admins still use the ordinary member rules when claiming their own
+      // slots. Refresh the private counts after that member-only response.
+      accept(isAdmin && next.slots.some(slot => !slot.threshold_counts)
+        ? await getChainWatchSchedule(next.watch?.id, undefined, true) : next);
+      setNotice(message);
+    }
     catch (err) { setError(err instanceof Error ? err.message : String(err)); }
     finally { busyRef.current = false; setBusy(false); setLiveRefreshKey((key) => key + 1); poller.current?.invalidate(); live.invalidate(); }
   }
@@ -119,7 +126,7 @@ export function ChainWatchSchedule({ currentUserId, isAdmin }: { currentUserId: 
 
       <section className="panel watch-slots-panel">
         <div className="watch-title-row"><h3>Hourly slots</h3><span>{activeSlots.filter((slot) => slot.assigned_to).length} / {activeSlots.length} filled</span></div>
-        <div className="watch-slot-list">
+        <div className={`watch-slot-list${isAdmin ? " watch-slot-list-admin" : ""}`}>
           {slots.map((slot, index) => {
             const started = slot.start_at <= now;
             const ended = slot.start_at + WATCH_HOUR <= now;
@@ -134,6 +141,9 @@ export function ChainWatchSchedule({ currentUserId, isAdmin }: { currentUserId: 
                 <h4>{watchDate(slot.start_at)} · UTC</h4>
                 {sheet?.discord_message_id ? <a className="watch-discord-link" href={`https://discord.com/channels/${watch.guild_id}/${watch.channel_id}/${sheet.discord_message_id}`} target="_blank" rel="noreferrer"><ExternalLink size={14} /> Open in Discord</a> : null}
               </div> : null}
+              {startsDay && isAdmin ? <div className="watch-slot watch-slot-heading" aria-hidden="true">
+                <span>Time</span><span>Watcher</span><span className="watch-slot-count">Warnings (60s)</span><span className="watch-slot-count">Critical (30s)</span><span>Actions</span>
+              </div> : null}
               <div className={`watch-slot${mine ? " watch-slot-mine" : ""}${current ? " watch-slot-current" : ""}${slot.cancelled || ended ? " watch-slot-muted" : ""}`} aria-current={current ? "time" : undefined}>
               <div><strong>{new Date(slot.start_at * 1000).toISOString().slice(11, 16)}–{(slot.start_at + WATCH_HOUR) % WATCH_DAY === 0 ? "24:00" : new Date((slot.start_at + WATCH_HOUR) * 1000).toISOString().slice(11, 16)} UTC</strong>{current ? <small className="watch-current-label">Current hour</small> : null}</div>
               <div>{slot.assigned_to || current ? <><strong>{slot.assigned_to ? slot.member_name ?? `Player ${slot.assigned_to}` : "Unfilled"}{mine ? " · You" : ""}</strong>
@@ -141,6 +151,14 @@ export function ChainWatchSchedule({ currentUserId, isAdmin }: { currentUserId: 
                 </> : <strong className={`watch-coverage watch-coverage-${status.tone}`}>{status.label}</strong>}
                 {!slot.cancelled && !started && breaksRule ? <small>An hour's break is required</small> : null}
               </div>
+              {isAdmin ? <>
+                <div className="watch-slot-count" aria-label={`Warnings (60s): ${slot.threshold_counts?.warning_60 ?? "Unavailable"}`}>
+                  <small>Warnings (60s)</small><strong>{slot.threshold_counts?.warning_60 ?? "—"}</strong>
+                </div>
+                <div className="watch-slot-count" aria-label={`Critical (30s): ${slot.threshold_counts?.warning_30 ?? "Unavailable"}`}>
+                  <small>Critical (30s)</small><strong>{slot.threshold_counts?.warning_30 ?? "—"}</strong>
+                </div>
+              </> : null}
               <div className="watch-slot-actions">
                 {isAdmin && showAdmin ? <WatchAdminAssignment slot={slot} members={data!.members} disabled={busy || Boolean(slot.cancelled)} onSave={(target) => run(() => overrideChainWatchSlot(watch.id, slot.start_at, target), "Assignment updated.")} /> :
                   <button type="button" className="panel-action-button" disabled={busy || Boolean(slot.cancelled) || started || (!mine && Boolean(slot.assigned_to)) || Boolean(breaksRule)} onClick={() => void run(() => changeChainWatchSlot(watch.id, [slot.start_at], mine ? "leave" : "claim"), mine ? "You left the slot." : "Your slot is reserved.")}>{slot.cancelled ? "Cancelled" : started ? "Locked" : mine ? "Leave slot" : slot.assigned_to ? "Taken" : "Sign up"}</button>}
@@ -150,6 +168,7 @@ export function ChainWatchSchedule({ currentUserId, isAdmin }: { currentUserId: 
           })}
         </div>
         <p className="watch-muted">Updates from Discord appear automatically. Started slots can only be changed by an admin on this page.</p>
+        {isAdmin ? <p className="watch-muted">Warning and critical counts are recorded events for each hour, including previous assignments. Earlier events before recording began are not included.</p> : null}
       </section>
     </> : null}
   </div>;

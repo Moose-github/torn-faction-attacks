@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { watchDatabase } from "../../scripts/watch-test-database.mjs";
-import { nextWatchHour, watchUtc, WATCH_DAY, WATCH_HOUR } from "../../shared/chainWatchSchedule";
+import { watchDatabase, watchThresholdEventsMigration } from "../../scripts/watch-test-database.mjs";
+import { nextWatchHour, watchUtc, WATCH_DAY, WATCH_HOUR, type ChainWatchScheduleResponse } from "../../shared/chainWatchSchedule";
 import { createWatch, readWatch } from "../chainWatchSchedule";
 import { getChainWatchLive } from "../chainWatch";
 import { syncWatchBoardsSafely } from "../chainWatchScheduleDiscord";
@@ -23,6 +23,7 @@ beforeEach(async () => {
   vi.mocked(requireAdmin).mockResolvedValue(new Response("Forbidden", { status: 403 }));
   vi.mocked(readAuthenticatedUserId).mockResolvedValue(1);
   db = watchDatabase(now);
+  db.sqlite.exec(watchThresholdEventsMigration);
   id = (await createWatch(db.env, { name: "API test", guildId: "guild", channelId: "channel", discordUserId: "111" }, now)).id;
 });
 afterEach(() => { db.sqlite.close(); vi.useRealTimers(); vi.clearAllMocks(); vi.unstubAllGlobals(); });
@@ -101,6 +102,64 @@ describe("chain watch page authorization", () => {
     expect(fetcher).toHaveBeenCalledWith("https://discord.com/api/v10/channels/alert-thread/messages/unfilled-message",
       expect.objectContaining({ method: "DELETE" }));
     expect(db.sqlite.prepare("SELECT unfilled_alert_deleted_at FROM chain_watch_slots WHERE watch_id = ? AND start_at = ?").get(id, start)?.unfilled_alert_deleted_at).toBe(now);
+  });
+});
+
+describe("admin hourly threshold counts", () => {
+  function event(reset: number, stage: "warning_60" | "warning_30", hour = start, watchId = id, assignedTo: number | null = 1) {
+    db.sqlite.prepare(`INSERT INTO chain_watch_threshold_events
+      (faction_id, reset_at, stage, timeout_at, chain_length, observed_at, watch_id, slot_start_at, assigned_to, assignment_revision)
+      VALUES (8803, ?, ?, ?, 150, ?, ?, ?, ?, 1)`)
+      .run(reset, stage, reset + 300, reset + (stage === "warning_60" ? 240 : 270), watchId, hour, assignedTo);
+  }
+
+  it("rejects non-admin reads of private counts", async () => {
+    expect((await request(`/api/admin/chain-watch?watch=${id}`))?.status).toBe(403);
+  });
+
+  it("omits counts from member reads and writes, including forged admin flags", async () => {
+    event(start, "warning_60");
+    for (const url of ["/api/chain-watch", `/api/chain-watch?watch=${id}&admin=true`]) {
+      const body = await (await request(url))!.json() as { slots: Record<string, unknown>[] };
+      expect(body.slots.every(slot => !("threshold_counts" in slot))).toBe(true);
+    }
+    const body = await (await request("/api/chain-watch/slots", {
+      watch_id: id, starts: [start], action: "claim", admin: true,
+    }))!.json() as { slots: Record<string, unknown>[] };
+    expect(body.slots.every(slot => !("threshold_counts" in slot))).toBe(true);
+    expect((await readWatch(db.env)).slots.every(slot => slot.threshold_counts === undefined)).toBe(true);
+  });
+
+  it("counts warning and critical events per hour for only the selected watch", async () => {
+    vi.mocked(requireAdmin).mockResolvedValue(null);
+    event(start, "warning_60"); event(start, "warning_30");
+    event(start + 300, "warning_60", start, id, 2);
+    event(start + WATCH_HOUR, "warning_30", start + WATCH_HOUR, id, null);
+    event(start + 600, "warning_60", start, "another-watch");
+    const body = await (await request(`/api/admin/chain-watch?watch=${id}`))!.json() as { slots: Array<{ threshold_counts: unknown }> };
+    expect(body.slots.slice(0, 3).map(slot => slot.threshold_counts)).toEqual([
+      { warning_60: 2, warning_30: 1 }, { warning_60: 0, warning_30: 1 }, { warning_60: 0, warning_30: 0 },
+    ]);
+  });
+
+  it("retains hourly totals after reassignment and returns them in admin mutation responses", async () => {
+    vi.mocked(requireAdmin).mockResolvedValue(null);
+    event(start, "warning_60");
+    const body = await (await request("/api/admin/chain-watch/slots", {
+      watch_id: id, starts: [start], target_id: 2,
+    }))!.json() as ChainWatchScheduleResponse;
+    expect(body.slots[0]).toMatchObject({ assigned_to: 2, threshold_counts: { warning_60: 1, warning_30: 0 } });
+    expect(db.sqlite.prepare("SELECT assigned_to FROM chain_watch_threshold_events").get()?.assigned_to).toBe(1);
+  });
+
+  it("includes recorded counts on a finished watch", async () => {
+    vi.mocked(requireAdmin).mockResolvedValue(null);
+    event(start, "warning_60");
+    db.sqlite.prepare("UPDATE chain_watch_schedules SET is_open = 0, finish_at = ? WHERE id = ?").run(start + WATCH_HOUR, id);
+    db.setNow(start + WATCH_HOUR); vi.setSystemTime((start + WATCH_HOUR) * 1000);
+    const body = await (await request(`/api/admin/chain-watch?watch=${id}`))!.json() as ChainWatchScheduleResponse;
+    expect(body.watch).toMatchObject({ id, is_open: 0 });
+    expect(body.slots[0]).toMatchObject({ threshold_counts: { warning_60: 1, warning_30: 0 } });
   });
 });
 

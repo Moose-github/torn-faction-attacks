@@ -6,8 +6,8 @@ export function getChainWatchLive(signal?: AbortSignal): Promise<ChainWatchLiveR
   return getJson("/api/chain-watch/live", true, signal);
 }
 
-export function getChainWatchSchedule(id?: string | null, signal?: AbortSignal): Promise<ChainWatchScheduleResponse> {
-  return getJson(`/api/chain-watch${id ? `?watch=${encodeURIComponent(id)}` : ""}`, true, signal);
+export function getChainWatchSchedule(id?: string | null, signal?: AbortSignal, admin = false): Promise<ChainWatchScheduleResponse> {
+  return getJson(`/api/${admin ? "admin/" : ""}chain-watch${id ? `?watch=${encodeURIComponent(id)}` : ""}`, true, signal);
 }
 
 export function getChainWatchHistory(signal?: AbortSignal): Promise<ChainWatchHistoryResponse> {

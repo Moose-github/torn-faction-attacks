@@ -29,6 +29,10 @@
 .watch-slot { display: grid; grid-template-columns: minmax(145px, 1fr) minmax(130px, 1fr) auto; gap: 18px; padding: 15px 10px; align-items: center; border-bottom: 1px solid #94a3b829; }
 .watch-slot small { display: block; margin-top: 5px; }
 .watch-slot strong { font-size: 14px; }
+.watch-slot-list-admin .watch-slot { grid-template-columns: minmax(120px, 1fr) minmax(120px, 1fr) 100px 100px minmax(140px, 1.3fr); }
+.watch-slot-heading { color: var(--text-muted, #64748b); font-size: 12px; font-weight: 600; }
+.watch-slot-count { text-align: center; font-variant-numeric: tabular-nums; }
+.watch-slot-count small { display: none; }
 .watch-slot-mine { background: #2f80ed0d; border-left: 3px solid #2f80ed; }
 .watch-slot-current { background: #2f80ed14; border-left: 3px solid #2f80ed; }
 .watch-slot .watch-current-label { color: #3076c8; font-weight: 700; }
@@ -80,4 +84,13 @@
   .watch-slot-actions form { justify-content: space-between; }
   .watch-toolbar select { width: 100%; }
   .watch-slot-actions select { max-width: 70%; }
+}
+@media (max-width: 1000px) {
+  .watch-slot-list-admin .watch-slot { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
+  .watch-slot-list-admin .watch-slot-heading { display: none; }
+  .watch-slot-list-admin .watch-slot-count { text-align: left; }
+  .watch-slot-list-admin .watch-slot-count small { display: block; margin: 0 0 4px; }
+  .watch-slot-list-admin .watch-slot-actions { grid-column: 1 / -1; justify-self: stretch; }
+  .watch-slot-list-admin .watch-slot-actions > button { width: 100%; justify-content: center; }
+  .watch-slot-list-admin .watch-slot-actions form { justify-content: space-between; }
 }
