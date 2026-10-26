@@ -28,6 +28,7 @@ import {
 import { restartLiveEnemyTrackingFromRequest } from "../enemyScouting";
 import {
   listHomeFactionReportExemptions,
+  syncHomeFactionMembershipAndSessions,
   updateHomeFactionReportExemption,
 } from "../homeFactionMembers";
 import { getLatestIngestionRun, runIngestion } from "../ingestion";
@@ -247,6 +248,14 @@ export async function routeAdminApi(routeContext: RouteContext): Promise<RouteRe
 
   if (matchesExactRoute(url, request, "/api/admin/users/revoke", "POST")) {
     return withAdmin(routeContext, () => revokeAdminAccess(request, env));
+  }
+
+  if (matchesExactRoute(url, request, "/api/admin/home-faction-members/sync", "POST")) {
+    return withAdmin(routeContext, async () => {
+      const cooldownError = await requireActionCooldown(env, "manual_home_faction_members_sync", 60);
+      if (cooldownError) return cooldownError;
+      return json({ ok: true, ...(await syncHomeFactionMembershipAndSessions(env)) });
+    });
   }
 
   if (matchesExactRoute(url, request, "/api/admin/discord-links/sync", "POST")) {

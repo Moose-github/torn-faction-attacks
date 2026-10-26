@@ -115,6 +115,14 @@ export async function refreshMemberAchievements(): Promise<unknown> {
 
 }
 
+export function refreshFactionRoster(): Promise<unknown> {
+  return postJson("/api/admin/home-faction-members/sync");
+}
+
+export function syncDiscordMemberLinks(): Promise<unknown> {
+  return postJson("/api/admin/discord-links/sync");
+}
+
 export async function getTornApiUsage(windowSeconds = 24 * 60 * 60): Promise<TornApiUsageResponse> {
   return getJson<TornApiUsageResponse>(`/api/admin/torn-api-usage${queryString({ window_seconds: windowSeconds })}`, true);
 }

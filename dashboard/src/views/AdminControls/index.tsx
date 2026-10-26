@@ -35,6 +35,8 @@ import {
   recordAdminXanaxCompetitionClaim,
   rebuildStats,
   refreshMemberAchievements,
+  refreshFactionRoster,
+  syncDiscordMemberLinks,
   resetEnemyStatsImageLatches,
   restartLiveEnemyTracking,
   relinkAttacks,
@@ -1881,7 +1883,33 @@ export function AdminControls() {
               </button>
             </section></div>
 </AdminSettingsSection>
-<AdminSettingsSection section="recovery" title="Discord and tracking recovery" description="Image delivery and enemy tracker recovery">
+<AdminSettingsSection section="recovery" title="Discord and tracking recovery" description="Faction membership, Discord links, image delivery and enemy tracker recovery">
+<section className="admin-tool-section">
+  <PanelHeader title="Faction roster and Discord links" />
+  <p className="panel-description">
+    If Discord cannot identify a current faction member, refresh the faction roster first, then sync Discord links from Torn.
+    Members must link the Discord account they use to their Torn account.
+  </p>
+  <div className="admin-inline-actions">
+    <button
+      type="button"
+      className="admin-button"
+      disabled={isBusy !== null}
+      onClick={() => runAdminAction("Refresh faction roster", refreshFactionRoster)}
+    >
+      {isBusy === "Refresh faction roster" ? "Refreshing" : "Refresh faction roster"}
+    </button>
+    <button
+      type="button"
+      className="admin-button"
+      disabled={isBusy !== null}
+      onClick={() => runAdminAction("Sync Discord links", syncDiscordMemberLinks)}
+    >
+      {isBusy === "Sync Discord links" ? "Syncing" : "Sync Discord links"}
+    </button>
+  </div>
+  <p className="panel-description">Roster refresh is available once per minute. Discord link sync is available once per hour.</p>
+</section>
 <section className="admin-tool-section">
 <PanelHeader title="Discord images and enemy tracking" />
               <button

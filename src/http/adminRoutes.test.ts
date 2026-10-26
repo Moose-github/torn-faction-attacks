@@ -19,6 +19,7 @@ import {
   updateWarControlSettingsFromRequest,
 } from "../warControl";
 import { syncMemberDiscordLinksFromRequest } from "../memberDiscordLinks";
+import { syncHomeFactionMembershipAndSessions } from "../homeFactionMembers";
 import {
   clearDiscordTravelTrackerTargetFromRequest,
   getDiscordTravelTrackerTargetFromRequest,
@@ -83,6 +84,7 @@ vi.mock("../enemyScoutingCron", () => ({
 vi.mock("../enemyScouting", () => ({ restartLiveEnemyTrackingFromRequest: vi.fn() }));
 vi.mock("../homeFactionMembers", () => ({
   listHomeFactionReportExemptions: vi.fn(),
+  syncHomeFactionMembershipAndSessions: vi.fn(),
   updateHomeFactionReportExemption: vi.fn(),
 }));
 vi.mock("../ingestion", () => ({
@@ -374,6 +376,37 @@ describe("admin routes", () => {
 
     expect(response?.status).toBe(403);
     expect(getAdminDataHealth).not.toHaveBeenCalled();
+  });
+
+  it("refreshes faction membership through admin auth and cooldown", async () => {
+    const metrics = { fetchedMembers: 25, writeStatements: 52, changedRows: 2, revokedSessions: 1, markedDepartedRows: 1 };
+    vi.mocked(syncHomeFactionMembershipAndSessions).mockResolvedValueOnce(metrics);
+    const context = routeContext("https://worker.test/api/admin/home-faction-members/sync", { method: "POST" });
+
+    const response = await routeAdminApi(context);
+
+    expect(response?.status).toBe(200);
+    expect(await response?.json()).toEqual({ ok: true, ...metrics });
+    expect(requireAdmin).toHaveBeenCalledWith(context.request, context.env);
+    expect(readSyncTimestamp).toHaveBeenCalledWith(context.env, "manual_home_faction_members_sync");
+    expect(upsertSyncTimestamp).toHaveBeenCalledWith(context.env, "manual_home_faction_members_sync", expect.any(Number), null);
+    expect(syncHomeFactionMembershipAndSessions).toHaveBeenCalledWith(context.env);
+  });
+
+  it.each([401, 403])("blocks faction roster refresh when admin auth returns %s", async status => {
+    vi.mocked(requireAdmin).mockResolvedValueOnce(jsonResponse({ ok: false }, status));
+    const response = await routeAdminApi(routeContext("https://worker.test/api/admin/home-faction-members/sync", { method: "POST" }));
+    expect(response?.status).toBe(status);
+    expect(syncHomeFactionMembershipAndSessions).not.toHaveBeenCalled();
+    expect(upsertSyncTimestamp).not.toHaveBeenCalled();
+  });
+
+  it("blocks faction roster refresh during its cooldown", async () => {
+    vi.mocked(readSyncTimestamp).mockResolvedValueOnce(Math.floor(Date.now() / 1000));
+    const response = await routeAdminApi(routeContext("https://worker.test/api/admin/home-faction-members/sync", { method: "POST" }));
+    expect(response?.status).toBe(429);
+    expect(await response?.json()).toMatchObject({ ok: false, code: "COOLDOWN_ACTIVE" });
+    expect(syncHomeFactionMembershipAndSessions).not.toHaveBeenCalled();
   });
 
   it("routes Discord link sync through admin auth and cooldown", async () => {
