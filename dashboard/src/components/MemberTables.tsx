@@ -226,7 +226,7 @@ function formatNullablePercent(value: number | null | undefined): string {
   return `${Number(value).toFixed(1)}%`;
 }
 
-function RespectAdjustmentCell({
+export function RespectAdjustmentCell({
   adjusted,
   raw,
   chainHits,

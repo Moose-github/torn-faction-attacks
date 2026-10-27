@@ -267,8 +267,10 @@ export async function readEventCompetition(env: Env, war: WarRow) {
       .bind(war.id).all<{ team_name: string }>() : { results: [] };
   const state = await env.DB.prepare("SELECT * FROM event_competition_state WHERE war_id = ?").bind(war.id)
     .first<{ initialized_at: number; final_requested_at: number | null; finish_at: number | null }>();
-  const rows = await env.DB.prepare(`SELECT * FROM event_competition_members
-    WHERE war_id = ? AND report_exempt = 0 ORDER BY member_name, member_id`).bind(war.id).all<MemberRow>();
+  const rows = await env.DB.prepare(`SELECT m.*, h.days_in_faction FROM event_competition_members m
+    LEFT JOIN home_faction_members h ON h.member_id = m.member_id
+    WHERE m.war_id = ? AND m.report_exempt = 0 ORDER BY m.member_name, m.member_id`)
+    .bind(war.id).all<MemberRow & { days_in_faction: number | null }>();
   const samples = war.event_type === "halloween"
     ? await env.DB.prepare(`SELECT s.* FROM event_competition_snapshots s JOIN event_competition_members m
       ON m.war_id = s.war_id AND m.member_id = s.member_id
@@ -286,6 +288,7 @@ export async function readEventCompetition(env: Env, war: WarRow) {
       baseline_treats: readings?.baseline.treats_collected ?? null,
       treats_gained: readings ? readings.latest.treats_collected - readings.baseline.treats_collected : null,
       basket_name: readings?.latest.basket_name ?? null,
+      days_in_faction: row.days_in_faction ?? null,
       status: war.event_type === "elimination" ? (row.captured_at !== null ? "complete" : row.last_error ? "unavailable" : "pending")
         : ended ? (finalComplete ? "complete" : row.poll_due_at !== null ? "finishing" : "incomplete")
           : row.last_error ? "stale" : readings ? "tracking" : "pending",

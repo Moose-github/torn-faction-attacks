@@ -88,6 +88,22 @@ beforeEach(() => {
 afterEach(() => { db.close(); vi.useRealTimers(); });
 
 describe("event competition collection", () => {
+  it("reads the latest roster tenure without dropping members whose roster data is missing", async () => {
+    war(); member(1); member(2); member(3);
+    await ensureEventCompetitionStarted(env, 1);
+    db.exec("UPDATE home_faction_members SET days_in_faction = 42 WHERE member_id = 1");
+    db.exec("UPDATE home_faction_members SET days_in_faction = 0 WHERE member_id = 2");
+    db.exec("DELETE FROM home_faction_members WHERE member_id = 3");
+    expect((await view()).members.map(({ member_id, days_in_faction }) => ({ member_id, days_in_faction })))
+      .toEqual([
+        { member_id: 1, days_in_faction: 42 },
+        { member_id: 2, days_in_faction: 0 },
+        { member_id: 3, days_in_faction: null },
+      ]);
+    db.exec("UPDATE home_faction_members SET days_in_faction = 43 WHERE member_id = 1");
+    expect((await view()).members[0].days_in_faction).toBe(43);
+  });
+
   it.each([0, 123])("accepts %i treats with explicitly null basket metadata", (treats) => {
     expect(parseCompetitionReading({ competition: {
       name: "Halloween", treats_collected: treats, basket: { id: null, name: null },

@@ -5,6 +5,7 @@ import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YA
 import type { MemberStats, WarSummary } from "../api";
 import { getEventCompetition, updateEliminationTeamStatus, type CompetitionMember, type EventCompetition } from "../api/competition";
 import { EmptyState, PanelHeader } from "./Common";
+import { RespectAdjustmentCell } from "./MemberTables";
 import { formatDate, formatLongDateTime, formatNumber } from "../utils/format";
 import { eliminationRowStatus } from "../utils/eventCompetition";
 import "./eventCompetition.css";
@@ -185,27 +186,41 @@ export function EventCompetitionPanel({ war, data, error, compact = false, membe
           <thead><tr>
             <th aria-sort={sort.key === "name" ? sort.descending ? "descending" : "ascending" : "none"}><button type="button" onClick={() => changeSort("name")}>Member {sortIcon("name")}</button></th>
             {halloween ? <>
-              <th>Starting treats</th>
               <th aria-sort={sort.key === "treats" ? sort.descending ? "descending" : "ascending" : "none"}><button type="button" onClick={() => changeSort("treats")}>Treats gained {sortIcon("treats")}</button></th>
               <th aria-sort={sort.key === "attacks" ? sort.descending ? "descending" : "ascending" : "none"}><button type="button" onClick={() => changeSort("attacks")}>Successful attacks {sortIcon("attacks")}</button></th>
               <th aria-sort={sort.key === "respect" ? sort.descending ? "descending" : "ascending" : "none"}><button type="button" title="Adjusted respect, with chain bonus hits counted at the member's average hit value." onClick={() => changeSort("respect")}>Respect gained {sortIcon("respect")}</button></th>
             </> : <th aria-sort={sort.key === "team" ? sort.descending ? "descending" : "ascending" : "none"}><button type="button" onClick={() => changeSort("team")}>Team {sortIcon("team")}</button></th>}
-            {!halloween ? <th aria-sort={sort.key === "eliminated" ? sort.descending ? "descending" : "ascending" : "none"}><button type="button" onClick={() => changeSort("eliminated")}>Eliminated {sortIcon("eliminated")}</button></th> : null}<th>Status</th>
-            {halloween ? <th>Basket</th> : null}
+            {!halloween ? <><th aria-sort={sort.key === "eliminated" ? sort.descending ? "descending" : "ascending" : "none"}><button type="button" onClick={() => changeSort("eliminated")}>Eliminated {sortIcon("eliminated")}</button></th><th>Status</th></> : null}
+            {halloween ? <><th>Basket</th><th title="Days in faction from the latest stored roster reading">Days in faction</th></> : null}
           </tr></thead>
-          <tbody>{visible.map(member => <tr key={member.member_id}
+          <tbody>{visible.map(member => {
+            const stats = statsByMember.get(member.member_id);
+            return <tr key={member.member_id}
             className={eliminationRowStatus(data, member) ? "event-inactive-row" : undefined}>
             <td><a className="member-link" href={`https://www.torn.com/profiles.php?XID=${member.member_id}`} target="_blank" rel="noreferrer">{member.member_name}</a></td>
             {halloween ? <>
-              <td title={`Baseline captured: ${member.baseline_at ? formatLongDateTime(member.baseline_at) : "Awaiting baseline"}`}>{member.baseline_treats == null ? "Unavailable" : formatNumber(member.baseline_treats)}</td>
-              <td title={`Last reading: ${member.updated_at ? formatLongDateTime(member.updated_at) : "Awaiting data"}`}>{member.treats_gained === null ? "Unavailable" : formatNumber(member.treats_gained)}</td>
-              <td>{statsByMember.get(member.member_id)?.attacks_vs_enemy_successful == null ? "Unavailable" : formatNumber(statsByMember.get(member.member_id)!.attacks_vs_enemy_successful)}</td>
-              <td>{statsByMember.get(member.member_id)?.respect_gained == null ? "Unavailable" : formatNumber(statsByMember.get(member.member_id)!.respect_gained)}</td>
+              <td><span className="respect-adjustment-cell">
+                <span className="respect-adjustment-value" title={`Last reading: ${member.updated_at ? formatLongDateTime(member.updated_at) : "Awaiting data"}`}>{member.treats_gained === null ? "Unavailable" : formatNumber(member.treats_gained)}</span>
+                <span className="respect-adjustment-marker" title={`Baseline captured: ${member.baseline_at ? formatLongDateTime(member.baseline_at) : "Awaiting baseline"}`}>Starting treats: {member.baseline_treats == null ? "Unavailable" : formatNumber(member.baseline_treats)}</span>
+              </span></td>
+              <td>{stats?.attacks_vs_enemy_successful == null ? "Unavailable" : formatNumber(stats.attacks_vs_enemy_successful)}</td>
+              <td>{stats?.respect_gained == null ? "Unavailable" : <RespectAdjustmentCell
+                adjusted={stats.respect_gained}
+                raw={stats.respect_gained_raw}
+                chainHits={stats.chain_bonus_hits_vs_enemy}
+                chainHitValues={stats.chain_bonus_hit_values_vs_enemy}
+                chainHitDetails={stats.chain_bonus_hit_details_vs_enemy}
+                respectRemoved={stats.chain_bonus_respect_removed}
+                tooltipLabel="Respect gained"
+                markerLabel="chain"
+              />}</td>
             </> : <td>{competitionTeam(member)}</td>}
             {!halloween ? <td>{eliminationRowStatus(data, member) === "Eliminated" ? "Yes" : member.participation === "participating" ? "No" : "-"}</td> : null}
-            <td title={member.last_error ?? undefined}>{eliminationRowStatus(data, member) ?? (member.status === "complete" ? "Captured" : member.status === "tracking" ? halloween && war.status === "scheduled" ? "Baseline saved" : "Tracking" : member.status === "pending" ? "Pending" : member.status === "finishing" ? "Final pending" : member.status === "stale" ? "Stale" : member.status === "incomplete" ? "Incomplete" : "Unavailable")}</td>
+            {!halloween ? <td title={member.last_error ?? undefined}>{eliminationRowStatus(data, member) ?? (member.status === "complete" ? "Captured" : member.status === "tracking" ? "Tracking" : member.status === "pending" ? "Pending" : member.status === "finishing" ? "Final pending" : member.status === "stale" ? "Stale" : member.status === "incomplete" ? "Incomplete" : "Unavailable")}</td> : null}
             {halloween ? <td>{member.basket_name?.replace(/^Halloween Basket\s*:\s*/i, "") ?? (member.baseline_at !== null ? "No basket" : "Unavailable")}</td> : null}
-          </tr>)}</tbody>
+            {halloween ? <td>{member.days_in_faction == null ? "Unavailable" : formatNumber(member.days_in_faction)}</td> : null}
+          </tr>;
+          })}</tbody>
         </table></div>
         {!visible.length ? <EmptyState text="No members to show" /> : null}
       </> : null}

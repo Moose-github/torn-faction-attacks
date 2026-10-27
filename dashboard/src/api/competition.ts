@@ -11,6 +11,7 @@ export type CompetitionMember = {
   updated_at: number | null;
   treats_gained: number | null;
   basket_name: string | null;
+  days_in_faction: number | null;
   status: "complete" | "unavailable" | "pending" | "finishing" | "incomplete" | "stale" | "tracking";
   last_error: string | null;
 };
