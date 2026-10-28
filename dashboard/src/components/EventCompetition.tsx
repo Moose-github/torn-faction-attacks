@@ -1,13 +1,14 @@
 import { startPolling, type PollContext } from "../utils/polling";
 import React from "react";
 import { ArrowDown, ArrowUp, Candy, Flag, RefreshCw, Shield } from "lucide-react";
-import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import type { MemberStats, WarSummary } from "../api";
 import { getEventCompetition, updateEliminationTeamStatus, type CompetitionMember, type EventCompetition } from "../api/competition";
 import { EmptyState, PanelHeader } from "./Common";
 import { RespectAdjustmentCell } from "./MemberTables";
 import { formatDate, formatLongDateTime, formatNumber } from "../utils/format";
 import { eliminationRowStatus } from "../utils/eventCompetition";
+import { eventCompetitionChartData } from "../utils/eventCompetitionChart";
 import "./eventCompetition.css";
 
 export function useEventCompetition(war: WarSummary) {
@@ -154,6 +155,11 @@ export function EventCompetitionPanel({ war, data, error, compact = false, membe
   const lastUpdate = Math.max(0, ...members.map(member => member.updated_at ?? 0));
   const baselines = members.flatMap(member => member.baseline_at === null ? [] : [member.baseline_at]);
   const firstBaseline = baselines.length ? Math.min(...baselines) : null;
+  const chartData = React.useMemo(() => data ? eventCompetitionChartData(data) : [], [data]);
+  const chainTimes = data?.chain_history?.map(point => point.observed_at) ?? [];
+  const tickInterval = Math.max(1, Math.ceil((chainTimes.length - 1) / 4));
+  const chartTicks = chainTimes.length > 1
+    ? chainTimes.filter((_, index) => index % tickInterval === 0 || index === chainTimes.length - 1) : undefined;
   function changeSort(key: CompetitionSortKey) {
     setSort(current => ({ key, descending: current.key === key ? !current.descending : key === "treats" || key === "attacks" || key === "respect" || key === "days" }));
   }
@@ -181,15 +187,20 @@ export function EventCompetitionPanel({ war, data, error, compact = false, membe
       {halloween && war.status === "scheduled" ? <p className="event-competition-note">Starting treats are collected when the event is created. Collection resumes at the event start; gains use each member’s saved baseline.</p> : null}
       {halloween && war.practical_finish_time !== null && lastUpdate > war.practical_finish_time ? <p className="event-competition-warning">Final readings were collected after the event finish and may include later treats.</p> : null}
       {compact && !halloween ? <div className="event-team-counts">{teams.map(name => <div key={name}><span>{name}</span><strong>{members.filter(member => competitionTeam(member) === name).length}</strong></div>)}</div> : null}
-      {!compact && halloween && data.history.length > 1 ? <div className="event-treat-chart" aria-label="Treats gained over time">
-        <ResponsiveContainer width="100%" height="100%"><LineChart data={data.history} margin={{ top: 12, right: 20, bottom: 8, left: 8 }}>
+      {!compact && halloween && chartData.length > 1 ? <>
+        <p className="event-competition-note">Chain progress is sampled at event start and hourly on the hour from saved attacks. Gaps indicate no reliable reading.</p>
+        <div className="event-treat-chart" aria-label="Treats gained and hourly chain progress over time">
+        <ResponsiveContainer width="100%" height="100%"><LineChart data={chartData} margin={{ top: 12, right: 20, bottom: 8, left: 8 }}>
           <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="3 3" vertical={false} />
-          <XAxis dataKey="observed_at" type="number" domain={[war.practical_start_time, "dataMax"]} tickFormatter={(value: number) => formatDate(value)} minTickGap={50} tick={{ fontSize: 12, fill: "var(--chart-axis)" }} />
-          <YAxis allowDecimals={false} width={55} tick={{ fontSize: 12, fill: "var(--chart-axis)" }} />
-          <Tooltip labelFormatter={value => formatLongDateTime(Number(value))} formatter={value => [formatNumber(Number(value)), "Treats gained"]} />
-          <Line dataKey="treats_gained" type="stepAfter" stroke="var(--accent)" strokeWidth={2} dot={false} isAnimationActive={false} />
+          <XAxis dataKey="observed_at" type="number" domain={[war.practical_start_time, "dataMax"]} ticks={chartTicks} interval="preserveStartEnd" tickFormatter={(value: number) => formatDate(value)} minTickGap={50} tick={{ fontSize: 12, fill: "var(--chart-axis)" }} />
+          <YAxis yAxisId="treats" allowDecimals={false} width={55} tick={{ fontSize: 12, fill: "var(--chart-axis)" }} />
+          <YAxis yAxisId="chain" orientation="right" allowDecimals={false} width={55} tick={{ fontSize: 12, fill: "var(--chart-axis)" }} />
+          <Tooltip labelFormatter={value => formatLongDateTime(Number(value))} formatter={(value, name, item) => [formatNumber(Number(value)), name === "Chain (right axis)" && item.payload?.chain_sampled_at != null ? `Chain at ${formatLongDateTime(item.payload.chain_sampled_at)}` : name]} />
+          <Legend />
+          <Line yAxisId="treats" name="Treats gained (left axis)" dataKey="treats_gained" type="stepAfter" stroke="var(--accent)" strokeWidth={2} dot={false} isAnimationActive={false} />
+          <Line yAxisId="chain" name="Chain (right axis)" dataKey="chain" type="stepAfter" stroke="#f59e0b" strokeWidth={2} strokeDasharray="5 3" dot={{ r: 2 }} connectNulls={false} isAnimationActive={false} />
         </LineChart></ResponsiveContainer>
-      </div> : null}
+      </div></> : null}
       {!compact ? <>
         {!halloween ? <label className="event-team-filter"><span>Team</span><select value={team} onChange={event => setTeam(event.target.value)}>
           <option value="all">All members</option>{teams.map(name => <option key={name} value={name}>{name}</option>)}

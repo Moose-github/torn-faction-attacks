@@ -1,4 +1,5 @@
 import { bumpWarCacheVersionById } from "./cacheVersions";
+import { captureEventChainHistory, readEventChainHistory } from "./eventChainHistory";
 import { fetchTrackedTornJson } from "./external/torn";
 import { runWithTornKeyPool } from "./tornKeyPool";
 import { readWarFromUrl } from "./warRequest";
@@ -123,6 +124,7 @@ export async function runEventCompetitionCron(env: Env): Promise<void> {
     JOIN event_competition_state s ON s.war_id = w.id
     WHERE w.status = 'ended' AND s.final_requested_at IS NULL`).all<{ id: number; practical_finish_time: number }>();
   for (const war of ended.results ?? []) await requestEventCompetitionFinish(env, war.id, war.practical_finish_time, now);
+  await captureEventChainHistory(env, now);
   await collectDueCompetitionReadings(env);
 }
 
@@ -300,6 +302,7 @@ export async function readEventCompetition(env: Env, war: WarRow) {
     eliminated_teams: (eliminatedTeams.results ?? []).map(row => row.team_name),
     initialized_at: state?.initialized_at ?? null, final_requested_at: state?.final_requested_at ?? null,
     members, total_treats_gained: projection.members.size ? projection.total : null, history: projection.history,
+    chain_history: war.event_type === "halloween" ? await readEventChainHistory(env, war) : [],
     next_refresh_at: war.status !== "ended" && (rows.results ?? []).some(row => row.poll_due_at !== null)
       ? Math.min(...(rows.results ?? []).flatMap(row => row.poll_due_at === null ? [] : [row.poll_due_at])) : null,
   };

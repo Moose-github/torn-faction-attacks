@@ -28,6 +28,18 @@ the minute cron retrying failures and completing any remaining members. Saved
 baselines appear as **Starting treats** on the event page and survive the event
 start. Treats are checked again at the start, then every 6 or 12 hours, with a
 final reading at the finish. Missing readings are never assumed to be zero.
+
+The Halloween graph also shows chain progress on a separate axis. Apply migration
+`0186_add_event_chain_history.sql` before deploying this worker and dashboard change.
+The minute competition job backfills event start and subsequent clock-hour boundaries
+from retained faction attacks, then saves each new hourly point without additional
+Torn requests. Each point uses the latest successful outgoing hit completed at or
+before its timestamp and less than five minutes earlier, including hits before the
+event start. Missing or expired observations remain gaps rather than assumed zeros.
+Backfills process up to 48 points per event per run; recent points are reconciled for
+two hours and older gaps are retried hourly to accommodate delayed imports. Samples
+stop at event finish and are removed when their event is deleted.
+
 In Member performance, **All wars** excludes events; select **Events** to see event
 totals separately without adding shared attacks twice.
 

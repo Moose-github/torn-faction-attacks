@@ -76,9 +76,9 @@ export const CRON_JOB_DEFINITIONS: CronJobDefinition[] = [
   },
   {
     label: "Cron event competition collection",
-    cadence: "Start/finish; Halloween every 6h or 12h",
+    cadence: "Start/finish; treats every 6h or 12h; chain every clock hour",
     category: "maintenance",
-    purpose: "Collect one-time Elimination participation and scheduled Halloween treat snapshots in resumable batches.",
+    purpose: "Collect Elimination participation and Halloween treats; backfill and reconcile hourly chain samples from stored attacks.",
     shouldRun: () => true,
     run: (env) => runEventCompetitionCron(env),
   },

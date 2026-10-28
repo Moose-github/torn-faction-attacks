@@ -26,6 +26,7 @@ export type EventCompetition = {
   total_treats_gained: number | null;
   members: CompetitionMember[];
   history: Array<{ observed_at: number; treats_gained: number }>;
+  chain_history?: Array<{ observed_at: number; chain: number | null }>;
 };
 
 export function getEventCompetition(name: string, signal?: AbortSignal) {

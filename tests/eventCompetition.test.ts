@@ -10,6 +10,8 @@ import {
 import { bumpWarCacheVersionById } from "../src/cacheVersions";
 import { fetchTrackedTornJson } from "../src/external/torn";
 import { createManualEvent, updateEvent } from "../src/wars";
+import { captureEventChainHistory, eventChainSampleTimes, readEventChainHistory } from "../src/eventChainHistory";
+import { HOME_FACTION_ID } from "../src/constants";
 
 vi.mock("../src/external/torn", () => ({ fetchTrackedTornJson: vi.fn() }));
 vi.mock("../src/cacheVersions", () => ({ bumpWarCacheVersionById: vi.fn(), bumpWarCacheVersion: vi.fn() }));
@@ -86,6 +88,101 @@ beforeEach(() => {
   vi.mocked(fetchTrackedTornJson).mockResolvedValue(halloween(1000));
 });
 afterEach(() => { db.close(); vi.useRealTimers(); });
+
+describe("hourly Halloween chain history", () => {
+  const hour = 3600;
+  function hit(id: number, time: number, chain: number | null, faction = HOME_FACTION_ID, result = "Attacked") {
+    db.prepare(`INSERT INTO attacks (id, started, ended, attacker_faction_id, defender_faction_id, result, chain)
+      VALUES (?, ?, ?, ?, 999, ?, ?)`).run(id, time - 15, time, faction, result, chain);
+  }
+  function points() { return db.prepare("SELECT sampled_at, chain_count FROM event_chain_history ORDER BY sampled_at").all(); }
+
+  it("samples event start once and subsequent clock hours, bounded by now and finish", () => {
+    const start = START + 20 * 60;
+    expect(eventChainSampleTimes(start, null, START + 2 * hour + 500)).toEqual([start, START + hour, START + 2 * hour]);
+    expect(eventChainSampleTimes(START, START + hour + 500, START + 3 * hour)).toEqual([START, START + hour]);
+    expect(eventChainSampleTimes(start, null, START)).toEqual([]);
+  });
+
+  it("backfills from the faction feed, includes pre-event hits, and preserves resets and gaps", async () => {
+    war(); member();
+    hit(1, START - 30, 900);
+    hit(2, START + hour, 1500);
+    hit(3, START + hour + 1, 1501); // A later hit must not leak into the hour boundary.
+    hit(4, START + 2 * hour - 5, 2); // A new chain, not cumulative event attacks.
+    hit(5, START + 3 * hour - 300, 90); // Expired exactly at the hour: unknown.
+    hit(6, START + 3 * hour, 6000, 123); // Enemy chain must not count.
+    hit(7, START + 3 * hour, 6001, HOME_FACTION_ID, "Lost");
+    at(START + 3 * hour + 10);
+    await runEventCompetitionCron(env);
+    expect(points()).toEqual([
+      { sampled_at: START, chain_count: 900 },
+      { sampled_at: START + hour, chain_count: 1500 },
+      { sampled_at: START + 2 * hour, chain_count: 2 },
+      { sampled_at: START + 3 * hour, chain_count: null },
+    ]);
+    expect((await view()).chain_history.map(point => point.chain)).toEqual([900, 1500, 2, null]);
+  });
+
+  it("records a real zero and treats missing chain metadata as unknown", async () => {
+    war();
+    hit(1, START, 0);
+    hit(2, START + hour - 5, 500);
+    hit(3, START + hour, null);
+    await captureEventChainHistory(env, START + hour);
+    expect(points()).toEqual([{ sampled_at: START, chain_count: 0 }, { sampled_at: START + hour, chain_count: null }]);
+  });
+
+  it("catches up missed hours and reconciles delayed attacks without duplicate samples", async () => {
+    war();
+    await captureEventChainHistory(env, START + hour);
+    hit(1, START - 10, 101);
+    hit(2, START + hour - 2, 200);
+    await captureEventChainHistory(env, START + hour + 60);
+    expect(points()).toHaveLength(2);
+    expect(points().map(point => point.chain_count)).toEqual([101, 200]);
+    hit(3, START + hour - 1, 201);
+    await captureEventChainHistory(env, START + hour + 120);
+    expect(points()[1].chain_count).toBe(201);
+    await captureEventChainHistory(env, START + 4 * hour + 60);
+    expect(points()).toHaveLength(5);
+  });
+
+  it("resumes a large backfill in bounded batches and retries older missing readings", async () => {
+    war();
+    const now = START + 72 * hour;
+    await captureEventChainHistory(env, now);
+    expect(points()).toHaveLength(48);
+    await captureEventChainHistory(env, now + 60);
+    expect(points()).toHaveLength(73);
+    hit(1, START, 123);
+    await captureEventChainHistory(env, now + hour);
+    expect(points()[0].chain_count).toBe(123);
+  });
+
+  it("stops at event finish, ignores future scheduled events, and respects edited windows", async () => {
+    war("halloween", "scheduled");
+    await captureEventChainHistory(env, START + 2 * hour);
+    expect(points()).toEqual([]);
+    db.prepare("UPDATE wars SET status = 'ended', practical_finish_time = ?").run(START + hour + 30);
+    await captureEventChainHistory(env, START + 3 * hour);
+    expect(points()).toHaveLength(2);
+    const edited = { id: 1, practical_start_time: START + 30, practical_finish_time: START + hour + 30 };
+    expect(await readEventChainHistory(env, edited, START + 3 * hour)).toEqual([
+      { observed_at: START + 30, chain: null }, { observed_at: START + hour, chain: null },
+    ]);
+  });
+
+  it("migrates existing events and removes their chain samples when the event is deleted", () => {
+    war();
+    db.exec("DROP TABLE event_chain_history");
+    db.exec(readFileSync(new URL("../migrations/0186_add_event_chain_history.sql", import.meta.url), "utf8"));
+    db.prepare("INSERT INTO event_chain_history VALUES (1, ?, 100, NULL, ?)").run(START, START);
+    expect(points()).toHaveLength(1);
+    db.exec("DELETE FROM wars WHERE id = 1");
+    expect(points()).toEqual([]);
+  });
+});
 
 describe("event competition collection", () => {
   it("reads the latest roster tenure without dropping members whose roster data is missing", async () => {
@@ -429,7 +526,7 @@ describe("event competition collection", () => {
     expect(response.status).toBe(400);
     expect(await response.json()).toMatchObject({ code: "EVENT_TYPE_LOCKED" });
     db.exec("DELETE FROM wars WHERE id = 1");
-    for (const table of ["event_competition_state", "event_competition_members", "event_competition_snapshots"]) {
+    for (const table of ["event_competition_state", "event_competition_members", "event_competition_snapshots", "event_chain_history"]) {
       expect(db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get()?.n).toBe(0);
     }
   });
