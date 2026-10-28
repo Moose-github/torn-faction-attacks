@@ -32,8 +32,9 @@ final reading at the finish. Missing readings are never assumed to be zero.
 The Halloween graph also shows chain progress on the same scale as treats gained,
 with the axis sized to fit the larger series. Treats appear as one point per
 6- or 12-hour collection window from event start, keeping the highest total and
-the latest timestamp on ties. Final readings form their own collection. A linear
-least-squares trend uses those points without extrapolating beyond them; the
+the latest timestamp on ties. Final readings form their own collection. A quadratic
+least-squares curve uses those points without extrapolating beyond them, with a
+straight line for two readings and no fitted trend for a single reading. The
 infobox distinguishes estimates from saved readings. Apply migration
 `0186_add_event_chain_history.sql` before deploying this worker and dashboard change.
 The minute competition job backfills event start and subsequent clock-hour boundaries

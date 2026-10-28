@@ -24,7 +24,7 @@ describe("Halloween graph infobox", () => {
 
   it("labels trend estimates separately and hides them outside the fitted range", () => {
     expect(render()).toContain("12,400");
-    expect(render()).toContain("Best-fit estimate, not a reading");
+    expect(render()).toContain("Best-fit curve estimate, not a reading");
     expect(render({ treats_trend: null })).not.toContain("Treats trend");
   });
 

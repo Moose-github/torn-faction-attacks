@@ -19,7 +19,7 @@ export function EventCompetitionChartTooltip({ active, payload }: {
       <span className="event-chart-swatch event-chart-swatch-trend" aria-hidden="true" />
       <span>Treats trend</span>
       <strong>{formatNumber(Math.round(point.treats_trend))}</strong>
-      <small>Best-fit estimate, not a reading</small>
+      <small>Best-fit curve estimate, not a reading</small>
     </div> : null}
     <div className="event-chart-tooltip-metric">
       <span className="event-chart-swatch event-chart-swatch-chain" aria-hidden="true" />
