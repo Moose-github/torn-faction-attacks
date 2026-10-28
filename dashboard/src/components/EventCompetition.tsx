@@ -6,6 +6,7 @@ import type { MemberStats, WarSummary } from "../api";
 import { getEventCompetition, updateEliminationTeamStatus, type CompetitionMember, type EventCompetition } from "../api/competition";
 import { EmptyState, PanelHeader } from "./Common";
 import { RespectAdjustmentCell } from "./MemberTables";
+import { EventCompetitionChartTooltip } from "./EventCompetitionChartTooltip";
 import { formatDate, formatLongDateTime, formatNumber } from "../utils/format";
 import { eliminationRowStatus } from "../utils/eventCompetition";
 import { eventCompetitionChartData } from "../utils/eventCompetitionChart";
@@ -116,6 +117,7 @@ export function EventCompetitionPanel({ war, data, error, compact = false, membe
 }) {
   const halloween = war.event_type === "halloween";
   const [team, setTeam] = React.useState("all");
+  const [chartWidth, setChartWidth] = React.useState(0);
   const [sort, setSort] = React.useState<{ key: CompetitionSortKey; descending: boolean }>({ key: halloween ? "treats" : "eliminated", descending: halloween });
   const statsByMember = new Map(memberStats.map(member => [member.member_id, member]));
   const members = data?.members ?? [];
@@ -155,7 +157,7 @@ export function EventCompetitionPanel({ war, data, error, compact = false, membe
   const lastUpdate = Math.max(0, ...members.map(member => member.updated_at ?? 0));
   const baselines = members.flatMap(member => member.baseline_at === null ? [] : [member.baseline_at]);
   const firstBaseline = baselines.length ? Math.min(...baselines) : null;
-  const chartData = React.useMemo(() => data ? eventCompetitionChartData(data) : [], [data]);
+  const chartData = React.useMemo(() => data ? eventCompetitionChartData(data, war.practical_start_time, war.practical_finish_time) : [], [data, war.practical_start_time, war.practical_finish_time]);
   const chainTimes = data?.chain_history?.map(point => point.observed_at) ?? [];
   const tickInterval = Math.max(1, Math.ceil((chainTimes.length - 1) / 4));
   const chartTicks = chainTimes.length > 1
@@ -172,7 +174,7 @@ export function EventCompetitionPanel({ war, data, error, compact = false, membe
     {!data ? <EmptyState text={error ? "Data unavailable" : "Loading competition data"} /> : data.initialized_at === null ? (
       <EmptyState text={war.status === "scheduled" ? halloween ? "Awaiting baseline collection" : "Collection starts with the event" : war.status === "ended" ? "No competition snapshots saved for this event" : "Awaiting initial collection"} />
     ) : <>
-      <div className="event-competition-summary">
+      <div className={`event-competition-summary${halloween ? " event-competition-summary-halloween" : ""}`}>
         {halloween ? <div><span>Treats gained</span><strong>{data.total_treats_gained === null ? "Unavailable" : formatNumber(data.total_treats_gained)}</strong></div>
           : <div><span>Participating</span><strong>{members.filter(member => member.participation === "participating").length}</strong></div>}
         <div><span>Members captured</span><strong>{observed} / {members.length}</strong></div>
@@ -187,18 +189,18 @@ export function EventCompetitionPanel({ war, data, error, compact = false, membe
       {halloween && war.status === "scheduled" ? <p className="event-competition-note">Starting treats are collected when the event is created. Collection resumes at the event start; gains use each member’s saved baseline.</p> : null}
       {halloween && war.practical_finish_time !== null && lastUpdate > war.practical_finish_time ? <p className="event-competition-warning">Final readings were collected after the event finish and may include later treats.</p> : null}
       {compact && !halloween ? <div className="event-team-counts">{teams.map(name => <div key={name}><span>{name}</span><strong>{members.filter(member => competitionTeam(member) === name).length}</strong></div>)}</div> : null}
-      {!compact && halloween && chartData.length > 1 ? <>
-        <p className="event-competition-note">Chain progress is sampled at event start and hourly on the hour from saved attacks. Gaps indicate no reliable reading.</p>
+      {!compact && halloween && chartData.length > 0 ? <>
+        <p className="event-chart-caption">Dots show the highest total from each {data.refresh_hours}-hour collection; the straight line shows the treats trend. Treats and hourly chain samples share one scale. Chain gaps indicate no reliable reading.</p>
         <div className="event-treat-chart" aria-label="Treats gained and hourly chain progress over time">
-        <ResponsiveContainer width="100%" height="100%"><LineChart data={chartData} margin={{ top: 12, right: 20, bottom: 8, left: 8 }}>
+        <ResponsiveContainer width="100%" height="100%" onResize={width => setChartWidth(width)}><LineChart accessibilityLayer data={chartData} margin={{ top: 12, right: 16, bottom: 8, left: 0 }}>
           <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="3 3" vertical={false} />
           <XAxis dataKey="observed_at" type="number" domain={[war.practical_start_time, "dataMax"]} ticks={chartTicks} interval="preserveStartEnd" tickFormatter={(value: number) => formatDate(value)} minTickGap={50} tick={{ fontSize: 12, fill: "var(--chart-axis)" }} />
-          <YAxis yAxisId="treats" allowDecimals={false} width={55} tick={{ fontSize: 12, fill: "var(--chart-axis)" }} />
-          <YAxis yAxisId="chain" orientation="right" allowDecimals={false} width={55} tick={{ fontSize: 12, fill: "var(--chart-axis)" }} />
-          <Tooltip labelFormatter={value => formatLongDateTime(Number(value))} formatter={(value, name, item) => [formatNumber(Number(value)), name === "Chain (right axis)" && item.payload?.chain_sampled_at != null ? `Chain at ${formatLongDateTime(item.payload.chain_sampled_at)}` : name]} />
-          <Legend />
-          <Line yAxisId="treats" name="Treats gained (left axis)" dataKey="treats_gained" type="stepAfter" stroke="var(--accent)" strokeWidth={2} dot={false} isAnimationActive={false} />
-          <Line yAxisId="chain" name="Chain (right axis)" dataKey="chain" type="stepAfter" stroke="#f59e0b" strokeWidth={2} strokeDasharray="5 3" dot={{ r: 2 }} connectNulls={false} isAnimationActive={false} />
+          <YAxis domain={[0, "auto"]} allowDataOverflow allowDecimals={false} width={64} tickFormatter={formatNumber} tick={{ fontSize: 12, fill: "var(--chart-axis)" }} />
+          <Tooltip content={<EventCompetitionChartTooltip />} filterNull={false} isAnimationActive={false} offset={12} position={chartWidth > 0 && chartWidth < 480 ? { x: 0, y: 8 } : undefined} wrapperStyle={{ zIndex: 5, outline: "none" }} cursor={{ stroke: "var(--chart-axis)", strokeDasharray: "3 3" }} />
+          <Legend wrapperStyle={{ paddingTop: 10, fontSize: 13 }} />
+          <Line name="Treats trend" dataKey="treats_trend" type="linear" legendType="plainline" stroke="var(--accent)" strokeOpacity={0.65} strokeWidth={2} dot={false} activeDot={false} isAnimationActive={false} />
+          <Line name="Treats gained" dataKey="treats_point" legendType="circle" stroke="var(--accent)" strokeWidth={0} dot={{ r: 4, fill: "var(--accent)" }} activeDot={{ r: 6 }} isAnimationActive={false} />
+          <Line name="Chain" dataKey="chain" type="stepAfter" legendType="plainline" stroke="var(--event-chain-color)" strokeWidth={2} strokeDasharray="5 3" dot={{ r: 2 }} activeDot={{ r: 4 }} connectNulls={false} isAnimationActive={false} />
         </LineChart></ResponsiveContainer>
       </div></> : null}
       {!compact ? <>

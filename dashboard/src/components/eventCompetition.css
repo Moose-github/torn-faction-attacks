@@ -1,4 +1,5 @@
-.event-competition-panel { min-width: 0; }
+.event-competition-panel { min-width: 0; --event-chain-color: #b45309; }
+:root[data-theme="dark"] .event-competition-panel { --event-chain-color: #fbbf24; }
 @media (min-width: 1181px) {
   .event-leaderboard-grid.event-leaderboard-halloween { grid-template-columns: repeat(5, minmax(0, 1fr)); }
 }
@@ -16,7 +17,23 @@
 .event-competition-table { width: 100%; }
 .event-competition-table th button { display: inline-flex; align-items: center; gap: 5px; padding: 0; border: 0; background: transparent; color: inherit; font: inherit; cursor: pointer; }
 .event-competition-table th, .event-competition-table td { white-space: nowrap; }
-.event-treat-chart { height: 260px; width: 100%; min-width: 0; margin: 12px 0; }
+.event-treat-chart { height: 300px; width: 100%; min-width: 0; margin: 12px 0 20px; }
+.event-chart-caption { margin: 16px 0 0; color: var(--text-muted); font-size: 12px; line-height: 1.5; }
+.event-chart-tooltip { box-sizing: border-box; width: 260px; max-width: calc(100vw - 88px); padding: 12px 14px; border: 1px solid var(--chart-tooltip-border); border-radius: 10px; background: var(--chart-tooltip-bg); color: var(--text-main); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16); font-size: 12px; line-height: 1.4; white-space: normal; }
+.event-chart-tooltip-heading { padding-bottom: 9px; margin-bottom: 10px; border-bottom: 1px solid var(--border-faint); font-weight: 600; color: var(--text-heading); }
+.event-chart-tooltip-metric { display: grid; grid-template-columns: 14px minmax(0, 1fr) auto; align-items: center; column-gap: 7px; row-gap: 3px; }
+.event-chart-tooltip-metric + .event-chart-tooltip-metric { margin-top: 12px; }
+.event-chart-tooltip-metric strong { color: var(--text-strong); font-size: 14px; font-variant-numeric: tabular-nums; }
+.event-chart-tooltip-metric small { grid-column: 2 / -1; color: var(--text-muted); font-size: 11px; overflow-wrap: anywhere; }
+.event-chart-swatch { display: block; width: 14px; border-top: 3px solid; }
+.event-chart-swatch-treats { width: 8px; height: 8px; margin-left: 3px; border: 0; border-radius: 50%; background: var(--accent); }
+.event-chart-swatch-trend { color: var(--accent); opacity: 0.65; }
+.event-chart-swatch-chain { color: var(--event-chain-color); border-top-style: dashed; }
+@media (max-width: 480px) {
+  .event-competition-summary-halloween { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 12px; }
+  .event-competition-summary-halloween > div { min-width: 0; }
+  .event-competition-summary-halloween > div:nth-child(n + 3) { grid-column: 1 / -1; }
+}
 .event-competition-warning { font-size: 13px; color: var(--text-main); padding: 10px 0; }
 .event-competition-note { display: flex; align-items: center; gap: 6px; font-size: 13px; }
 .event-team-counts { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px 22px; padding-top: 12px; }
