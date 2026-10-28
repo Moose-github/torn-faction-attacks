@@ -1063,7 +1063,7 @@ async function readTornChain(
     feature: "war_live_data",
     run: ({ key, keySource }) => fetchTrackedTornJson<unknown>(
       env,
-      TORN_FACTION_CHAIN_API_URL,
+      `${TORN_FACTION_CHAIN_API_URL}?timestamp=${nowSeconds()}`,
       {
         headers: {
           Accept: "application/json",
