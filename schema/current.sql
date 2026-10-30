@@ -1442,6 +1442,10 @@ CREATE INDEX idx_attacks_attacker_faction_started
 CREATE INDEX idx_attacks_chain_watch_hit_at
   ON attacks (attacker_faction_id, COALESCE(ended, started), id) WHERE chain > 0;
 
+CREATE INDEX idx_attacks_successful_hit_at
+  ON attacks (attacker_faction_id, COALESCE(ended, started))
+  WHERE result IN ('Hospitalized','Mugged','Attacked','Arrested');
+
 CREATE INDEX idx_attacks_attacker_faction_war
   ON attacks(attacker_faction_id, war_id, started DESC);
 

@@ -59,7 +59,7 @@ describe("Halloween graph timeline", () => {
 
   it("does not invent a trend for a single reading or empty history", () => {
     expect(eventCompetitionChartData({ refresh_hours: 6, history: [reading(0, 10)] }, START))
-      .toEqual([{ observed_at: START, treats_point: 10, treats_trend: null, treats_gained: 10, treats_sampled_at: START, chain: null, chain_sampled_at: null }]);
+      .toEqual([{ observed_at: START, treats_point: 10, treats_trend: null, treats_gained: 10, treats_sampled_at: START, chain: null, chain_sampled_at: null, successful_attacks: null, attacks_sampled_at: null }]);
     expect(eventCompetitionChartData({ refresh_hours: 6, history: [] }, START)).toEqual([]);
   });
 
@@ -67,6 +67,23 @@ describe("Halloween graph timeline", () => {
     const points = eventCompetitionChartData({ refresh_hours: 6, history: [reading(0, 0), reading(18, 0)] }, START);
     expect(points).toHaveLength(2);
     expect(points.map(p => p.treats_trend)).toEqual([0, 0]);
+  });
+
+  it("starts successful attacks at their first sample, preserves zero and carries hourly totals across curve points", () => {
+    const points = eventCompetitionChartData({ refresh_hours: 6,
+      history: [reading(0, 0), reading(6, 100), reading(12, 400)],
+      successful_attack_history: [
+        { observed_at: START + 3 * HOUR, successful_attacks: 0 },
+        { observed_at: START + 4 * HOUR, successful_attacks: 20 },
+      ],
+      chain_history: [{ observed_at: START + 4 * HOUR, chain: 1 }],
+    }, START);
+    expect(points.filter(p => p.observed_at < START + 3 * HOUR)
+      .every(p => p.successful_attacks === null && p.attacks_sampled_at === null)).toBe(true);
+    expect(points.find(p => p.observed_at === START + 3 * HOUR)).toMatchObject({ successful_attacks: 0, attacks_sampled_at: START + 3 * HOUR });
+    expect(points.find(p => p.observed_at === START + 4 * HOUR)).toMatchObject({ successful_attacks: 20, chain: 1 });
+    expect(points.find(p => p.observed_at === START + 4.5 * HOUR)).toMatchObject({ successful_attacks: 20, attacks_sampled_at: START + 4 * HOUR });
+    expect(points.filter(p => p.attacks_sampled_at === p.observed_at)).toHaveLength(2);
   });
 
   it("uses least squares across noisy readings instead of passing through every dot", () => {

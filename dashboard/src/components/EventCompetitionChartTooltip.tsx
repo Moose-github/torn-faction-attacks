@@ -27,5 +27,11 @@ export function EventCompetitionChartTooltip({ active, payload }: {
       <strong>{point.chain === null ? "No reading" : formatNumber(point.chain)}</strong>
       <small>{point.chain === null || point.chain_sampled_at === null ? "No reliable sample for this hour" : `Sampled ${formatDate(point.chain_sampled_at)}`}</small>
     </div>
+    {point.successful_attacks !== null ? <div className="event-chart-tooltip-metric">
+      <span className="event-chart-swatch event-chart-swatch-attacks" aria-hidden="true" />
+      <span>Successful attacks</span>
+      <strong>{formatNumber(point.successful_attacks)}</strong>
+      <small>Total since event start · {formatDate(point.attacks_sampled_at!)}</small>
+    </div> : null}
   </div>;
 }

@@ -12,6 +12,7 @@ import { fetchTrackedTornJson } from "../src/external/torn";
 import { createManualEvent, updateEvent } from "../src/wars";
 import { captureEventChainHistory, eventChainSampleTimes, readEventChainHistory } from "../src/eventChainHistory";
 import { HOME_FACTION_ID } from "../src/constants";
+import { readEventSuccessfulAttackHistory, SUCCESSFUL_ATTACK_HISTORY_START } from "../src/eventSuccessfulAttackHistory";
 
 vi.mock("../src/external/torn", () => ({ fetchTrackedTornJson: vi.fn() }));
 vi.mock("../src/cacheVersions", () => ({ bumpWarCacheVersionById: vi.fn(), bumpWarCacheVersion: vi.fn() }));
@@ -181,6 +182,99 @@ describe("hourly Halloween chain history", () => {
     expect(points()).toHaveLength(1);
     db.exec("DELETE FROM wars WHERE id = 1");
     expect(points()).toEqual([]);
+  });
+});
+
+describe("hourly Halloween successful attacks", () => {
+  const cutoff = SUCCESSFUL_ATTACK_HISTORY_START;
+  const hour = 3600;
+  const window = { practical_start_time: cutoff - 2 * hour, practical_finish_time: null };
+  function hit(id: number, time: number, result = "Attacked", faction = HOME_FACTION_ID, defender: number | null = 999) {
+    db.prepare(`INSERT INTO attacks (id, started, ended, attacker_faction_id, defender_faction_id, result, chain)
+      VALUES (?, ?, ?, ?, ?, ?, ?)`)
+      .run(id, time - 15, time, faction, defender, result, id === 5 ? 1 : 1000 + id);
+  }
+
+  it("first plots at 29 October noon with the full event total, then counts exactly through each hour", async () => {
+    expect(new Date(cutoff * 1000).toISOString()).toBe("2026-10-29T12:00:00.000Z");
+    hit(1, window.practical_start_time - 1);
+    hit(2, window.practical_start_time);
+    hit(3, cutoff - 10);
+    hit(4, cutoff);
+    hit(5, cutoff + 1); // A reset chain still adds one successful attack.
+    hit(6, cutoff + hour);
+    hit(7, cutoff + hour + 1); // Must not leak into the last completed hour.
+    expect(await readEventSuccessfulAttackHistory(env, window, cutoff + hour + 300)).toEqual([
+      { observed_at: cutoff, successful_attacks: 3 },
+      { observed_at: cutoff + hour, successful_attacks: 5 },
+    ]);
+  });
+
+  it("uses successful outgoing faction attacks, including outside-war hits and missing chain metadata", async () => {
+    ["Hospitalized", "Mugged", "Attacked", "Arrested", "Lost", "Assist", "Stalemate", "Escape"]
+      .forEach((result, i) => hit(i + 1, cutoff - 30, result));
+    hit(9, cutoff - 30, "Attacked", 999);
+    hit(10, cutoff - 30, "Attacked", HOME_FACTION_ID, HOME_FACTION_ID);
+    hit(11, cutoff - 30, "Attacked", HOME_FACTION_ID, null);
+    db.exec("UPDATE attacks SET chain = NULL WHERE id = 11");
+    expect(await readEventSuccessfulAttackHistory(env, window, cutoff + hour)).toEqual([
+      { observed_at: cutoff, successful_attacks: 5 },
+      { observed_at: cutoff + hour, successful_attacks: 5 },
+    ]);
+  });
+
+  it("updates old totals when delayed attacks arrive without accumulating duplicates", async () => {
+    expect((await readEventSuccessfulAttackHistory(env, window, cutoff + hour)).map(p => p.successful_attacks)).toEqual([0, 0]);
+    hit(1, cutoff - hour);
+    hit(2, cutoff + 10);
+    expect((await readEventSuccessfulAttackHistory(env, window, cutoff + hour)).map(p => p.successful_attacks)).toEqual([1, 2]);
+    expect((await readEventSuccessfulAttackHistory(env, window, cutoff + hour)).map(p => p.successful_attacks)).toEqual([1, 2]);
+  });
+
+  it("bounds history by cutoff, event start, finish and now", async () => {
+    expect(await readEventSuccessfulAttackHistory(env, window, cutoff - 1)).toEqual([]);
+    expect(await readEventSuccessfulAttackHistory(env, { ...window, practical_finish_time: cutoff - 1 }, cutoff + hour)).toEqual([]);
+    const later = { practical_start_time: cutoff + 1200, practical_finish_time: cutoff + 2 * hour + 300 };
+    hit(1, cutoff + 1000);
+    hit(2, cutoff + 1800);
+    hit(3, cutoff + 2 * hour + 1);
+    expect(await readEventSuccessfulAttackHistory(env, later, cutoff + 3 * hour)).toEqual([
+      { observed_at: cutoff + hour, successful_attacks: 1 },
+      { observed_at: cutoff + 2 * hour, successful_attacks: 1 },
+    ]);
+  });
+
+  it("uses started time only when completion time is unavailable", async () => {
+    hit(1, cutoff + 10); // Started before noon but completed after: count next hour.
+    hit(2, cutoff - 10);
+    db.exec("UPDATE attacks SET ended = NULL WHERE id = 2");
+    expect((await readEventSuccessfulAttackHistory(env, window, cutoff + hour)).map(p => p.successful_attacks)).toEqual([1, 2]);
+  });
+
+  it("returns the new history on the Halloween API and omits it for elimination", async () => {
+    war();
+    db.prepare("UPDATE wars SET practical_start_time = ?").run(window.practical_start_time);
+    hit(1, cutoff - 1);
+    at(cutoff + hour);
+    expect((await view()).successful_attack_history).toEqual([
+      { observed_at: cutoff, successful_attacks: 1 },
+      { observed_at: cutoff + hour, successful_attacks: 1 },
+    ]);
+    db.exec("UPDATE wars SET event_type = 'elimination'");
+    expect((await view()).successful_attack_history).toEqual([]);
+  });
+
+  it("applies the index migration and uses a bounded time lookup", async () => {
+    db.exec("DROP INDEX idx_attacks_successful_hit_at");
+    db.exec(readFileSync(new URL("../migrations/0187_index_successful_attack_history.sql", import.meta.url), "utf8"));
+    const prepare = vi.spyOn(env.DB, "prepare");
+    await readEventSuccessfulAttackHistory(env, window, cutoff + hour);
+    const sql = prepare.mock.calls[0][0];
+    const plan = db.prepare(`EXPLAIN QUERY PLAN ${sql}`)
+      .all(cutoff, cutoff, HOME_FACTION_ID, HOME_FACTION_ID, window.practical_start_time, cutoff + hour);
+    expect(plan.some(row => String(row.detail).includes("idx_attacks_successful_hit_at")
+      && String(row.detail).includes("<expr>"))).toBe(true);
+    prepare.mockRestore();
   });
 });
 

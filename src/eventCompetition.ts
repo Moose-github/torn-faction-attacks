@@ -1,5 +1,6 @@
 import { bumpWarCacheVersionById } from "./cacheVersions";
 import { captureEventChainHistory, readEventChainHistory } from "./eventChainHistory";
+import { readEventSuccessfulAttackHistory } from "./eventSuccessfulAttackHistory";
 import { fetchTrackedTornJson } from "./external/torn";
 import { runWithTornKeyPool } from "./tornKeyPool";
 import { readWarFromUrl } from "./warRequest";
@@ -303,6 +304,7 @@ export async function readEventCompetition(env: Env, war: WarRow) {
     initialized_at: state?.initialized_at ?? null, final_requested_at: state?.final_requested_at ?? null,
     members, total_treats_gained: projection.members.size ? projection.total : null, history: projection.history,
     chain_history: war.event_type === "halloween" ? await readEventChainHistory(env, war) : [],
+    successful_attack_history: war.event_type === "halloween" ? await readEventSuccessfulAttackHistory(env, war) : [],
     next_refresh_at: war.status !== "ended" && (rows.results ?? []).some(row => row.poll_due_at !== null)
       ? Math.min(...(rows.results ?? []).flatMap(row => row.poll_due_at === null ? [] : [row.poll_due_at])) : null,
   };

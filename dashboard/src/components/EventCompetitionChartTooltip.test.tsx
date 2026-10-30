@@ -8,6 +8,7 @@ import type { EventCompetitionChartPoint } from "../utils/eventCompetitionChart"
 const point: EventCompetitionChartPoint = {
   observed_at: 1793408400, treats_gained: 12500, treats_sampled_at: 1793404800,
   chain: 900, chain_sampled_at: 1793408400, treats_point: null, treats_trend: 12400.4,
+  successful_attacks: null, attacks_sampled_at: null,
 };
 function render(overrides: Partial<EventCompetitionChartPoint> = {}) {
   return renderToStaticMarkup(<EventCompetitionChartTooltip active payload={[{ payload: { ...point, ...overrides } }]} />);
@@ -39,5 +40,15 @@ describe("Halloween graph infobox", () => {
   it("stays hidden when inactive or no chart point is selected", () => {
     expect(renderToStaticMarkup(<EventCompetitionChartTooltip payload={[{ payload: point }]} />)).toBe("");
     expect(renderToStaticMarkup(<EventCompetitionChartTooltip active />)).toBe("");
+  });
+
+  it("labels the event-wide attack total and hides it before the first hourly sample", () => {
+    expect(render()).not.toContain("Successful attacks");
+    const html = render({ successful_attacks: 15000, attacks_sampled_at: point.observed_at });
+    expect(html).toContain("Successful attacks");
+    expect(html).toContain("15,000");
+    expect(html).toContain("Total since event start");
+    expect(html).toContain(formatDate(point.observed_at));
+    expect(render({ successful_attacks: 0, attacks_sampled_at: point.observed_at })).toContain("Successful attacks");
   });
 });

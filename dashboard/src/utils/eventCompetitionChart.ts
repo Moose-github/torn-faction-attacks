@@ -2,7 +2,7 @@ import type { EventCompetition } from "../api/competition";
 
 /** Keep one measured total per collection window, anchored to the event start. */
 export function eventCompetitionChartData(
-  data: Pick<EventCompetition, "history" | "chain_history" | "refresh_hours">,
+  data: Pick<EventCompetition, "history" | "chain_history" | "refresh_hours" | "successful_attack_history">,
   start: number,
   finish: number | null = null,
 ) {
@@ -42,11 +42,14 @@ export function eventCompetitionChartData(
   const curveTimes = readings.length >= 3
     ? Array.from({ length: 121 }, (_, index) => origin + (end - origin) * index / 120) : [];
   const chain = new Map((data.chain_history ?? []).map(point => [point.observed_at, point.chain]));
-  const times = [...new Set([...treats.keys(), ...chain.keys(), ...curveTimes])].sort((a, b) => a - b);
+  const attacks = new Map((data.successful_attack_history ?? []).map(point => [point.observed_at, point.successful_attacks]));
+  const times = [...new Set([...treats.keys(), ...chain.keys(), ...attacks.keys(), ...curveTimes])].sort((a, b) => a - b);
   let lastTreats: number | null = null;
   let treatsSampledAt: number | null = null;
   let lastChain: number | null = null;
   let chainSampledAt: number | null = null;
+  let lastAttacks: number | null = null;
+  let attacksSampledAt: number | null = null;
   return times.map(observed_at => {
     if (treats.has(observed_at)) {
       lastTreats = treats.get(observed_at)!;
@@ -55,6 +58,10 @@ export function eventCompetitionChartData(
     if (chain.has(observed_at)) {
       lastChain = chain.get(observed_at)!;
       chainSampledAt = observed_at;
+    }
+    if (attacks.has(observed_at)) {
+      lastAttacks = attacks.get(observed_at)!;
+      attacksSampledAt = observed_at;
     }
     const trend = slope !== null && observed_at >= origin && observed_at <= end
       ? meanY + slope * (x(observed_at) - meanX) + curvature * quadratic(observed_at) : null;
@@ -66,6 +73,8 @@ export function eventCompetitionChartData(
       treats_sampled_at: treatsSampledAt,
       chain: lastChain,
       chain_sampled_at: chainSampledAt,
+      successful_attacks: lastAttacks,
+      attacks_sampled_at: attacksSampledAt,
     };
   });
 }

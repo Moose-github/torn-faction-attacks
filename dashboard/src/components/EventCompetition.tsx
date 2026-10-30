@@ -190,8 +190,8 @@ export function EventCompetitionPanel({ war, data, error, compact = false, membe
       {halloween && war.practical_finish_time !== null && lastUpdate > war.practical_finish_time ? <p className="event-competition-warning">Final readings were collected after the event finish and may include later treats.</p> : null}
       {compact && !halloween ? <div className="event-team-counts">{teams.map(name => <div key={name}><span>{name}</span><strong>{members.filter(member => competitionTeam(member) === name).length}</strong></div>)}</div> : null}
       {!compact && halloween && chartData.length > 0 ? <>
-        <p className="event-chart-caption">Dots show the highest total from each {data.refresh_hours}-hour collection; the curve shows the best-fit treats trend. Treats and hourly chain samples share one scale. Chain gaps indicate no reliable reading.</p>
-        <div className="event-treat-chart" aria-label="Treats gained and hourly chain progress over time">
+        <p className="event-chart-caption">Dots show the highest total from each {data.refresh_hours}-hour collection; the curve shows the best-fit treats trend. All series share one scale. Chain gaps indicate no reliable reading.{data.successful_attack_history?.length ? ` Successful attacks count from event start, shown hourly from ${formatDate(data.successful_attack_history[0].observed_at)}.` : ""}</p>
+        <div className="event-treat-chart" aria-label="Treats gained, chain and successful attacks over time">
         <ResponsiveContainer width="100%" height="100%" onResize={width => setChartWidth(width)}><LineChart accessibilityLayer data={chartData} margin={{ top: 12, right: 16, bottom: 8, left: 0 }}>
           <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="3 3" vertical={false} />
           <XAxis dataKey="observed_at" type="number" domain={[war.practical_start_time, "dataMax"]} ticks={chartTicks} interval="preserveStartEnd" tickFormatter={(value: number) => formatDate(value)} minTickGap={50} tick={{ fontSize: 12, fill: "var(--chart-axis)" }} />
@@ -202,6 +202,8 @@ export function EventCompetitionPanel({ war, data, error, compact = false, membe
           <Line name="Treats gained" dataKey="treats_point" legendType="circle" stroke="var(--accent)" strokeWidth={0} dot={{ r: 4, fill: "var(--accent)" }} activeDot={{ r: 6 }} isAnimationActive={false} />
           <Line name="Chain" dataKey="chain" type="stepAfter" legendType="plainline" stroke="var(--event-chain-color)" strokeWidth={2} strokeDasharray="5 3" dot={props => props.payload.chain !== null && props.payload.chain_sampled_at === props.payload.observed_at
             ? <circle key={props.key} cx={props.cx} cy={props.cy} r={2} fill="var(--chart-tooltip-bg)" stroke="var(--event-chain-color)" /> : <g key={props.key} />} activeDot={{ r: 4 }} connectNulls={false} isAnimationActive={false} />
+          {data.successful_attack_history?.length ? <Line name="Successful attacks" dataKey="successful_attacks" type="stepAfter" legendType="plainline" stroke="var(--event-attacks-color)" strokeWidth={2} dot={props => props.payload.successful_attacks !== null && props.payload.attacks_sampled_at === props.payload.observed_at
+            ? <circle key={props.key} cx={props.cx} cy={props.cy} r={2} fill="var(--event-attacks-color)" /> : <g key={props.key} />} activeDot={{ r: 4 }} connectNulls={false} isAnimationActive={false} /> : null}
         </LineChart></ResponsiveContainer>
       </div></> : null}
       {!compact ? <>

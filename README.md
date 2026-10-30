@@ -37,6 +37,12 @@ least-squares curve uses those points without extrapolating beyond them, with a
 straight line for two readings and no fitted trend for a single reading. The
 infobox distinguishes estimates from saved readings. Apply migration
 `0186_add_event_chain_history.sql` before deploying this worker and dashboard change.
+The **Successful attacks** line starts at 29 October 2026, 12:00 UTC, with no
+earlier points. Each clock-hour total includes successful outgoing faction hits
+from event start through that hour, so it keeps increasing across chain resets.
+It is rebuilt from saved attacks on each refresh, automatically backfilling and
+incorporating delayed imports without additional Torn calls. Migration
+`0187_index_successful_attack_history.sql` indexes these time-bounded lookups.
 The minute competition job backfills event start and subsequent clock-hour boundaries
 from retained faction attacks, then saves each new hourly point without additional
 Torn requests. Each point uses the latest successful outgoing hit completed at or
