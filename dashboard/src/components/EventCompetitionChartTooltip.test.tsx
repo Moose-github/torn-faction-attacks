@@ -7,7 +7,7 @@ import type { EventCompetitionChartPoint } from "../utils/eventCompetitionChart"
 
 const point: EventCompetitionChartPoint = {
   observed_at: 1793408400, treats_gained: 12500, treats_sampled_at: 1793404800,
-  chain: 900, chain_sampled_at: 1793408400, treats_point: null, treats_trend: 12400.4,
+  chain: 900, chain_sampled_at: 1793408400, treats_point: null,
   successful_attacks: null, attacks_sampled_at: null,
 };
 function render(overrides: Partial<EventCompetitionChartPoint> = {}) {
@@ -21,12 +21,6 @@ describe("Halloween graph infobox", () => {
     expect(html).toContain(`Collected ${formatDate(point.treats_sampled_at!)}`);
     expect(html).toContain(`Sampled ${formatDate(point.chain_sampled_at!)}`);
     expect(html).not.toContain("axis");
-  });
-
-  it("labels trend estimates separately and hides them outside the fitted range", () => {
-    expect(render()).toContain("12,400");
-    expect(render()).toContain("Best-fit curve estimate, not a reading");
-    expect(render({ treats_trend: null })).not.toContain("Treats trend");
   });
 
   it("distinguishes zero from missing data even when both series have a gap", () => {

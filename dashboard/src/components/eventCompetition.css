@@ -27,7 +27,6 @@
 .event-chart-tooltip-metric small { grid-column: 2 / -1; color: var(--text-muted); font-size: 11px; overflow-wrap: anywhere; }
 .event-chart-swatch { display: block; width: 14px; border-top: 3px solid; }
 .event-chart-swatch-treats { width: 8px; height: 8px; margin-left: 3px; border: 0; border-radius: 50%; background: var(--accent); }
-.event-chart-swatch-trend { color: var(--accent); opacity: 0.65; }
 .event-chart-swatch-chain { color: var(--event-chain-color); border-top-style: dashed; }
 .event-chart-swatch-attacks { color: var(--event-attacks-color); }
 @media (max-width: 480px) {

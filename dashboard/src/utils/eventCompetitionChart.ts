@@ -19,31 +19,9 @@ export function eventCompetitionChartData(
   }
   const readings = [...collections.values()].sort((a, b) => a.observed_at - b.observed_at);
   const treats = new Map(readings.map(point => [point.observed_at, point.treats_gained]));
-  // Fit a quadratic by least squares, using time scaled to [0, 1] for stability.
-  // Orthogonalising x² against 1 and x also gives a linear fallback for two points.
-  const origin = readings[0]?.observed_at ?? start;
-  const end = readings[readings.length - 1]?.observed_at ?? origin;
-  const x = (timestamp: number) => (timestamp - origin) / (end - origin || 1);
-  const count = readings.length || 1;
-  const meanX = readings.reduce((sum, point) => sum + x(point.observed_at), 0) / count;
-  const meanY = readings.reduce((sum, point) => sum + point.treats_gained, 0) / count;
-  const meanSquare = readings.reduce((sum, point) => sum + x(point.observed_at) ** 2, 0) / count;
-  const variance = readings.reduce((sum, point) => sum + (x(point.observed_at) - meanX) ** 2, 0);
-  const slope = variance > 0 ? readings.reduce((sum, point) =>
-    sum + (x(point.observed_at) - meanX) * (point.treats_gained - meanY), 0) / variance : null;
-  const projection = variance > 0 ? readings.reduce((sum, point) =>
-    sum + (x(point.observed_at) - meanX) * x(point.observed_at) ** 2, 0) / variance : 0;
-  const quadratic = (timestamp: number) => x(timestamp) ** 2 - meanSquare - projection * (x(timestamp) - meanX);
-  const quadraticVariance = readings.reduce((sum, point) => sum + quadratic(point.observed_at) ** 2, 0);
-  const curvature = readings.length >= 3 && quadraticVariance > 1e-12 ? readings.reduce((sum, point) =>
-    sum + quadratic(point.observed_at) * (point.treats_gained - meanY), 0) / quadraticVariance : 0;
-  // Sample the fitted curve independently of chain availability. These are estimates,
-  // never additional collection dots or chain readings.
-  const curveTimes = readings.length >= 3
-    ? Array.from({ length: 121 }, (_, index) => origin + (end - origin) * index / 120) : [];
   const chain = new Map((data.chain_history ?? []).map(point => [point.observed_at, point.chain]));
   const attacks = new Map((data.successful_attack_history ?? []).map(point => [point.observed_at, point.successful_attacks]));
-  const times = [...new Set([...treats.keys(), ...chain.keys(), ...attacks.keys(), ...curveTimes])].sort((a, b) => a - b);
+  const times = [...new Set([...treats.keys(), ...chain.keys(), ...attacks.keys()])].sort((a, b) => a - b);
   let lastTreats: number | null = null;
   let treatsSampledAt: number | null = null;
   let lastChain: number | null = null;
@@ -63,12 +41,9 @@ export function eventCompetitionChartData(
       lastAttacks = attacks.get(observed_at)!;
       attacksSampledAt = observed_at;
     }
-    const trend = slope !== null && observed_at >= origin && observed_at <= end
-      ? meanY + slope * (x(observed_at) - meanX) + curvature * quadratic(observed_at) : null;
     return {
       observed_at,
       treats_point: treats.get(observed_at) ?? null,
-      treats_trend: trend,
       treats_gained: lastTreats,
       treats_sampled_at: treatsSampledAt,
       chain: lastChain,

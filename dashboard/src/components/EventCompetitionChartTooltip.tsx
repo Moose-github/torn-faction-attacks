@@ -15,12 +15,6 @@ export function EventCompetitionChartTooltip({ active, payload }: {
       <strong>{point.treats_gained === null ? "No reading" : formatNumber(point.treats_gained)}</strong>
       <small>{point.treats_sampled_at === null ? "Awaiting first reading" : `Collected ${formatDate(point.treats_sampled_at)}`}</small>
     </div>
-    {point.treats_trend !== null ? <div className="event-chart-tooltip-metric">
-      <span className="event-chart-swatch event-chart-swatch-trend" aria-hidden="true" />
-      <span>Treats trend</span>
-      <strong>{formatNumber(Math.round(point.treats_trend))}</strong>
-      <small>Best-fit curve estimate, not a reading</small>
-    </div> : null}
     <div className="event-chart-tooltip-metric">
       <span className="event-chart-swatch event-chart-swatch-chain" aria-hidden="true" />
       <span>Chain</span>
