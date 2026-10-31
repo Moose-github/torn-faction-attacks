@@ -75,17 +75,51 @@ export async function reconcileChainWatchWarningMessages(env: Env, state: ChainW
       .bind(token, leaseAt + 60, candidate.faction_id, candidate.reset_at, leaseAt).first<WarningCycle>();
     if (!cycle) continue;
     try {
+      let deletionError: Error | null = null;
+      // A critical supersedes the warning immediately. Waiting for the saving
+      // attack (or drop) here leaves two contradictory alert cards on screen.
+      if (cycle.critical_message_id && cycle.warning_message_id && cycle.warning_deleted_at === null) {
+        const deleted = await deleteWatchDiscordMessage(env, cycle.warning_channel_id!, cycle.warning_message_id);
+        if (deleted.status === "failed") deletionError = deleted.error;
+        else await env.DB.prepare(`UPDATE chain_watch_warning_cycles SET warning_deleted_at = ?, last_error = NULL
+            WHERE faction_id = ? AND reset_at = ? AND lease_token = ?`)
+            .bind(leaseAt, cycle.faction_id, cycle.reset_at, token).run();
+      }
       const summary = cycle.outcome_text ?? await resolveOutcome(env, cycle, state, now);
-      if (!summary) continue;
+      if (!summary) {
+        // Live chain confirmation can beat attack ingestion. Clear the obsolete
+        // warning without guessing who saved it; the exact summary follows later.
+        // A later stale attack-feed observation must not undo already accepted
+        // evidence of a saved timer (it can set last_error on the same state).
+        const saved = state && state.source !== "dropped" && state.drop_sent_at === null && state.reset_at !== null &&
+          state.reset_at > cycle.reset_at && state.reset_at < cycle.timeout_at &&
+          Number(state.current_chain) > cycle.chain_length;
+        if (saved && !cycle.critical_message_id && cycle.warning_message_id && cycle.warning_channel_id &&
+          cycle.edited_message_id !== cycle.warning_message_id) {
+          const edited = await editWatchDiscordMessage(env, cycle.warning_channel_id, cycle.warning_message_id, {
+            flags: 32768, content: null, embeds: [],
+            components: [{ type: 10, content: "Chain saved. Waiting for the saving attack details." }],
+            allowed_mentions: { parse: [] },
+          });
+          if (edited.status === "failed") throw edited.error;
+          await env.DB.prepare(`UPDATE chain_watch_warning_cycles SET edited_message_id = ?, last_error = NULL
+            WHERE faction_id = ? AND reset_at = ? AND lease_token = ?`)
+            .bind(cycle.warning_message_id, cycle.faction_id, cycle.reset_at, token).run();
+        }
+        if (deletionError) throw deletionError;
+        continue;
+      }
       // Persist the exact outcome before I/O. Later hits, polling, or another
       // warning cycle cannot change a retry's attacker, count or seconds left.
-      await env.DB.prepare(`UPDATE chain_watch_warning_cycles SET outcome_text = ?, resolved_at = COALESCE(resolved_at, ?)
+      await env.DB.prepare(`UPDATE chain_watch_warning_cycles SET
+        edited_message_id = CASE WHEN outcome_text IS NULL THEN NULL ELSE edited_message_id END,
+        outcome_text = ?, resolved_at = COALESCE(resolved_at, ?)
         WHERE faction_id = ? AND reset_at = ? AND lease_token = ?`)
         .bind(summary, now, cycle.faction_id, cycle.reset_at, token).run();
       const messageId = cycle.critical_message_id ?? cycle.warning_message_id;
       const channelId = cycle.critical_message_id ? cycle.critical_channel_id : cycle.warning_channel_id;
       if (!messageId || !channelId) continue;
-      if (cycle.edited_message_id !== messageId) {
+      if (cycle.outcome_text === null || cycle.edited_message_id !== messageId) {
         // Existing warning cards are Components V2. Replace all components with
         // one short text display and remove their mentions without a new post.
         const edited = await editWatchDiscordMessage(env, channelId, messageId, {
@@ -97,13 +131,7 @@ export async function reconcileChainWatchWarningMessages(env: Env, state: ChainW
           WHERE faction_id = ? AND reset_at = ? AND lease_token = ?`)
           .bind(messageId, cycle.faction_id, cycle.reset_at, token).run();
       }
-      if (cycle.critical_message_id && cycle.warning_message_id && cycle.warning_deleted_at === null) {
-        const deleted = await deleteWatchDiscordMessage(env, cycle.warning_channel_id!, cycle.warning_message_id);
-        if (deleted.status === "failed") throw deleted.error;
-        await env.DB.prepare(`UPDATE chain_watch_warning_cycles SET warning_deleted_at = ?
-          WHERE faction_id = ? AND reset_at = ? AND lease_token = ?`)
-          .bind(now, cycle.faction_id, cycle.reset_at, token).run();
-      }
+      if (deletionError) throw deletionError;
       await env.DB.prepare(`UPDATE chain_watch_warning_cycles SET last_error = NULL
         WHERE faction_id = ? AND reset_at = ? AND lease_token = ?`)
         .bind(cycle.faction_id, cycle.reset_at, token).run();

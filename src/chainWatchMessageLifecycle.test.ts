@@ -71,6 +71,9 @@ it("sends warning and critical cards, finalizes the plain status, then sends war
   }
   const cycle = await db.env.DB.prepare("SELECT * FROM chain_watch_warning_cycles").first();
   expect(cycle).toMatchObject({ warning_message_id: expect.any(String), critical_message_id: expect.any(String) });
+  expect(messages.has(cycle!.warning_message_id as string)).toBe(false);
+  expect(messages.has(cycle!.critical_message_id as string)).toBe(true);
+  expect(cycle).toMatchObject({ warning_deleted_at: start + 270, outcome_text: null });
   const warningPosts = fetcher.mock.calls.filter(([url, init]) => init.method === "POST" && /chain_watch_(warning|critical)\//.test(url));
   expect(warningPosts).toHaveLength(2);
   for (const [, init] of warningPosts) {

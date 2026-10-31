@@ -369,14 +369,14 @@ export function chainWatchWarningAlertKey(stage: "warning_60" | "warning_30"): D
 export async function refreshChainWatch(
   env: Env,
   checkedAt: number,
-  options: { scheduleAlarm?: boolean; confirmDrop?: boolean } = {},
+  options: { scheduleAlarm?: boolean; confirmDrop?: boolean; syncStatus?: boolean } = {},
 ): Promise<ChainWatchStateRow | null> {
   return retryChainWatchObservation(env, checkedAt, async (existing, observedAt) => {
     const observation = await observeChainWatch(env, observedAt, existing, {
       confirmDrop: options.confirmDrop ?? false,
     });
     let saved = await saveChainWatchObservation(env, HOME_FACTION_ID, existing, observation, observedAt);
-    saved = await syncChainWatchStatusDiscordMessage(env, existing, saved, observedAt);
+    if (options.syncStatus !== false) saved = await syncChainWatchStatusDiscordMessage(env, existing, saved, observedAt);
     if (options.scheduleAlarm !== false) await scheduleChainWatchAlarmForState(env, saved, observedAt);
     return saved;
   });
@@ -513,6 +513,9 @@ export async function handleChainWatchAlarm(
 
   const state = await refreshChainWatch(env, now, {
     scheduleAlarm: false,
+    // Updating the ordinary status card must not hold up a due critical or the
+    // cleanup of a warning whose timer has already been saved.
+    syncStatus: false,
     confirmDrop: stateBefore.scheduled_alarm_stage === "drop",
   });
   if (!state || state.enabled !== 1) {
@@ -526,6 +529,7 @@ export async function handleChainWatchAlarm(
     state.timeout_at !== stateBefore.timeout_at;
   if (changedReset) {
     await scheduleChainWatchAlarmForState(env, state, now);
+    await syncChainWatchStatusDiscordMessage(env, stateBefore, state, now);
     return;
   }
 
@@ -711,6 +715,7 @@ async function observeChainWatchWarning(
       lastError: null,
     }, checkedAt);
     onConfirmed(updated, checkedAt);
+    await reconcileChainWatchWarningMessages(env, updated, checkedAt);
     updated = await syncChainWatchStatusDiscordMessage(env, state, updated, checkedAt);
 
     return timeoutMovedLater ? null : updated;
