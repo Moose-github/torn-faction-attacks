@@ -106,6 +106,20 @@ export function EventRoomCompetition({ war }: { war: WarSummary }) {
   return state.enabled ? <EventCompetitionPanel key={war.id} war={war} data={state.data} error={state.error} compact /> : null;
 }
 
+type ScaleTitlePart = [text: string, color: string];
+
+/** Rotated scale title whose words take the colours of the lines they describe. */
+function ScaleTitle({ viewBox, side, parts }: {
+  viewBox?: { x: number; y: number; width: number; height: number }; side: "left" | "right"; parts: ScaleTitlePart[];
+}) {
+  if (!viewBox) return null;
+  const x = side === "left" ? viewBox.x + 10 : viewBox.x + viewBox.width - 10;
+  const y = viewBox.y + viewBox.height / 2;
+  return <text x={x} y={y} transform={`rotate(${side === "left" ? -90 : 90}, ${x}, ${y})`} textAnchor="middle" dominantBaseline="central" fontSize={12}>
+    {parts.map(([text, color]) => <tspan key={text} fill={color}>{text}</tspan>)}
+  </text>;
+}
+
 type CompetitionSortKey = "name" | "team" | "treats" | "attacks" | "respect" | "basket" | "days" | "eliminated";
 
 function competitionBasket(member: CompetitionMember): string | null {
@@ -120,10 +134,8 @@ export function EventCompetitionPanel({ war, data, error, compact = false, membe
   const [chartWidth, setChartWidth] = React.useState(0);
   // Narrow charts drop the scale titles and name the right scale in the legend instead.
   const narrowChart = chartWidth > 0 && chartWidth < 480;
-  const scaleTitle = (value: string, side: "left" | "right") => narrowChart ? undefined : {
-    value, angle: side === "left" ? -90 : 90, position: side === "left" ? "insideLeft" as const : "insideRight" as const, offset: 10,
-    style: { textAnchor: "middle", fill: "var(--chart-axis)", fontSize: 12 },
-  };
+  const rightScaleParts: ScaleTitlePart[] = [["Chain", "var(--event-chain-color)"],
+    ...(data?.successful_attack_history?.length ? [[" & ", "var(--chart-axis)"], ["attacks", "var(--event-attacks-color)"]] as ScaleTitlePart[] : [])];
   const rightScaleNote = narrowChart ? " (right scale)" : "";
   const [sort, setSort] = React.useState<{ key: CompetitionSortKey; descending: boolean }>({ key: halloween ? "treats" : "eliminated", descending: halloween });
   const statsByMember = new Map(memberStats.map(member => [member.member_id, member]));
@@ -202,9 +214,9 @@ export function EventCompetitionPanel({ war, data, error, compact = false, membe
         <ResponsiveContainer width="100%" height="100%" onResize={width => setChartWidth(width)}><LineChart accessibilityLayer data={chartData} margin={{ top: 12, right: 0, bottom: 8, left: 0 }}>
           <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="3 3" vertical={false} />
           <XAxis dataKey="observed_at" type="number" domain={[war.practical_start_time, "dataMax"]} ticks={chartTicks} interval="preserveStartEnd" tickFormatter={(value: number) => formatDate(value)} minTickGap={50} tick={{ fontSize: 12, fill: "var(--chart-axis)" }} />
-          <YAxis domain={[0, "auto"]} allowDataOverflow allowDecimals={false} width={narrowChart ? 64 : 80} label={scaleTitle("Treats", "left")} tickFormatter={formatNumber} tick={{ fontSize: 12, fill: "var(--chart-axis)" }} />
+          <YAxis domain={[0, "auto"]} allowDataOverflow allowDecimals={false} width={narrowChart ? 64 : 80} label={narrowChart ? undefined : <ScaleTitle side="left" parts={[["Treats", "var(--accent)"]]} />} tickFormatter={formatNumber} tick={{ fontSize: 12, fill: "var(--accent)" }} />
           {/* Chain length and hit totals are far smaller than faction treat totals. */}
-          <YAxis yAxisId="right" orientation="right" domain={[0, "auto"]} allowDecimals={false} width={narrowChart ? 56 : 80} label={scaleTitle("Chain & attacks", "right")} tickFormatter={formatNumber} tick={{ fontSize: 12, fill: "var(--chart-axis)" }} />
+          <YAxis yAxisId="right" orientation="right" domain={[0, "auto"]} allowDecimals={false} width={narrowChart ? 56 : 80} label={narrowChart ? undefined : <ScaleTitle side="right" parts={rightScaleParts} />} tickFormatter={formatNumber} tick={{ fontSize: 12, fill: "var(--chart-axis)" }} />
           <Tooltip content={<EventCompetitionChartTooltip />} filterNull={false} isAnimationActive={false} offset={12} position={narrowChart ? { x: 0, y: 8 } : undefined} wrapperStyle={{ zIndex: 5, outline: "none" }} cursor={{ stroke: "var(--chart-axis)", strokeDasharray: "3 3" }} />
           <Legend wrapperStyle={{ paddingTop: 10, fontSize: 13 }} />
           {/* Monotone interpolation never dips between rising totals or overshoots a reading. */}
