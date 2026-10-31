@@ -72,7 +72,7 @@ describe("Discord alert settings", () => {
       },
       retaliation_board_alert: {
         key: "retaliation_board",
-        name: "Retaliation board",
+        name: "Retaliation opportunities",
         enabled: true,
         configurable: true,
       },

@@ -3,7 +3,7 @@ import {
   evaluateRetaliationAvailability,
   getRetaliationBoardRefreshPlan,
   getRetaliationCheck,
-  renderRetaliationBoardPayload,
+  renderRetaliationMessagePayload,
   resolveRetaliationOpportunity,
   type RetaliationAttackRow,
   type PendingRetaliationClaim,
@@ -196,7 +196,7 @@ describe("retaliation availability", () => {
     });
   });
 
-  it("renders the Discord board as compact retal embeds", () => {
+  it("renders each opportunity as its own compact message", () => {
     const available = resolveRetaliationOpportunity(
       attackRow({
         id: 5001,
@@ -260,14 +260,9 @@ describe("retaliation availability", () => {
       1100,
     );
 
-    const payload = renderRetaliationBoardPayload([
-      available,
-      pending,
-      confirmed,
-    ], 1100);
-
-    expect(payload.content).toBe("**Retaliation Board**\nUpdate <t:1110:R>");
-    expect(payload.embeds).toEqual([
+    const payloads = [available, pending, confirmed].map(renderRetaliationMessagePayload);
+    expect(payloads.every(payload => payload.content === "**Retaliation opportunity**" && payload.embeds.length === 1)).toBe(true);
+    expect(payloads.flatMap(payload => payload.embeds)).toEqual([
       expect.objectContaining({
         title: "nex [2054500] ⚔️",
         url: "https://www.torn.com/page.php?sid=attack&user2ID=2054500",
@@ -297,23 +292,24 @@ describe("retaliation availability", () => {
         title: "done [333333] ⚔️",
         color: 0x57f287,
         fields: expect.arrayContaining([
-          { name: "Status", value: "Retaliated by Finisher", inline: true },
+          { name: "Status", value: "Taken — retaliated by Finisher", inline: true },
         ]),
       }),
     ]);
   });
 
-  it("renders an empty Discord board as a green status embed", () => {
-    const payload = renderRetaliationBoardPayload([], 1100);
+  it("renders the final timeout without a future update promise", () => {
+    const expired = resolveRetaliationOpportunity(attackRow({ id: 1, attacker_id: 200, attack_at: 1000 }), null, null, 1300);
+    const payload = renderRetaliationMessagePayload(expired);
+    expect(payload.content).not.toContain("Update");
+    expect(payload.embeds[0].color).toBe(0x95a5a6);
+    expect(payload.embeds[0].fields).toContainEqual({ name: "Status", value: "Timed out", inline: true });
+  });
 
-    expect(payload.content).toBe("**Retaliation Board**");
-    expect(payload.embeds).toEqual([
-      {
-        title: "No active retaliation",
-        description: "-# Update <t:1160:R>",
-        color: 0x57f287,
-      },
-    ]);
+  it("keeps a confirmed retaliation taken when the final refresh happens after expiry", () => {
+    const row = resolveRetaliationOpportunity(attackRow({ id: 1, attacker_id: 200, attack_at: 1000 }),
+      attackRow({ id: 2, attacker_id: 101, defender_id: 200, attack_at: 1299 }), null, 1301);
+    expect(row.status).toBe("claimed_confirmed");
   });
 
   it("uses active refresh timing while open or started retals are visible", () => {

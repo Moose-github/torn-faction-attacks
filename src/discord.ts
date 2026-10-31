@@ -61,6 +61,7 @@ export async function createDiscordBotMessage(
   allowedMentions?: DiscordAllowedMentions,
   options?: Pick<DiscordPayloadOptions, "embedColor" | "embeds" | "cardColor"> & {
     nonce?: string;
+    timeoutMs?: number;
     /** Appended after a card's components; only used with `cardColor`. */
     actionRows?: DiscordActionRow[];
   },
@@ -70,10 +71,12 @@ export async function createDiscordBotMessage(
   if (options?.cardColor !== undefined && options.actionRows?.length) {
     payload.components = [...(payload.components ?? []), ...options.actionRows];
   }
+  const requestOptions: [] | [{ timeoutMs: number }] = options?.timeoutMs ? [{ timeoutMs: options.timeoutMs }] : [];
   const response = await postDiscordBotJsonAndRead<DiscordMessage>(
     botToken,
     discordChannelMessagesPath(channelId),
     { ...payload, ...(options?.nonce ? { nonce: options.nonce, enforce_nonce: true } : {}) },
+    ...requestOptions,
   );
 
   return discordMessageId(response);
@@ -85,9 +88,10 @@ export async function editDiscordBotMessage(
   messageId: string,
   message: string,
   allowedMentions?: DiscordAllowedMentions,
-  options?: Pick<DiscordPayloadOptions, "embedColor" | "embeds" | "cardColor">,
+  options?: Pick<DiscordPayloadOptions, "embedColor" | "embeds" | "cardColor"> & { timeoutMs?: number },
 ): Promise<void> {
   const botToken = readDiscordBotToken(env);
+  const requestOptions: [] | [{ timeoutMs: number }] = options?.timeoutMs ? [{ timeoutMs: options.timeoutMs }] : [];
   await patchDiscordBotJson(
     botToken,
     discordChannelMessagePath(channelId, messageId),
@@ -100,6 +104,7 @@ export async function editDiscordBotMessage(
       // an existing status message to Components V2 (also safe for V2 retries).
       ...(options?.cardColor !== undefined ? { content: null, embeds: [] } : {}),
     },
+    ...requestOptions,
   );
 }
 

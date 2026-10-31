@@ -50,6 +50,17 @@ describe("Discord bot messages", () => {
     );
   });
 
+  it("bounds retaliation requests and enforces a stable nonce on creation", async () => {
+    await createDiscordBotMessage(botEnv, "123456789", "Retaliation opportunity", undefined,
+      { nonce: "retal:42", timeoutMs: 10000, embeds: [] });
+    expect(postDiscordBotJsonAndRead).toHaveBeenCalledWith("bot-token", "/channels/123456789/messages",
+      expect.objectContaining({ nonce: "retal:42", enforce_nonce: true }), { timeoutMs: 10000 });
+    await editDiscordBotMessage(botEnv, "123456789", "message-1", "Taken", undefined,
+      { timeoutMs: 10000, embeds: [] });
+    expect(patchDiscordBotJson).toHaveBeenCalledWith("bot-token", "/channels/123456789/messages/message-1",
+      expect.objectContaining({ content: "Taken" }), { timeoutMs: 10000 });
+  });
+
   it("edits bot messages in a channel", async () => {
     vi.mocked(patchDiscordBotJson).mockResolvedValueOnce(undefined);
 

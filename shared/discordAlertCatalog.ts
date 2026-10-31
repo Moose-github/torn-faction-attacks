@@ -58,12 +58,12 @@ export const DISCORD_ALERTS = [
   },
   {
     key: DISCORD_ALERT_KEYS.retaliationBoard,
-    name: "Retaliation board",
-    description: "Persistent retaliation opportunity board updates.",
+    name: "Retaliation opportunities",
+    description: "Individual retaliation messages updated until taken or timed out.",
     subscribable: false,
     defaultEnabled: true,
     configurable: true,
-    admin: { label: "Retaliation board", description: "Controls the persistent retaliation opportunity board updates sent to Discord.", order: 6 },
+    admin: { label: "Retaliation opportunities", description: "Posts each opportunity separately and updates it until taken or timed out.", order: 6 },
   },
   {
     key: DISCORD_ALERT_KEYS.enemyPush,

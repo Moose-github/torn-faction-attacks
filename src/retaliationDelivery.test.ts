@@ -2,13 +2,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { syncRetaliationDiscordBoard } from "./retaliations";
 import { ingestRecentFactionAttacks } from "./ingestion";
 import { refreshActiveChainWatchFromStoredAttacks } from "./chainWatch";
-import { upsertDiscordAlertMessage } from "./discordAlertDelivery";
+import { syncRetaliationMessages } from "./retaliationDiscordMessages";
 import { isDiscordAlertEnabled } from "./discordAlertSettings";
 import type { Env } from "./types";
 
 vi.mock("./ingestion", () => ({ ingestRecentFactionAttacks: vi.fn() }));
 vi.mock("./chainWatch", () => ({ refreshActiveChainWatchFromStoredAttacks: vi.fn() }));
-vi.mock("./discordAlertDelivery", () => ({ upsertDiscordAlertMessage: vi.fn() }));
+vi.mock("./retaliationDiscordMessages", () => ({ syncRetaliationMessages: vi.fn() }));
 vi.mock("./discordAlertSettings", () => ({ isDiscordAlertEnabled: vi.fn() }));
 vi.mock("./syncState", () => ({ readSyncTimestamp: vi.fn().mockResolvedValue(0), upsertSyncTimestamp: vi.fn() }));
 
@@ -25,9 +25,9 @@ describe("retaliation message delivery toggle", () => {
     expect(result).toMatchObject({ active: true, nextRefreshAt: 1110, edited: false, skippedReason: "disabled", lightSync: { status: "refreshed" } });
     expect(ingestRecentFactionAttacks).toHaveBeenCalledWith(env, 710, 1100);
     expect(refreshActiveChainWatchFromStoredAttacks).toHaveBeenCalledWith(env, 1100);
-    expect(reads.filter((sql) => sql.includes("FROM retaliation_opportunities"))).toHaveLength(2);
+    expect(reads.filter((sql) => sql.includes("UNION"))).toHaveLength(2);
     expect(schedule).toHaveBeenCalledWith(1110);
-    expect(upsertDiscordAlertMessage).not.toHaveBeenCalled();
+    expect(syncRetaliationMessages).not.toHaveBeenCalled();
     expect(writes.every((sql) => sql.includes("INSERT INTO sync_state"))).toBe(true);
   });
 
@@ -36,7 +36,7 @@ describe("retaliation message delivery toggle", () => {
     expect(await syncRetaliationDiscordBoard(env, 1100, { allowActiveLightSync: true })).toMatchObject({ active: false, nextRefreshAt: 1160, edited: false, skippedReason: "disabled" });
     expect(schedule).not.toHaveBeenCalled();
     expect(ingestRecentFactionAttacks).not.toHaveBeenCalled();
-    expect(upsertDiscordAlertMessage).not.toHaveBeenCalled();
+    expect(syncRetaliationMessages).not.toHaveBeenCalled();
   });
 });
 
@@ -53,7 +53,7 @@ function fixture(active: boolean) {
           async first() { return null; },
           async all() {
             reads.push(sql);
-            return { results: active && sql.includes("FROM retaliation_opportunities") ? [{
+            return { results: active && sql.includes("UNION") ? [{
               id: 1, attacker_id: 200, defender_id: 101, attacker_name: "Enemy", defender_name: "Home",
               attacker_faction_id: 999, defender_faction_id: 8803, result: "Hospitalized",
               started: 990, ended: 1000, attack_at: 1000,

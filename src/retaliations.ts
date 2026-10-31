@@ -1,14 +1,9 @@
 import { cleanString, positiveIntegerOrNull, readJsonObject } from "./backend/request";
 import { HOME_FACTION_ID, POSITIVE_RESULTS_SQL, RETALIATION_WINDOW_SECONDS, SOURCE_NAME } from "./constants";
 import { type DiscordEmbed } from "./discord";
-import { upsertDiscordAlertMessage } from "./discordAlertDelivery";
-import { formatDiscordAlertMessage, readDiscordAlertMentions } from "./discordMentions";
+import { syncRetaliationMessages } from "./retaliationDiscordMessages";
 import { isDiscordAlertEnabled } from "./discordAlertSettings";
 import { DISCORD_ALERT_KEYS } from "./discordAlerts";
-import {
-  discordNotificationChannelTargetId,
-  readConfiguredDiscordNotificationChannel,
-} from "./discordNotificationChannels";
 import { ingestRecentFactionAttacks, RecentAttackIngestionResult } from "./ingestion";
 import { readSyncTimestamp, upsertSyncTimestamp } from "./syncState";
 import { Env } from "./types";
@@ -23,8 +18,6 @@ const LIGHT_SYNC_FRESH_SECONDS = 45;
 const LIGHT_SYNC_COOLDOWN_SECONDS = 20;
 const LIGHT_SYNC_ATTEMPT_STATE = "retaliation_light_sync_attempt";
 const LIGHT_SYNC_SUCCESS_STATE = "retaliation_light_sync_success";
-const RETALIATION_BOARD_MIN_EDIT_INTERVAL_SECONDS = 5;
-const RETALIATION_BOARD_LIMIT = 10;
 export const RETALIATION_BOARD_ACTIVE_REFRESH_SECONDS = 10;
 const RETALIATION_BOARD_FALLBACK_REFRESH_SECONDS = 60;
 const RETALIATION_BOARD_LIGHT_SYNC_ATTEMPT_STATE = "retaliation_board_light_sync_attempt";
@@ -89,14 +82,6 @@ type LightSyncResult = {
   last_success_at: number | null;
   warning: string | null;
   result: RecentAttackIngestionResult | null;
-};
-
-type BoardStateRow = {
-  id: number;
-  discord_message_id: string | null;
-  discord_target_id: string | null;
-  last_rendered_hash: string | null;
-  last_edited_at: number | null;
 };
 
 type RetaliationBoardDiscordPayload = {
@@ -348,7 +333,7 @@ export function resolveRetaliationOpportunity(
   const expired = expiresAt <= now;
   const unexpiredPending = pendingClaim && pendingClaim.expires_at > now ? pendingClaim : null;
 
-  if (expired) {
+  if (expired && !claimedByAttack) {
     return {
       target_id: targetId,
       opening_attack_id: enemyAttack.id,
@@ -408,23 +393,16 @@ export async function syncRetaliationDiscordBoard(
   checkedAt: number = nowSeconds(),
   options: { allowActiveLightSync?: boolean } = {},
 ): Promise<RetaliationBoardSyncResult> {
-  let rows = await listRetaliationOpportunities(env, checkedAt, {
-    includeClaimed: true,
-    includeExpired: false,
-    limit: RETALIATION_BOARD_LIMIT,
-  });
-  const initialRefreshPlan = getRetaliationBoardRefreshPlan(rows, checkedAt);
-  const lightSync = options.allowActiveLightSync && initialRefreshPlan.active
+  let rows = await listDiscordRetaliationOpportunities(env, checkedAt);
+  // Include tracked messages whose windows just ended, so the final edit can
+  // observe a retaliation made shortly before the deadline.
+  const lightSync = options.allowActiveLightSync && rows.length > 0
     ? await maybeSyncRetaliationBoardRecentAttacks(env, checkedAt)
     : null;
   if ((lightSync?.result?.inserted_attacks ?? 0) > 0) {
     await refreshActiveChainWatchFromStoredAttacks(env, checkedAt);
-    rows = await listRetaliationOpportunities(env, checkedAt, {
-      includeClaimed: true,
-      includeExpired: false,
-      limit: RETALIATION_BOARD_LIMIT,
-    });
   }
+  if (lightSync?.status === "refreshed") rows = await listDiscordRetaliationOpportunities(env, checkedAt);
   const refreshPlan = getRetaliationBoardRefreshPlan(rows, checkedAt);
   if (!await isDiscordAlertEnabled(env, DISCORD_ALERT_KEYS.retaliationBoard)) {
     if (refreshPlan.active) {
@@ -438,49 +416,43 @@ export async function syncRetaliationDiscordBoard(
     };
   }
 
-  const message = renderRetaliationBoardPayload(rows, checkedAt, refreshPlan.nextRefreshAt);
-  const hash = stableHash(JSON.stringify(message));
-  const state = await readRetaliationBoardState(env);
-  const discordTargetId = await readRetaliationBoardDiscordTargetId(env);
-  const targetChanged = state?.discord_target_id !== discordTargetId;
-  let result: RetaliationBoardSyncResult = {
-    ...refreshPlan,
-    edited: false,
-    ...(lightSync ? { lightSync } : {}),
-  };
+  const delivery = await syncRetaliationMessages(env, rows.filter(row => row.opening_attack_id !== null)
+    .map(row => ({
+      openingAttackId: row.opening_attack_id!,
+      expiresAt: row.expires_at!,
+      terminal: !isActiveRetaliationBoardRow(row),
+      payload: renderRetaliationMessagePayload(row),
+    })), checkedAt);
+  const active = refreshPlan.active || delivery.pending;
+  const nextRefreshAt = active ? checkedAt + RETALIATION_BOARD_ACTIVE_REFRESH_SECONDS : refreshPlan.nextRefreshAt;
+  if (active) await scheduleRetaliationBoardAlarm(env, nextRefreshAt);
+  return { active, nextRefreshAt, edited: delivery.edited, ...(lightSync ? { lightSync } : {}) };
+}
 
-  if (!targetChanged && state?.last_rendered_hash === hash) {
-    console.debug("Retaliation board Discord update skipped: unchanged content");
-    result = { ...result, skippedReason: "unchanged" };
-  } else if (
-    !targetChanged &&
-    state?.last_edited_at !== null &&
-    state?.last_edited_at !== undefined &&
-    state.last_edited_at > checkedAt - RETALIATION_BOARD_MIN_EDIT_INTERVAL_SECONDS
-  ) {
-    console.debug("Retaliation board Discord update skipped: minimum edit interval");
-    result = { ...result, skippedReason: "min_edit_interval" };
-  } else {
-    const existingMessageId = targetChanged ? null : state?.discord_message_id ?? null;
-    const update = await upsertRetaliationBoardMessage(env, existingMessageId, message);
-    if (update.ok) {
-      await saveRetaliationBoardState(env, {
-        discordMessageId: update.messageId,
-        discordTargetId,
-        renderedHash: hash,
-        editedAt: checkedAt,
-      });
-      result = { ...result, edited: true };
-    } else {
-      result = { ...result, skippedReason: "discord_update_failed" };
-    }
+async function listDiscordRetaliationOpportunities(env: Env, now: number): Promise<RetaliationOpportunity[]> {
+  // Read each opening attack, including multiple openings from the same target.
+  // The dashboard's latest-per-target cache must not collapse separate messages.
+  const result = await env.DB.prepare(`
+    SELECT ${retaliationAttackColumns()} FROM attacks
+    WHERE defender_faction_id = ? AND result IN (${POSITIVE_RESULTS_SQL})
+      AND attacker_id > 0 AND ended > ? AND ended <= ?
+    UNION
+    SELECT ${retaliationAttackColumns()} FROM attacks
+    WHERE id IN (SELECT opening_attack_id FROM retaliation_discord_messages WHERE finalized_at IS NULL)
+    ORDER BY attack_at ASC, id ASC
+  `).bind(HOME_FACTION_ID, now - RETALIATION_WINDOW_SECONDS, now).all<RetaliationAttackRow>();
+  const openings = result.results ?? [];
+  const rows: RetaliationOpportunity[] = [];
+  // Stay below D1's per-statement binding limit even during a busy war.
+  for (let offset = 0; offset < openings.length; offset += 50) {
+    const batch = openings.slice(offset, offset + 50);
+    const confirmed = await readConfirmedClaimsForOpenings(env, batch);
+    const pending = await readPendingClaimsForOpenings(env, batch.map(attack => attack.id), now);
+    rows.push(...batch.map(attack => resolveRetaliationOpportunity(
+      attack, confirmed.get(attack.id) ?? null, pending.get(attack.id) ?? null, now,
+    )));
   }
-
-  if (refreshPlan.active) {
-    await scheduleRetaliationBoardAlarm(env, refreshPlan.nextRefreshAt);
-  }
-
-  return result;
+  return rows;
 }
 
 export async function handleRetaliationBoardAlarm(env: Env, checkedAt: number = nowSeconds()): Promise<void> {
@@ -520,7 +492,7 @@ async function listRetaliationOpportunities(
       pendingClaims.get(attack.id) ?? null,
       now,
     ))
-    .filter((row) => options.includeExpired || row.status !== "expired")
+    .filter((row) => options.includeExpired || (row.expires_at ?? 0) > now)
     .filter((row) => options.includeClaimed || row.status === "available")
     .sort(compareRetaliationRows)
     .slice(0, options.limit);
@@ -727,11 +699,12 @@ async function readClaimingRetaliationAttack(
       AND result = 'Hospitalized'
       AND COALESCE(m_retaliation, 1) > 1
       AND ended >= ?
+      AND ended < ?
     ORDER BY ended ASC, id ASC
     LIMIT 1
     `,
   )
-    .bind(HOME_FACTION_ID, targetId, after)
+    .bind(HOME_FACTION_ID, targetId, after, after + RETALIATION_WINDOW_SECONDS)
     .first()) as RetaliationAttackRow | null;
 }
 
@@ -937,21 +910,10 @@ function retaliationOpportunityColumns(): string {
   `;
 }
 
-export function renderRetaliationBoardPayload(
-  rows: RetaliationOpportunity[],
-  checkedAt: number,
-  nextRefreshAt: number = getRetaliationBoardRefreshPlan(rows, checkedAt).nextRefreshAt,
-): RetaliationBoardDiscordPayload {
-  const content = rows.length === 0
-    ? "**Retaliation Board**"
-    : `**Retaliation Board**\nUpdate <t:${nextRefreshAt}:R>`;
-
-  return {
-    content,
-    embeds: rows.length === 0
-      ? [noActiveRetaliationBoardEmbed(nextRefreshAt)]
-      : rows.map(retaliationBoardEmbed),
-  };
+export function renderRetaliationMessagePayload(row: RetaliationOpportunity): RetaliationBoardDiscordPayload {
+  // Discord's relative timestamps count down on their own. Only status/data
+  // changes need an edit, avoiding a PATCH for every ten-second poll.
+  return { content: "**Retaliation opportunity**", embeds: [retaliationBoardEmbed(row)] };
 }
 
 export function getRetaliationBoardRefreshPlan(
@@ -967,80 +929,6 @@ export function getRetaliationBoardRefreshPlan(
         : RETALIATION_BOARD_FALLBACK_REFRESH_SECONDS
     ),
   };
-}
-
-async function readRetaliationBoardState(env: Env): Promise<BoardStateRow | null> {
-  return (await env.DB.prepare(
-    `
-    SELECT id, discord_message_id, discord_target_id, last_rendered_hash, last_edited_at
-    FROM retaliation_board_state
-    WHERE id = 1
-    LIMIT 1
-    `,
-  )
-    .first()) as BoardStateRow | null;
-}
-
-async function saveRetaliationBoardState(
-  env: Env,
-  state: { discordMessageId: string | null; discordTargetId: string; renderedHash: string; editedAt: number },
-): Promise<void> {
-  await env.DB.prepare(
-    `
-    INSERT INTO retaliation_board_state (
-      id,
-      discord_message_id,
-      discord_target_id,
-      last_rendered_hash,
-      last_edited_at,
-      created_at,
-      updated_at
-    )
-    VALUES (1, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT(id) DO UPDATE SET
-      discord_message_id = excluded.discord_message_id,
-      discord_target_id = excluded.discord_target_id,
-      last_rendered_hash = excluded.last_rendered_hash,
-      last_edited_at = excluded.last_edited_at,
-      updated_at = excluded.updated_at
-    `,
-  )
-    .bind(
-      state.discordMessageId,
-      state.discordTargetId,
-      state.renderedHash,
-      state.editedAt,
-      state.editedAt,
-      state.editedAt,
-    )
-    .run();
-}
-
-async function readRetaliationBoardDiscordTargetId(env: Env): Promise<string> {
-  const route = await readConfiguredDiscordNotificationChannel(env, DISCORD_ALERT_KEYS.retaliationBoard);
-  return route ? `bot:${discordNotificationChannelTargetId(route)}` : "unrouted";
-}
-
-async function upsertRetaliationBoardMessage(
-  env: Env,
-  existingMessageId: string | null,
-  message: RetaliationBoardDiscordPayload,
-): Promise<{ ok: boolean; messageId: string | null }> {
-  try {
-    const mentions = await readDiscordAlertMentions(env, DISCORD_ALERT_KEYS.retaliationBoard);
-    const messageId = await upsertDiscordAlertMessage(
-      env,
-      DISCORD_ALERT_KEYS.retaliationBoard,
-      existingMessageId,
-      formatDiscordAlertMessage(message.content, mentions.messageSuffix),
-      mentions.allowedMentions ?? { users: [], roles: [] },
-      { embeds: message.embeds },
-    );
-    return { ok: messageId !== null, messageId };
-  } catch (err: any) {
-    console.warn("Retaliation board Discord update failed:", err?.message || err);
-    return { ok: false, messageId: existingMessageId };
-  }
 }
 
 async function scheduleRetaliationBoardAlarm(env: Env, alarmAtSeconds: number): Promise<void> {
@@ -1127,17 +1015,10 @@ function discordFactionLink(factionId: number | null, factionName: string | null
     : label;
 }
 
-function noActiveRetaliationBoardEmbed(nextRefreshAt: number): DiscordEmbed {
-  return {
-    title: "No active retaliation",
-    description: `-# Update <t:${nextRefreshAt}:R>`,
-    color: RETALIATION_BOARD_CONFIRMED_COLOR,
-  };
-}
-
 function retaliationBoardEmbedColor(row: RetaliationOpportunity): number {
   if (row.status === "claimed_pending") return RETALIATION_BOARD_PENDING_COLOR;
   if (row.status === "claimed_confirmed") return RETALIATION_BOARD_CONFIRMED_COLOR;
+  if (row.status === "expired") return 0x95a5a6;
   return RETALIATION_BOARD_AVAILABLE_COLOR;
 }
 
@@ -1147,9 +1028,9 @@ function retaliationBoardStatus(row: RetaliationOpportunity): string {
     return `Attack started by ${cleanDiscordText(row.pending_claim?.claimant_name) ?? row.pending_claim?.claimant_torn_user_id ?? "member"}`;
   }
   if (row.status === "claimed_confirmed") {
-    return `Retaliated by ${cleanDiscordText(row.claimed_by_attack?.attacker_name) ?? "Torn data"}`;
+    return `Taken — retaliated by ${cleanDiscordText(row.claimed_by_attack?.attacker_name) ?? "Torn data"}`;
   }
-  return "Expired";
+  return "Timed out";
 }
 
 function discordRelativeTime(timestamp: number | null | undefined): string {
@@ -1162,13 +1043,4 @@ function formatDiscordRespect(value: number | null): string {
   return Number.isInteger(rounded)
     ? String(rounded)
     : rounded.toFixed(2).replace(/0+$/, "").replace(/\.$/, "");
-}
-
-function stableHash(value: string): string {
-  let hash = 2166136261;
-  for (let index = 0; index < value.length; index += 1) {
-    hash ^= value.charCodeAt(index);
-    hash = Math.imul(hash, 16777619);
-  }
-  return (hash >>> 0).toString(16);
 }

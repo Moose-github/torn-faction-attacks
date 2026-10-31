@@ -46,8 +46,19 @@ Use the feature's own controls to stop tracking or end an event.
   tracking controls, data refreshes, manual targets and war lifecycle still run.
   The delivery preference persists across war starts. Muting blocks new messages,
   edits and stopped notices; re-enabling updates the tracker with current data.
-- The retaliation board continues refreshing opportunities and scheduling its
-  active refresh loop while its Discord message is muted.
+- Retaliation opportunities each get a separate message, identified by their
+  opening attack. Open and temporary "attack started" claims are checked every
+  ten seconds; a released or expired temporary claim can return to Open. Torn's
+  confirmed retaliation marks a message Taken, and the five-minute deadline marks
+  it Timed out. The final status stays in Discord, then its message reference is
+  cleared and monitoring stops. A short-lived marker prevents reposting the same
+  opening. No empty-board message is posted. Tracking and attack refresh continue
+  while muted; existing messages receive their final status after re-enabling.
+  Configured mentions are sent only on creation. Edits stay in the original
+  channel after a route change; newly discovered opportunities use the new route.
+  Failed edits are retried without creating replacement posts. Deleted messages
+  are forgotten. The old shared board is edited once to explain the change.
+  Apply migration `0188_create_retaliation_discord_messages.sql` before deploying.
 - Enemy pressure and shoplifting data, scouting, competition rollover, and war
   completion run independently of their Discord message switches. A ready scouting
   report stays pending while muted and can be delivered after re-enabling.

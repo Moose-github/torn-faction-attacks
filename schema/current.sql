@@ -118,6 +118,18 @@ CREATE TABLE retaliation_opportunities (
   updated_at INTEGER NOT NULL DEFAULT (unixepoch())
 );
 
+CREATE TABLE retaliation_discord_messages (
+  opening_attack_id INTEGER PRIMARY KEY,
+  expires_at INTEGER NOT NULL,
+  discord_message_id TEXT,
+  discord_channel_id TEXT,
+  last_rendered_hash TEXT,
+  last_edited_at INTEGER,
+  finalized_at INTEGER,
+  lease_token TEXT,
+  lease_until INTEGER NOT NULL DEFAULT 0
+);
+
 CREATE TABLE retaliation_board_state (
   id INTEGER PRIMARY KEY CHECK (id = 1),
   discord_message_id TEXT,
@@ -1508,6 +1520,13 @@ CREATE INDEX idx_retaliation_opportunities_attack_at
 
 CREATE INDEX idx_retaliation_opportunities_expires
   ON retaliation_opportunities(expires_at);
+
+CREATE INDEX idx_retaliation_discord_messages_active
+  ON retaliation_discord_messages(finalized_at, expires_at);
+
+CREATE INDEX idx_attacks_retaliation_openings
+  ON attacks(defender_faction_id, ended, id)
+  WHERE result IN ('Hospitalized','Mugged','Attacked','Arrested');
 
 CREATE INDEX idx_dice_game_losses_total_lost
   ON dice_game_losses(total_lost DESC, rolls DESC);
