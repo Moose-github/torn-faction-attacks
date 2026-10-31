@@ -1,5 +1,5 @@
 import React from "react";
-import { Ghost, CalendarClock, ChevronDown, ChevronRight, TrendingUp, Swords, Beaker } from "lucide-react";
+import { Ghost, CalendarClock, ChevronDown, ChevronRight, TrendingUp, Swords, Beaker, Award } from "lucide-react";
 import { WarSummary, WarType } from "../api";
 import { useChainWatchLive } from "../hooks/ChainWatchLiveProvider";
 import { EmptyState } from "./Common";
@@ -69,7 +69,7 @@ export function Sidebar({
   });
   const membersActive = view === "members" || view === "lifestyle";
   const recordedWarsActive = view === "war";
-  const miscellaneousActive = view === "miscellaneous" || view === "warResearchResults" || (view === "chainWatchSchedule" && chainWatchInMiscellaneous) || view === "tradeScout" || view === "arrestScout" || view === "halloweenProfit" || view === "bookStrategy" || view === "statEnhancerRange" || view === "stockInvestments";
+  const miscellaneousActive = view === "miscellaneous" || view === "warResearchResults" || (view === "chainWatchSchedule" && chainWatchInMiscellaneous) || view === "tradeScout" || view === "arrestScout" || view === "halloweenProfit" || view === "bookStrategy" || view === "statEnhancerRange" || view === "meritsSimulator" || view === "stockInvestments";
   const adminActive = view === "warPayouts" || view === "stockMarketStatus" || view === "factionArmory" || view === "admin";
   const recordedWarsOpen = !(collapsedGroups.recordedWars ?? false);
 
@@ -236,6 +236,12 @@ export function Sidebar({
           icon={<TrendingUp size={18} />}
           label="Stat Enhancer Range"
           onClick={() => onViewChange("statEnhancerRange")}
+        />
+        <SidebarLink
+          active={view === "meritsSimulator"}
+          icon={<Award size={18} />}
+          label="Merits simulator"
+          onClick={() => onViewChange("meritsSimulator")}
         />
         <SidebarLink
           active={view === "stockInvestments"}

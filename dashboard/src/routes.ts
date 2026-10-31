@@ -14,6 +14,7 @@ export type AppView =
   | "halloweenProfit"
   | "bookStrategy"
   | "statEnhancerRange"
+  | "meritsSimulator"
   | "warPayouts"
   | "stockMarketStatus"
   | "factionArmory"
@@ -42,6 +43,7 @@ export const PAGE_PATHS: Record<Exclude<AppView, "war">, string> = {
   halloweenProfit: "/halloween",
   bookStrategy: "/book-strategy",
   statEnhancerRange: "/stat-enhancer-range",
+  meritsSimulator: "/merits-simulator",
   warPayouts: "/war-payouts",
   stockMarketStatus: "/admin/stock-market",
   factionArmory: "/admin/armory",

@@ -121,6 +121,9 @@ const HalloweenProfit = React.lazy(() =>
 const StatEnhancerRange = React.lazy(() =>
   import("../views/StatEnhancerRange").then((module) => ({ default: module.StatEnhancerRange })),
 );
+const MeritsSimulator = React.lazy(() =>
+  import("../views/MeritsSimulator").then((module) => ({ default: module.MeritsSimulator })),
+);
 const WarPayouts = React.lazy(() =>
   import("../views/WarPayouts").then((module) => ({ default: module.WarPayouts })),
 );
@@ -869,6 +872,10 @@ function AppContents() {
           ) : view === "statEnhancerRange" ? (
             <LazyPage>
               <StatEnhancerRange />
+            </LazyPage>
+          ) : view === "meritsSimulator" ? (
+            <LazyPage>
+              <MeritsSimulator />
             </LazyPage>
           ) : view === "warPayouts" ? (
             <LazyPage>
