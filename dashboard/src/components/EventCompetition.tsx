@@ -118,6 +118,13 @@ export function EventCompetitionPanel({ war, data, error, compact = false, membe
   const halloween = war.event_type === "halloween";
   const [team, setTeam] = React.useState("all");
   const [chartWidth, setChartWidth] = React.useState(0);
+  // Narrow charts drop the scale titles and name the right scale in the legend instead.
+  const narrowChart = chartWidth > 0 && chartWidth < 480;
+  const scaleTitle = (value: string, side: "left" | "right") => narrowChart ? undefined : {
+    value, angle: side === "left" ? -90 : 90, position: side === "left" ? "insideLeft" as const : "insideRight" as const, offset: 10,
+    style: { textAnchor: "middle", fill: "var(--chart-axis)", fontSize: 12 },
+  };
+  const rightScaleNote = narrowChart ? " (right scale)" : "";
   const [sort, setSort] = React.useState<{ key: CompetitionSortKey; descending: boolean }>({ key: halloween ? "treats" : "eliminated", descending: halloween });
   const statsByMember = new Map(memberStats.map(member => [member.member_id, member]));
   const members = data?.members ?? [];
@@ -195,16 +202,16 @@ export function EventCompetitionPanel({ war, data, error, compact = false, membe
         <ResponsiveContainer width="100%" height="100%" onResize={width => setChartWidth(width)}><LineChart accessibilityLayer data={chartData} margin={{ top: 12, right: 0, bottom: 8, left: 0 }}>
           <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="3 3" vertical={false} />
           <XAxis dataKey="observed_at" type="number" domain={[war.practical_start_time, "dataMax"]} ticks={chartTicks} interval="preserveStartEnd" tickFormatter={(value: number) => formatDate(value)} minTickGap={50} tick={{ fontSize: 12, fill: "var(--chart-axis)" }} />
-          <YAxis domain={[0, "auto"]} allowDataOverflow allowDecimals={false} width={64} tickFormatter={formatNumber} tick={{ fontSize: 12, fill: "var(--chart-axis)" }} />
+          <YAxis domain={[0, "auto"]} allowDataOverflow allowDecimals={false} width={narrowChart ? 64 : 80} label={scaleTitle("Treats", "left")} tickFormatter={formatNumber} tick={{ fontSize: 12, fill: "var(--chart-axis)" }} />
           {/* Chain length and hit totals are far smaller than faction treat totals. */}
-          <YAxis yAxisId="right" orientation="right" domain={[0, "auto"]} allowDecimals={false} width={56} tickFormatter={formatNumber} tick={{ fontSize: 12, fill: "var(--chart-axis)" }} />
-          <Tooltip content={<EventCompetitionChartTooltip />} filterNull={false} isAnimationActive={false} offset={12} position={chartWidth > 0 && chartWidth < 480 ? { x: 0, y: 8 } : undefined} wrapperStyle={{ zIndex: 5, outline: "none" }} cursor={{ stroke: "var(--chart-axis)", strokeDasharray: "3 3" }} />
+          <YAxis yAxisId="right" orientation="right" domain={[0, "auto"]} allowDecimals={false} width={narrowChart ? 56 : 80} label={scaleTitle("Chain & attacks", "right")} tickFormatter={formatNumber} tick={{ fontSize: 12, fill: "var(--chart-axis)" }} />
+          <Tooltip content={<EventCompetitionChartTooltip />} filterNull={false} isAnimationActive={false} offset={12} position={narrowChart ? { x: 0, y: 8 } : undefined} wrapperStyle={{ zIndex: 5, outline: "none" }} cursor={{ stroke: "var(--chart-axis)", strokeDasharray: "3 3" }} />
           <Legend wrapperStyle={{ paddingTop: 10, fontSize: 13 }} />
           {/* Monotone interpolation never dips between rising totals or overshoots a reading. */}
           <Line name="Treats gained" dataKey="treats_point" type="monotoneX" legendType="circle" stroke="var(--accent)" strokeWidth={2} dot={{ r: 4, fill: "var(--accent)" }} activeDot={{ r: 6 }} connectNulls isAnimationActive={false} />
-          <Line yAxisId="right" name="Chain (right scale)" dataKey="chain" type="stepAfter" legendType="plainline" stroke="var(--event-chain-color)" strokeWidth={2} strokeDasharray="5 3" dot={props => props.payload.chain !== null && props.payload.chain_sampled_at === props.payload.observed_at
+          <Line yAxisId="right" name={`Chain${rightScaleNote}`} dataKey="chain" type="stepAfter" legendType="plainline" stroke="var(--event-chain-color)" strokeWidth={2} strokeDasharray="5 3" dot={props => props.payload.chain !== null && props.payload.chain_sampled_at === props.payload.observed_at
             ? <circle key={props.key} cx={props.cx} cy={props.cy} r={2} fill="var(--chart-tooltip-bg)" stroke="var(--event-chain-color)" /> : <g key={props.key} />} activeDot={{ r: 4 }} connectNulls={false} isAnimationActive={false} />
-          {data.successful_attack_history?.length ? <Line yAxisId="right" name="Successful attacks (right scale)" dataKey="successful_attacks" type="stepAfter" legendType="plainline" stroke="var(--event-attacks-color)" strokeWidth={2} dot={props => props.payload.successful_attacks !== null && props.payload.attacks_sampled_at === props.payload.observed_at
+          {data.successful_attack_history?.length ? <Line yAxisId="right" name={`Successful attacks${rightScaleNote}`} dataKey="successful_attacks" type="stepAfter" legendType="plainline" stroke="var(--event-attacks-color)" strokeWidth={2} dot={props => props.payload.successful_attacks !== null && props.payload.attacks_sampled_at === props.payload.observed_at
             ? <circle key={props.key} cx={props.cx} cy={props.cy} r={2} fill="var(--event-attacks-color)" /> : <g key={props.key} />} activeDot={{ r: 4 }} connectNulls={false} isAnimationActive={false} /> : null}
         </LineChart></ResponsiveContainer>
       </div></> : null}
