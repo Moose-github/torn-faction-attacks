@@ -1,5 +1,5 @@
 import React from "react";
-import { Award, Download, RotateCcw, Search, Undo2 } from "lucide-react";
+import { Award, Download, RotateCcw, Undo2 } from "lucide-react";
 import { PanelHeader } from "../components/Common";
 import { importMerits } from "../api/merits";
 import { initialMeritState, meritCost, meritEffect, meritReducer } from "../utils/meritsSimulator";
@@ -16,8 +16,6 @@ export function MeritsSimulator() {
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [message, setMessage] = React.useState("");
-  const [filter, setFilter] = React.useState("All");
-  const [search, setSearch] = React.useState("");
   const controller = React.useRef<AbortController | null>(null);
   React.useEffect(() => () => { controller.current?.abort(); controller.current = null; }, []);
 
@@ -29,9 +27,6 @@ export function MeritsSimulator() {
     setPreview(current => level === null ? (current?.index === index ? null : current)
       : current?.index === index && current.level === level ? current : { index, level });
   }, []);
-  const visible = React.useMemo(() => plan.definitions.map((definition, index) => ({ definition, index })).filter(({ definition }) =>
-    (filter === "All" || definition.group === filter) && definition.name.toLowerCase().includes(search.trim().toLowerCase())), [plan.definitions, filter, search]);
-  const groups = React.useMemo(() => ["All", ...new Set(plan.definitions.map(definition => definition.group))], [plan.definitions]);
   const projected = preview ? plan.used - meritCost(plan.levels[preview.index]) + meritCost(preview.level) : plan.used;
   const available = plan.budget - projected;
   const changed = plan.levels.filter((level, index) => level !== plan.baseline[index]).length;
@@ -51,8 +46,6 @@ export function MeritsSimulator() {
       const snapshot = await importMerits(key, request.signal);
       if (request.signal.aborted || controller.current !== request) return;
       dispatch({ type: "import", snapshot });
-      setFilter("All");
-      setSearch("");
       setMessage(`Imported ${snapshot.budget} merits: ${snapshot.used} allocated and ${snapshot.budget - snapshot.used} available. Your key has been discarded.`);
     } catch (reason) {
       if (!request.signal.aborted && controller.current === request) setError(reason instanceof Error ? reason.message : "Unable to import merits. Please try again.");
@@ -92,24 +85,13 @@ export function MeritsSimulator() {
         onChange={event => { setPreview(null); dispatch({ type: "budget", budget: event.target.valueAsNumber }); }} /></label>
       <div><span>{preview ? "Preview allocation" : "Allocated"}</span><strong data-testid="merit-used">{projected}</strong></div>
       <div><span>{available < 0 ? "Over budget" : "Available"}</span><strong data-testid="merit-available">{Math.abs(available)}</strong></div>
-      <div className="merit-budget-track" aria-hidden="true"><div style={{ width: `${plan.budget ? Math.min(100, projected / plan.budget * 100) : projected ? 100 : 0}%` }} /></div>
-      <p>{preview ? `${plan.definitions[preview.index].name} → level ${preview.level} · ${projected - plan.used >= 0 ? "+" : ""}${projected - plan.used} merits. Click to apply.`
-        : available < 0 ? `Remove ${-available} merits or increase the total to make this plan affordable.`
-          : `${changed} upgrade${changed === 1 ? "" : "s"} changed${plan.imported ? " from your imported allocation" : ""}. ${!plan.imported ? "Import your merits or set a total to start planning." : ""}`}</p>
     </section>
 
     <fieldset className="panel merit-planner-panel" disabled={loading}>
       <legend className="merit-sr-only">Merit allocation</legend>
-      <div className="merit-toolbar">
-        <div className="merit-tabs" role="group" aria-label="Merit categories">{groups.map(group => <button key={group} type="button" aria-pressed={filter === group}
-          className={filter === group ? "active" : ""} onClick={() => { setFilter(group); setPreview(null); }}>{group === "All" ? "All merits" : group}</button>)}</div>
-        <label className="merit-search"><Search size={15} aria-hidden="true" /><input type="search" placeholder="Find a merit…" aria-label="Find a merit"
-          value={search} onChange={event => { setSearch(event.target.value); setPreview(null); }} /></label>
-      </div>
       <div className="merit-list-heading" aria-hidden="true"><span>Upgrade / effect</span><span>Level · 0–10</span><span>Cost</span></div>
-      {visible.map(({ definition, index }) => <MeritRow key={definition.key} definition={definition} index={index} level={plan.levels[index]} baseline={plan.baseline[index]}
+      {plan.definitions.map((definition, index) => <MeritRow key={definition.key} definition={definition} index={index} level={plan.levels[index]} baseline={plan.baseline[index]}
         preview={preview?.index === index ? preview.level : null} onSelect={selectLevel} onPreview={previewLevel} />)}
-      {!visible.length ? <p className="merit-empty">No merits match your search.</p> : null}
       <div className="merit-bottom-bar">
         <div className="merit-actions"><button type="button" className="panel-action-button secondary" disabled={!plan.history.length} onClick={() => { dispatch({ type: "undo" }); setPreview(null); }}><Undo2 size={14} />Undo</button>
           <button type="button" className="panel-action-button secondary" disabled={!changed} onClick={() => { dispatch({ type: "reset" }); setPreview(null); }}><RotateCcw size={14} />{plan.imported ? "Restore imported" : "Reset allocation"}</button>
@@ -147,6 +129,6 @@ const MeritRow = React.memo(function MeritRow({ definition, index, level, baseli
         onPointerEnter={event => { if (event.pointerType === "mouse" || event.pointerType === "pen") onPreview(index, value); }}
         onFocus={() => onPreview(index, value)} onClick={() => onSelect(index, value)}>{value}</button>)}
     </div>
-    <div className="merit-row-cost"><strong>{meritCost(shown)}</strong><span>{difference > 0 ? "+" : ""}{difference} vs original</span></div>
+    <div className="merit-row-cost"><strong>{meritCost(shown)}</strong>{difference !== 0 ? <span>{difference > 0 ? "+" : ""}{difference} vs original</span> : null}</div>
   </div>;
 });
