@@ -5,6 +5,7 @@ import {
   TORN_KEY_INFO_API_URL,
 } from "./constants";
 import { fetchTrackedTornJson } from "./external/torn";
+import { readDiscordAccessRoles } from "./discordAccessRoles";
 import { Env } from "./types";
 import { json, nowSeconds } from "./utils";
 
@@ -83,6 +84,7 @@ export async function authenticateWithTornKey(request: Request, env: Env): Promi
     }
 
     const accessLevel: AccessLevel = admin ? "admin" : "member";
+    const roles = await readDiscordAccessRoles(env, user.id);
     const token = createSessionToken();
     const issuedAt = nowSeconds();
     const expiresAt = issuedAt + AUTH_SESSION_TTL_SECONDS;
@@ -111,6 +113,7 @@ export async function authenticateWithTornKey(request: Request, env: Env): Promi
       ok: true,
       token,
       access_level: accessLevel,
+      roles,
       expires_at: expiresAt,
       user,
     });
@@ -128,6 +131,7 @@ export async function getCurrentAuthSession(request: Request, env: Env): Promise
   return json({
     ok: true,
     access_level: session.access_level,
+    roles: await readDiscordAccessRoles(env, session.id),
     expires_at: session.expires_at,
     user: {
       id: session.id,

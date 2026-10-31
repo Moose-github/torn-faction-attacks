@@ -69,6 +69,7 @@ import {
 import { useCurrentTimeMs } from "../utils/time";
 import type { AppView } from "../routes";
 import { resolveWarPhase } from "../../../shared/warPhase";
+import { ACCESS_ROLES } from "../../../shared/accessRoles";
 
 const ACTIVE_WAR_REFRESH_MS = 60_000;
 const SLOW_WAR_REFRESH_MS = 5 * 60_000;
@@ -760,6 +761,11 @@ function AppContents() {
               {isAdmin ? "Admin" : "Member"}
             </span>
           ) : null}
+          {authSession?.roles?.map(role => (
+            <span key={role} className="access-level-pill" title="Assigned through your Discord role">
+              {ACCESS_ROLES[role].label}
+            </span>
+          ))}
           {authSession ? (
             <button
               type="button"

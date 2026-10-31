@@ -63,6 +63,22 @@ describe("shared authentication lifecycle", () => {
     expect(readStoredAuth()?.session.token).toBe(token);
   });
 
+  it("refreshes independent roles without changing Member access", async () => {
+    serverSession = { ...session(1, "member"), roles: ["officer", "event_organizer"] };
+    saved(serverSession);
+    const auth = start();
+    await flush();
+    expect(auth.getSnapshot().session?.roles).toEqual(["officer", "event_organizer"]);
+    serverSession = { ...serverSession, roles: ["event_organizer"] };
+    await vi.advanceTimersByTimeAsync(30 * 60_000);
+    expect(auth.getSnapshot().session).toMatchObject({ access_level: "member", roles: ["event_organizer"] });
+    expect(readStoredAuth()?.session.roles).toEqual(["event_organizer"]);
+    serverSession = { ...serverSession, roles: [] };
+    auth.refresh();
+    await flush();
+    expect(auth.getSnapshot().session?.roles).toEqual([]);
+  });
+
   it("coalesces refresh requests and wake events while a request is in flight", async () => {
     saved(serverSession);
     const pending = deferred<Response>();

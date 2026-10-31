@@ -3,6 +3,7 @@ export type { DiscordDeliveryAlertSetting } from "../../../../shared/discordDeli
 export type WarType = "all" | "real" | "termed" | "event";
 
 import type { GlobalWarState } from "../../../../shared/warPhase";
+import type { AccessRole } from "../../../../shared/accessRoles";
 export type { GlobalWarState } from "../../../../shared/warPhase";
 export type EnemyStatsImagePreviewType = "comparison" | "members";
 
@@ -1987,6 +1988,8 @@ export type AuthSession = {
   ok: boolean;
   token?: string;
   access_level: "member" | "admin";
+  /** Independent Discord assignments. Optional for previously stored sessions. */
+  roles?: AccessRole[];
   expires_at: number;
   user: AuthUser;
 };

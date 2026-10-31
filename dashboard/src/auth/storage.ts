@@ -1,4 +1,5 @@
 import type { AuthSession } from "../api/types";
+import { isAccessRole } from "../../../shared/accessRoles";
 
 export const AUTH_TOKEN_STORAGE_KEY = "tornFactionAuthToken";
 export const AUTH_SESSION_STORAGE_KEY = "tornFactionAuthSession";
@@ -8,6 +9,7 @@ export function isAuthSession(value: unknown): value is AuthSession {
   if (!value || typeof value !== "object") return false;
   const session = value as Partial<AuthSession>;
   return session.ok === true && (session.access_level === "member" || session.access_level === "admin") &&
+    (session.roles === undefined || (Array.isArray(session.roles) && session.roles.every(isAccessRole))) &&
     typeof session.expires_at === "number" && Number.isFinite(session.expires_at) &&
     Number.isSafeInteger(session.user?.id) && Number(session.user?.id) > 0;
 }

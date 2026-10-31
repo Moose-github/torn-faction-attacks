@@ -377,6 +377,28 @@ GET /api/stats?war_type=termed
 GET /api/stats?war_type=event
 ```
 
+## Discord dashboard roles
+
+The dashboard automatically assigns two independent roles from the linked member's
+roles in `DISCORD_GUILD_ID`, using `DISCORD_BOT_TOKEN`:
+
+| Dashboard role | Discord role ID |
+| --- | --- |
+| Event organizer | `889777697268576276` |
+| Officer | `1551674982701076621` |
+
+Both roles currently grant **no additional permissions**. Neither implies the other;
+a member can hold either or both. Existing Member/Admin authorization remains
+separate, and Discord assignments never create an administrator.
+
+`/api/auth/torn` and `/api/auth/me` return a `roles` array (`event_organizer`, `officer`)
+based on the existing Torn-to-Discord link. Assignments appear beside the access
+badge and refresh at login, page reload, and the existing 30-minute session check
+while the dashboard is visible. Removing a Discord role or leaving the server
+removes the corresponding assignment on the next check. Missing links, unavailable
+bot configuration, or failed Discord checks return no assignments without blocking
+ordinary login. These roles are resolved live; no database migration is required.
+
 ## Discord: `/war me`
 
 In the configured faction Discord server, `/war me` privately shows the caller's
