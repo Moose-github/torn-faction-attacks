@@ -14,7 +14,7 @@ export function chainWatchLiveDisplay(data: ChainWatchLiveResponse | null, now: 
     detail = "Live updates are temporarily unavailable. Sign-ups are still available.";
   } else if (data && !data.demand.active) {
     status = "Stopped";
-    detail = "Monitoring starts when a scheduled watch begins or an enabled war is active.";
+    detail = "Monitoring starts with manual protection, a scheduled watch, or an enabled war or event.";
   } else if (data && (!data.computed.active || !state || checkedAge === null)) {
     status = "Starting";
     detail = "Waiting for the monitor's first update.";

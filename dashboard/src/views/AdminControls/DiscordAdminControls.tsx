@@ -16,6 +16,7 @@ import { discordAlertByKey, DISCORD_DEFAULT_ALERT_ROUTE_KEY as DEFAULT_DISCORD_A
 import type { DiscordAlertSettingsMap } from "../../../../shared/discordAlertSettings";
 import { discordAlertRows, discordAlertStatus } from "./discordAlertRows";
 import { DiscordMessageDelete } from "./DiscordMessageDelete";
+import { ChainProtectionControl } from "./ChainProtectionControl";
 import { DiscordMessageCompose } from "./DiscordMessageCompose";
 import { DiscordAlertMentionEditor, useDiscordMentionSettings } from "./DiscordAlertMentionEditor";
 import { DiscordRouteActions } from "./DiscordRouteActions";
@@ -78,6 +79,7 @@ export function DiscordAdminControls({
 
   return (
     <>
+      <ChainProtectionControl disabled={isBusy !== null} />
       <section className="panel admin-panel-shoplifting-alerts">
         <PanelHeader title="Discord alerts" aside={discordAlertStatus(discordAlertSettings, isLoadingDiscordAlertSettings)} />
         <p>Choose which Discord alerts are sent, where they appear, who they mention, and whether members can subscribe.</p>

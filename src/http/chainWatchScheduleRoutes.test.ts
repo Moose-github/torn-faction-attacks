@@ -2,14 +2,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { watchDatabase, watchThresholdEventsMigration } from "../../scripts/watch-test-database.mjs";
 import { nextWatchHour, watchUtc, WATCH_DAY, WATCH_HOUR, type ChainWatchScheduleResponse } from "../../shared/chainWatchSchedule";
 import { createWatch, readWatch } from "../chainWatchSchedule";
-import { getChainWatchLive } from "../chainWatch";
+import { getChainWatchLive, setManualChainProtection } from "../chainWatch";
 import { syncWatchBoardsSafely } from "../chainWatchScheduleDiscord";
 import { readAuthenticatedUserId, requireAdmin, requireMember } from "../auth";
 import { routeWatchScheduleApi } from "./chainWatchScheduleRoutes";
 import type { RouteContext } from "./context";
 
 vi.mock("../auth", () => ({ requireAdmin: vi.fn(), requireMember: vi.fn(), readAuthenticatedUserId: vi.fn() }));
-vi.mock("../chainWatch", () => ({ getChainWatchLive: vi.fn() }));
+vi.mock("../chainWatch", () => ({ getChainWatchLive: vi.fn(), setManualChainProtection: vi.fn() }));
 vi.mock("../chainWatchScheduleDiscord", () => ({ syncWatchBoardsSafely: vi.fn().mockResolvedValue(undefined) }));
 
 const now = Date.UTC(2030, 0, 1, 12, 20) / 1000;
@@ -39,6 +39,25 @@ async function request(path: string, body?: unknown) {
 }
 
 describe("chain watch page authorization", () => {
+  it("requires admin access to read or change manual protection", async () => {
+    expect((await request("/api/admin/chain-watch/protection"))?.status).toBe(403);
+    expect((await request("/api/admin/chain-watch/protection", { enabled: true }))?.status).toBe(403);
+    expect(setManualChainProtection).not.toHaveBeenCalled();
+    expect(await request("/api/chain-watch/protection", { enabled: true })).toBeNull();
+  });
+  it.each([true, false])("lets an admin set manual protection to %s without a watch ID", async enabled => {
+    vi.mocked(requireAdmin).mockResolvedValue(null);
+    vi.mocked(getChainWatchLive).mockResolvedValue(Response.json({ ok: true, demand: { manual_enabled: enabled } }));
+    const response = await request("/api/admin/chain-watch/protection", { enabled });
+    expect(response?.status).toBe(200);
+    expect(setManualChainProtection).toHaveBeenCalledExactlyOnceWith(db.env, enabled);
+    expect(await response?.json()).toMatchObject({ demand: { manual_enabled: enabled } });
+  });
+  it.each([{}, { enabled: "false" }, { enabled: 1 }, { enabled: null }])("rejects invalid manual protection values: %j", async body => {
+    vi.mocked(requireAdmin).mockResolvedValue(null);
+    expect((await request("/api/admin/chain-watch/protection", body))?.status).toBe(400);
+    expect(setManualChainProtection).not.toHaveBeenCalled();
+  });
   it("requires membership to read live faction status", async () => {
     vi.mocked(requireMember).mockResolvedValue(new Response("Unauthorized", { status: 401 }));
     expect((await request("/api/chain-watch/live"))?.status).toBe(401);

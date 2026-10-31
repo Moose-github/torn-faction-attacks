@@ -5,7 +5,7 @@ import { chainWatchLiveDisplay } from "./chainWatchLive";
 const now = 1800000000;
 function live(): ChainWatchLiveResponse {
   return { ok: true, now, faction_id: 8803,
-    demand: { active: true, watch_id: "watch", war_id: null },
+    demand: { active: true, manual_enabled: false, watch_id: "watch", war_id: null },
     computed: { active: true, alert_eligible: true, remaining_seconds: 150, dropped: false },
     state: { faction_id: 8803, enabled: 1, source: "stored", current_chain: 251, timeout_at: now + 150,
       last_hit_at: now - 150, last_hit_attacker_name: "Alice", last_hit_defender_name: "Target",

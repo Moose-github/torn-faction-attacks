@@ -1,5 +1,5 @@
 import { readAuthenticatedUserId } from "../auth";
-import { getChainWatchLive } from "../chainWatch";
+import { getChainWatchLive, setManualChainProtection } from "../chainWatch";
 import { fetchChainWatchTargets } from "../chainWatchTargets";
 import { readJsonObject } from "../backend/request";
 import { changeWatchSlots, readAdminWatch, readWatch, readWatchHistory, setWatchFinish, WatchError } from "../chainWatchSchedule";
@@ -11,13 +11,22 @@ export async function routeWatchScheduleApi(context: RouteContext): Promise<Rout
   const { request, env, url, ctx } = context;
   const live = url.pathname === "/api/chain-watch/live";
   const targets = url.pathname === "/api/chain-watch/targets";
+  const protection = url.pathname === "/api/admin/chain-watch/protection";
   const admin = url.pathname.startsWith("/api/admin/chain-watch");
   const base = admin ? "/api/admin/chain-watch" : "/api/chain-watch";
   const history = url.pathname === `${base}/history`;
-  if (!live && !targets && !history && url.pathname !== base && url.pathname !== `${base}/slots` && url.pathname !== `${base}/finish`) return null;
+  if (!live && !targets && !protection && !history && url.pathname !== base && url.pathname !== `${base}/slots` && url.pathname !== `${base}/finish`) return null;
   return (admin ? withAdmin : withMember)(context, async () => {
     const readSchedule = admin ? readAdminWatch : readWatch;
     try {
+      if (protection) {
+        if (request.method === "GET") return getChainWatchLive(env);
+        if (request.method !== "POST") return json({ ok: false, error: "Method not allowed" }, 405);
+        const body = await readJsonObject(request);
+        if (typeof body.enabled !== "boolean") throw new WatchError("Choose whether manual chain protection is enabled.");
+        await setManualChainProtection(env, body.enabled);
+        return getChainWatchLive(env);
+      }
       if (targets) {
         if (request.method !== "POST") return json({ ok: false, error: "Method not allowed" }, 405);
         const cooldown = await requireActionCooldown(env, "chain_watch_target_search", 20);

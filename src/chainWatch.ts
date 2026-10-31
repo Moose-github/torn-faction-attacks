@@ -144,6 +144,14 @@ export async function runChainWatchCron(env: Env, scheduledTime: number): Promis
   }
 }
 
+export async function setManualChainProtection(env: Env, enabled: boolean): Promise<void> {
+  await ensureChainWatchState(env);
+  await env.DB.prepare("UPDATE faction_chain_watch_state SET manual_enabled = ? WHERE faction_id = ?")
+    .bind(enabled ? 1 : 0, HOME_FACTION_ID).run();
+  const now = nowSeconds();
+  if (await reconcileChainWatchActivity(env, now)) await refreshChainWatch(env, now);
+}
+
 export async function readChainWatchLive(env: Env, now = nowSeconds()) {
   const [state, demand] = await Promise.all([readChainWatchState(env), readChainWatchDemand(env, now)]);
   const remainingSeconds = state?.timeout_at ? Math.max(0, state.timeout_at - now) : null;

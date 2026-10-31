@@ -1,10 +1,12 @@
-import { SOURCE_NAME } from "./constants";
+import { HOME_FACTION_ID, SOURCE_NAME } from "./constants";
 import type { Env } from "./types";
 import { nowSeconds } from "./utils";
 
 // Activation policy is separate from the faction monitor. A running schedule
 // needs no war; the legacy war toggle remains an additional consumer.
 export async function readChainWatchDemand(env: Env, now = nowSeconds()) {
+  const manual = await env.DB.prepare("SELECT manual_enabled FROM faction_chain_watch_state WHERE faction_id = ?")
+    .bind(HOME_FACTION_ID).first<{ manual_enabled: number }>();
   const watch = await env.DB.prepare(`SELECT id FROM chain_watch_schedules
     WHERE is_open = 1 AND start_at <= ? AND (finish_at IS NULL OR finish_at > ?)
     LIMIT 1`).bind(now, now).first<{ id: string }>();
@@ -21,5 +23,7 @@ export async function readChainWatchDemand(env: Env, now = nowSeconds()) {
     WHERE war_type = 'event' AND status = 'active' AND chain_watch_enabled = 1
       AND practical_start_time <= ? AND (practical_finish_time IS NULL OR practical_finish_time > ?)
     ORDER BY practical_start_time, id LIMIT 1`).bind(now, now).first<{ id: number }>();
-  return { active: Boolean(watch || war || event), watch_id: watch?.id ?? null, war_id: war?.id ?? event?.id ?? null };
+  const manualEnabled = manual?.manual_enabled === 1;
+  return { active: manualEnabled || Boolean(watch || war || event), manual_enabled: manualEnabled,
+    watch_id: watch?.id ?? null, war_id: war?.id ?? event?.id ?? null };
 }

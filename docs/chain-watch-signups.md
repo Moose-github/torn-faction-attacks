@@ -212,6 +212,19 @@ legacy monitor's message ID and warning markers. Legacy per-war alarms retire
 after the Worker upgrade; the next ingestion tick schedules the faction alarm.
 The old state table remains available for historical war reads.
 
+## Manual chain protection
+
+Admin Controls → Discord includes a persistent **Protect any active chain** switch.
+It defaults to off. When enabled, it requests the shared faction monitor independently
+of wars, events, and scheduled watches, and keeps waiting for new chains after a drop.
+Turning it off removes only this manual request; any active war, event, or watch
+continues to request monitoring. Existing thresholds and Discord delivery settings apply.
+
+The admin-only `/api/admin/chain-watch/protection` endpoint supports GET for current
+live status and POST with `{ "enabled": true }` or `{ "enabled": false }`. Changes
+reconcile monitoring immediately. Apply migration `0189_add_manual_chain_protection.sql`
+before deploying the Worker, then deploy the dashboard.
+
 ## Threshold event history
 
 Migration `0185_record_chain_watch_threshold_events.sql` adds an internal event

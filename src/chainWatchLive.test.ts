@@ -5,6 +5,7 @@ import { watchUtc } from "../shared/chainWatchSchedule";
 import { HOME_FACTION_ID } from "./constants";
 import { CHAIN_WATCH_DROP_RETRY_SECONDS, getChainWatchLive, handleChainWatchAlarm, readChainWatchState, readLatestQualifyingChainHit, refreshActiveChainWatchFromStoredAttacks, refreshChainWatch, runChainWatchCron } from "./chainWatch";
 import { readChainWatchDemand } from "./chainWatchDemand";
+import { setManualChainProtection } from "./chainWatch";
 import { getChainWatchForWar, setChainWatchEnabledForWar } from "./chainWatchWar";
 import { fetchTrackedTornJson } from "./external/torn";
 import { upsertDiscordAlertMessage } from "./discordAlertDelivery";
@@ -107,6 +108,58 @@ function beforeObservationSave(beforeSave: (values: unknown[]) => Promise<void>)
 }
 
 describe("independent faction chain monitor", () => {
+  it("defaults manual protection off, and starts and stops it without a war or watch", async () => {
+    expect(await readChainWatchDemand(db.env)).toMatchObject({ active: false, manual_enabled: false });
+    await hit(1, start - 20, { chain: 1512 }); advance(start);
+    await setManualChainProtection(db.env, true);
+    expect(await readChainWatchDemand(db.env)).toEqual({ active: true, manual_enabled: true, watch_id: null, war_id: null });
+    expect(await readChainWatchState(db.env)).toMatchObject({ enabled: 1, current_chain: 1512, scheduled_alarm_at: start + 220 });
+    await tick(start + 1);
+    expect((await readChainWatchDemand(db.env)).manual_enabled).toBe(true);
+    await setManualChainProtection(db.env, false);
+    expect(await readChainWatchState(db.env)).toMatchObject({ enabled: 0, scheduled_alarm_at: null });
+  });
+
+  it.each(["war", "event", "watch"])("turning manual protection off preserves %s protection", async source => {
+    if (source === "watch") await watch();
+    else {
+      await war();
+      if (source === "event") {
+        db.sqlite.exec("UPDATE wars SET war_type = 'event'; UPDATE sync_state SET active_war_id = NULL, war_state = 'none'");
+      }
+    }
+    await hit(1, start - 20); advance(start);
+    await setManualChainProtection(db.env, true);
+    await setManualChainProtection(db.env, false);
+    expect(await readChainWatchDemand(db.env)).toMatchObject({ active: true, manual_enabled: false });
+    expect(await readChainWatchState(db.env)).toMatchObject({ enabled: 1, scheduled_alarm_at: start + 220 });
+  });
+
+  it("retains manual protection when the war and schedule end", async () => {
+    await watch(start + 3600); await war(); await hit(1, start - 20); advance(start);
+    await setManualChainProtection(db.env, true);
+    await setChainWatchEnabledForWar(db.env, 1, false);
+    await hit(2, start + 3590); await tick(start + 3600);
+    expect(await readChainWatchDemand(db.env)).toEqual({ active: true, manual_enabled: true, watch_id: null, war_id: null });
+    expect(await readChainWatchState(db.env)).toMatchObject({ enabled: 1, last_hit_id: 2 });
+  });
+
+  it("waits for a new chain and retains the existing warning threshold with manual protection", async () => {
+    advance(start); await setManualChainProtection(db.env, true);
+    expect(await readChainWatchState(db.env)).toMatchObject({ enabled: 1, current_chain: 0, scheduled_alarm_at: null });
+    await hit(1, start + 10, { chain: 100 }); await tick(start + 10);
+    expect((await readChainWatchState(db.env))?.scheduled_alarm_stage).not.toBe("warning_60");
+    await hit(2, start + 20, { chain: 101 }); await tick(start + 20);
+    vi.mocked(fetchTrackedTornJson).mockResolvedValue({ chain: { current: 101, timeout: 60 } });
+    advance(start + 260); await handleChainWatchAlarm(db.env, HOME_FACTION_ID);
+    expect((await readChainWatchState(db.env))?.warning_60_sent_at).toBe(start + 260);
+    vi.mocked(fetchTrackedTornJson).mockResolvedValue({ chain: { current: 0, timeout: 0 } });
+    advance(start + 320); await handleChainWatchAlarm(db.env, HOME_FACTION_ID);
+    await hit(3, start + 330, { chain: 1 }); await tick(start + 330);
+    expect(await readChainWatchState(db.env)).toMatchObject({ enabled: 1, current_chain: 1, drop_sent_at: null });
+    expect((await readChainWatchDemand(db.env)).manual_enabled).toBe(true);
+  });
+
   it("starts exactly at the watch start with no war, using the existing attack feed", async () => {
     await watch();
     await hit(1, start - 20);
@@ -124,7 +177,7 @@ describe("independent faction chain monitor", () => {
 
   it("retains war-only monitoring as an optional consumer", async () => {
     await war(); await hit(1, start - 10); await tick();
-    expect(await readChainWatchDemand(db.env)).toEqual({ active: true, watch_id: null, war_id: 1 });
+    expect(await readChainWatchDemand(db.env)).toEqual({ active: true, manual_enabled: false, watch_id: null, war_id: 1 });
     expect(await readChainWatchState(db.env)).toMatchObject({ enabled: 1, current_chain: 150 });
     await setChainWatchEnabledForWar(db.env, 1, false);
     expect(await readChainWatchState(db.env)).toMatchObject({ enabled: 0, scheduled_alarm_at: null });
@@ -179,7 +232,7 @@ describe("independent faction chain monitor", () => {
     await war(2);
     await hit(2, start + 3590);
     await tick(start + 3600);
-    expect(await readChainWatchDemand(db.env)).toEqual({ active: true, watch_id: null, war_id: 2 });
+    expect(await readChainWatchDemand(db.env)).toEqual({ active: true, manual_enabled: false, watch_id: null, war_id: 2 });
     expect((await readChainWatchState(db.env))?.enabled).toBe(1);
   });
 

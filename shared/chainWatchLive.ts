@@ -15,6 +15,6 @@ export type ChainWatchLiveResponse = {
     last_checked_at: number | null;
     last_error: string | null;
   } | null;
-  demand: { active: boolean; watch_id: string | null; war_id: number | null };
+  demand: { active: boolean; manual_enabled: boolean; watch_id: string | null; war_id: number | null };
   computed: { active: boolean; alert_eligible: boolean; remaining_seconds: number | null; dropped: boolean };
 };
