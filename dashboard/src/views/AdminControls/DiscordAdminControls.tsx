@@ -79,7 +79,6 @@ export function DiscordAdminControls({
 
   return (
     <>
-      <ChainProtectionControl disabled={isBusy !== null} />
       <section className="panel admin-panel-shoplifting-alerts">
         <PanelHeader title="Discord alerts" aside={discordAlertStatus(discordAlertSettings, isLoadingDiscordAlertSettings)} />
         <p>Choose which Discord alerts are sent, where they appear, who they mention, and whether members can subscribe.</p>
@@ -140,6 +139,8 @@ export function DiscordAdminControls({
           ))}
         </div>
       </section>
+
+      <ChainProtectionControl disabled={isBusy !== null} />
 
       <DiscordMessageDelete />
 

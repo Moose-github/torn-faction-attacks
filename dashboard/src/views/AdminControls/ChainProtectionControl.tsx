@@ -1,6 +1,5 @@
 import React from "react";
 import { getManualChainProtection, setManualChainProtection } from "../../api/chainWatchSchedule";
-import { PanelHeader } from "../../components/Common";
 import type { ChainWatchLiveResponse } from "../../../../shared/chainWatchLive";
 
 export function ChainProtectionControl({ disabled = false }: { disabled?: boolean }) {
@@ -34,19 +33,13 @@ export function ChainProtectionControl({ disabled = false }: { disabled?: boolea
     } finally { inFlight.current = false; setBusy(false); }
   }
 
-  return <section className="panel">
-    <PanelHeader title="Manual chain protection" aside={busy ? "Loading…" : !data ? "Unavailable" : data.demand.manual_enabled ? "On" : "Off"} />
-    <p>Keep faction chain monitoring on independently of wars, events, and scheduled watches. This setting stays on until an admin turns it off.</p>
+  return <div className="admin-chain-protection" aria-busy={busy}>
     <label className="checkbox-row">
-      <input type="checkbox" role="switch" checked={data?.demand.manual_enabled ?? false}
+      <input type="checkbox" role="switch" aria-describedby="manual-chain-protection-description" checked={data?.demand.manual_enabled ?? false}
         disabled={disabled || busy || !data} onChange={event => void change(event.target.checked)} />
       <span>Protect any active chain</span>
     </label>
-    <p className="panel-description">Warnings apply above 100 hits, at 60 and 30 seconds remaining, using the existing Discord alert settings. Turning this off leaves war, event, and scheduled watch protection in place.</p>
-    {data ? <p role="status">{data.computed.active
-      ? "Chain monitoring is active."
-      : data.demand.active ? "Waiting for the monitor to start." : "Chain monitoring is stopped."}</p> : null}
-    {error ? <p role="alert">{error}</p> : null}
-    <button type="button" className="admin-button" disabled={disabled || busy} onClick={() => void load()}>Refresh protection status</button>
-  </section>;
+    <p id="manual-chain-protection-description" className="panel-description">Enable protection independently of wars, events, and scheduled watches.</p>
+    {error ? <p role="alert">{error} <button type="button" className="admin-button" disabled={disabled || busy} onClick={() => void load()}>Retry</button></p> : null}
+  </div>;
 }
