@@ -1,5 +1,6 @@
 import React from "react";
 import { getManualChainProtection, setManualChainProtection } from "../../api/chainWatchSchedule";
+import { PanelHeader } from "../../components/Common";
 import type { ChainWatchLiveResponse } from "../../../../shared/chainWatchLive";
 
 export function ChainProtectionControl({ disabled = false }: { disabled?: boolean }) {
@@ -33,7 +34,9 @@ export function ChainProtectionControl({ disabled = false }: { disabled?: boolea
     } finally { inFlight.current = false; setBusy(false); }
   }
 
-  return <div className="admin-chain-protection" aria-busy={busy}>
+  return <section className="panel" aria-busy={busy}>
+    <PanelHeader title="Manual chain protection" />
+    <div className="admin-chain-protection">
     <label className="checkbox-row">
       <input type="checkbox" role="switch" aria-describedby="manual-chain-protection-description" checked={data?.demand.manual_enabled ?? false}
         disabled={disabled || busy || !data} onChange={event => void change(event.target.checked)} />
@@ -41,5 +44,6 @@ export function ChainProtectionControl({ disabled = false }: { disabled?: boolea
     </label>
     <p id="manual-chain-protection-description" className="panel-description">Enable protection independently of wars, events, and scheduled watches.</p>
     {error ? <p role="alert">{error} <button type="button" className="admin-button" disabled={disabled || busy} onClick={() => void load()}>Retry</button></p> : null}
-  </div>;
+    </div>
+  </section>;
 }
