@@ -1,6 +1,11 @@
 .merits-simulator { display: grid; gap: 18px; min-width: 0; }
-.merits-simulator .hero-panel { margin: 0; }
+.merits-simulator .hero-panel { margin: 0; padding: 12px 18px; }
+.merits-simulator .hero-panel h2 { font-size: 1.3rem; line-height: 1.2; }
+.merits-simulator .hero-panel p { margin-top: 4px; font-size: .76rem; }
+.merits-simulator .hero-panel .eyebrow { margin: 0 0 4px; font-size: .64rem; }
 .merit-import-panel, .merit-planner-panel { padding: 18px; min-width: 0; }
+.merit-import-panel.is-collapsed { padding: 10px 18px; }
+.merit-import-panel.is-collapsed .panel-header { margin-bottom: 0; }
 .merit-import-form { display: flex; flex-wrap: wrap; gap: 12px; align-items: end; }
 .merit-import-form label { display: grid; gap: 7px; flex: 1 1 250px; font-size: .8rem; color: var(--text-muted); }
 .merit-import-form input, .merit-summary input { color: var(--text-main); border: 1px solid var(--border-solid); background: var(--panel-muted-bg); border-radius: var(--radius-sm); padding: 8px 10px; min-width: 0; }
@@ -22,8 +27,7 @@
 .merit-row.merit-section-start { border-top: 3px solid var(--border-solid); }
 .merit-row.is-preview { background: var(--panel-hover-bg); }
 .merit-row h3 { font-size: .84rem; color: var(--text-main); margin: 0; }
-.merit-row h3 small { display: block; color: var(--text-muted); font-size: .66rem; font-weight: 400; margin-top: 2px; }
-.merit-row p { font-size: .73rem; color: var(--text-muted); line-height: 1.45; margin: 0; }
+.merit-row p { font-size: .65rem; color: var(--text-muted); line-height: 1.25; margin: 0; }
 .merit-levels { display: flex; gap: 4px; }
 .merit-levels button { flex: 1; min-width: 0; height: 32px; padding: 0; border-radius: 4px; background: var(--panel-muted-bg); border: 1px solid var(--border-solid); color: var(--text-muted); font-size: .66rem; cursor: pointer; transition: none; }
 .merit-levels button.filled { color: white; border-color: #2563eb; background: #2563eb; }
@@ -31,8 +35,8 @@
 .merit-levels button:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
 .merit-levels button:hover { border-color: var(--text-main); }
 .merit-row-cost { text-align: right; font-variant-numeric: tabular-nums; }
-.merit-row-cost strong { display: block; font-size: 1rem; }
-.merit-row-cost span { display: block; font-size: .63rem; color: var(--text-muted); margin-top: 5px; }
+.merit-row-cost strong { display: block; font-size: 1rem; line-height: 1.2; }
+.merit-row-cost span { display: block; font-size: .63rem; line-height: 1.2; color: var(--text-muted); margin-top: 0; }
 .merit-bottom-bar { display: flex; align-items: center; flex-wrap: wrap; justify-content: space-between; gap: 15px; padding-top: 18px; margin-top: 5px; border-top: 1px solid var(--border-soft); }
 .merit-bottom-bar > span { font-size: .7rem; color: var(--text-muted); }
 .merit-sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }

@@ -16,8 +16,13 @@ export function MeritsSimulator() {
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [message, setMessage] = React.useState("");
+  const [importExpanded, setImportExpanded] = React.useState(true);
+  const importToggle = React.useRef<HTMLButtonElement>(null);
   const controller = React.useRef<AbortController | null>(null);
   React.useEffect(() => () => { controller.current?.abort(); controller.current = null; }, []);
+  React.useEffect(() => {
+    if (!importExpanded && !loading) importToggle.current?.focus();
+  }, [importExpanded, loading]);
 
   const selectLevel = React.useCallback((index: number, level: number) => {
     dispatch({ type: "level", index, level });
@@ -47,6 +52,7 @@ export function MeritsSimulator() {
       if (request.signal.aborted || controller.current !== request) return;
       dispatch({ type: "import", snapshot });
       setMessage(`Imported ${snapshot.budget} merits: ${snapshot.used} allocated and ${snapshot.budget - snapshot.used} available. Your key has been discarded.`);
+      setImportExpanded(false);
     } catch (reason) {
       if (!request.signal.aborted && controller.current === request) setError(reason instanceof Error ? reason.message : "Unable to import merits. Please try again.");
     } finally {
@@ -64,11 +70,15 @@ export function MeritsSimulator() {
   return <div className="merits-simulator">
     <section className="hero-panel compact-hero-panel">
       <div><p className="eyebrow">Miscellaneous · Calculator</p><h2>Merits simulator</h2>
-        <p>Simulate merit costs</p></div><Award size={30} aria-hidden="true" />
+        <p>Simulate merit costs</p></div><Award size={22} aria-hidden="true" />
     </section>
 
-    <section className="panel merit-import-panel">
-      <PanelHeader title="Import your merits" icon={<Download size={17} />} aside="One-time API use" />
+    <section className={`panel merit-import-panel${importExpanded ? "" : " is-collapsed"}`}>
+      <PanelHeader title={plan.imported && !importExpanded ? "Merits imported" : "Import your merits"} icon={<Download size={17} />} control={
+        <button ref={importToggle} type="button" className="panel-action-button secondary" aria-expanded={importExpanded} aria-controls="merit-import-body"
+          disabled={loading} onClick={() => setImportExpanded(expanded => !expanded)}>{importExpanded ? "Collapse import" : "Import again"}</button>
+      } />
+      <div id="merit-import-body" hidden={!importExpanded}>
       <form className="merit-import-form" onSubmit={fetchUserMerits}>
         <label htmlFor="merit-api-key"><span>Torn API key</span><input id="merit-api-key" type="password" autoComplete="off" spellCheck={false}
           placeholder="Paste a Minimal or Limited key" value={apiKey} onChange={event => setApiKey(event.target.value)} disabled={loading} aria-describedby="merit-import-disclosure" /></label>
@@ -77,7 +87,8 @@ export function MeritsSimulator() {
       </form>
       <p className="merit-help" id="merit-import-disclosure">Uses your key once to read your merits and the merit catalog directly from Torn. The key is cleared after submission, never saved, and never sent to this dashboard’s server. A custom key needs user → merits and torn → merits access.</p>
       {error ? <p className="form-error" role="alert">{error}</p> : null}
-      <p className="merit-import-message" role="status">{loading ? "Fetching your allocation…" : message}</p>
+      </div>
+      <p className={importExpanded ? "merit-import-message" : "merit-sr-only"} role="status">{loading ? "Fetching your allocation…" : message}</p>
     </section>
 
     <section className={`panel merit-summary${available < 0 ? " is-over-budget" : ""}`} aria-label="Merit budget">
@@ -111,7 +122,7 @@ const MeritRow = React.memo(function MeritRow({ definition, index, level, baseli
   const difference = meritCost(shown) - meritCost(baseline);
   const sectionStart = definition.name === "Brawn" || definition.name === "Heavy Artillery Mastery";
   return <div className={`merit-row${sectionStart ? " merit-section-start" : ""}${preview !== null ? " is-preview" : ""}`}>
-    <div><h3 id={`merit-name-${definition.key}`}>{definition.name}<small>Original {baseline} → {shown}</small></h3><p>{meritEffect(definition, shown)}</p></div>
+    <div><h3 id={`merit-name-${definition.key}`}>{definition.name}</h3><p>{meritEffect(definition, shown)}</p></div>
     <div className="merit-levels" role="radiogroup" aria-labelledby={`merit-name-${definition.key}`}
       onPointerLeave={() => onPreview(index, null)} onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget)) onPreview(index, null); }}
       onKeyDown={event => {
