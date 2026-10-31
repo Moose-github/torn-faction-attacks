@@ -1,10 +1,22 @@
 import { describe, expect, it } from "vitest";
 import { initialMeritState, meritCost, meritReducer, parseMeritImport } from "./meritsSimulator";
+import { MERIT_DEFINITIONS } from "./meritDefinitions";
 
 const catalog = { merits: [{ id: 7, name: "Bank Interest", description: "Interest" }, { id: 99, name: "New Upgrade", description: "A new bonus" }] };
 const user = { merits: { upgrades: [{ id: 99, level: 3 }, { id: 7, level: 10 }], used: 61, available: 9 } };
 
 describe("merit import", () => {
+  it("preserves the original display order and level associations when the API catalog is reversed", () => {
+    const entries = MERIT_DEFINITIONS.map((definition, index) => ({ id: index + 100, name: definition.name, level: index % 11 }));
+    const used = entries.reduce((sum, entry) => sum + meritCost(entry.level), 0) + 6;
+    const result = parseMeritImport({ merits: { upgrades: [...entries, { id: 999, level: 3 }], used, available: 20 } }, {
+      merits: [{ id: 999, name: "New Upgrade", description: "New bonus" }, ...entries.slice().reverse()],
+    });
+    expect(result.definitions.map(definition => definition.name)).toEqual([...MERIT_DEFINITIONS.map(definition => definition.name), "New Upgrade"]);
+    expect(result.levels).toEqual([...entries.map(entry => entry.level), 3]);
+    expect(result.used).toBe(used);
+    expect(result.budget).toBe(used + 20);
+  });
   it("maps IDs through the catalog regardless of order, retaining unfamiliar upgrades", () => {
     const result = parseMeritImport(user, catalog);
     expect(result.levels).toEqual([10, 3]);

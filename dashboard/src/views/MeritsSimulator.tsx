@@ -1,5 +1,5 @@
 import React from "react";
-import { Award, Download, RotateCcw, Undo2 } from "lucide-react";
+import { Award, Download, RotateCcw } from "lucide-react";
 import { PanelHeader } from "../components/Common";
 import { importMerits } from "../api/merits";
 import { initialMeritState, meritCost, meritEffect, meritReducer } from "../utils/meritsSimulator";
@@ -70,7 +70,7 @@ export function MeritsSimulator() {
   return <div className="merits-simulator">
     <section className="hero-panel compact-hero-panel">
       <div><p className="eyebrow">Miscellaneous · Calculator</p><h2>Merits simulator</h2>
-        <p>Simulate merit costs</p></div><Award size={22} aria-hidden="true" />
+        <p>Simulate merit costs</p></div><Award size={30} aria-hidden="true" />
     </section>
 
     <section className={`panel merit-import-panel${importExpanded ? "" : " is-collapsed"}`}>
@@ -96,6 +96,10 @@ export function MeritsSimulator() {
         onChange={event => { setPreview(null); dispatch({ type: "budget", budget: event.target.valueAsNumber }); }} /></label>
       <div><span>{preview ? "Preview allocation" : "Allocated"}</span><strong data-testid="merit-used">{projected}</strong></div>
       <div><span>{available < 0 ? "Over budget" : "Available"}</span><strong data-testid="merit-available">{Math.abs(available)}</strong></div>
+      <div className="merit-summary-actions">
+        <button type="button" className="panel-action-button secondary" disabled={loading || !changed} onClick={() => { dispatch({ type: "reset" }); setPreview(null); }}><RotateCcw size={12} />{plan.imported ? "Restore imported" : "Reset allocation"}</button>
+        <button type="button" className="panel-action-button secondary" disabled={loading || !plan.used} onClick={() => { dispatch({ type: "clear" }); setPreview(null); }}>Clear all</button>
+      </div>
     </section>
 
     <fieldset className="panel merit-planner-panel" disabled={loading}>
@@ -103,12 +107,6 @@ export function MeritsSimulator() {
       <div className="merit-list-heading" aria-hidden="true"><span>Upgrade / effect</span><span>Level · 0–10</span><span>Cost</span></div>
       {plan.definitions.map((definition, index) => <MeritRow key={definition.key} definition={definition} index={index} level={plan.levels[index]} baseline={plan.baseline[index]}
         preview={preview?.index === index ? preview.level : null} onSelect={selectLevel} onPreview={previewLevel} />)}
-      <div className="merit-bottom-bar">
-        <div className="merit-actions"><button type="button" className="panel-action-button secondary" disabled={!plan.history.length} onClick={() => { dispatch({ type: "undo" }); setPreview(null); }}><Undo2 size={14} />Undo</button>
-          <button type="button" className="panel-action-button secondary" disabled={!changed} onClick={() => { dispatch({ type: "reset" }); setPreview(null); }}><RotateCcw size={14} />{plan.imported ? "Restore imported" : "Reset allocation"}</button>
-          <button type="button" className="panel-action-button secondary" disabled={!plan.used} onClick={() => { dispatch({ type: "clear" }); setPreview(null); }}>Clear all</button></div>
-        <span>Level 10 costs 55 merits in total</span>
-      </div>
     </fieldset>
     <span className="merit-sr-only" role="status">Selected allocation: {plan.used} merits. {plan.budget - plan.used >= 0 ? `${plan.budget - plan.used} available` : `${plan.used - plan.budget} over budget`}.</span>
   </div>;

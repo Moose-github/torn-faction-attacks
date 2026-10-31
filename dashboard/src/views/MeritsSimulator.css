@@ -1,8 +1,5 @@
 .merits-simulator { display: grid; gap: 18px; min-width: 0; }
-.merits-simulator .hero-panel { margin: 0; padding: 12px 18px; }
-.merits-simulator .hero-panel h2 { font-size: 1.3rem; line-height: 1.2; }
-.merits-simulator .hero-panel p { margin-top: 4px; font-size: .76rem; }
-.merits-simulator .hero-panel .eyebrow { margin: 0 0 4px; font-size: .64rem; }
+.merits-simulator .hero-panel { margin: 0; }
 .merit-import-panel, .merit-planner-panel { padding: 18px; min-width: 0; }
 .merit-import-panel.is-collapsed { padding: 10px 18px; }
 .merit-import-panel.is-collapsed .panel-header { margin-bottom: 0; }
@@ -11,7 +8,7 @@
 .merit-import-form input, .merit-summary input { color: var(--text-main); border: 1px solid var(--border-solid); background: var(--panel-muted-bg); border-radius: var(--radius-sm); padding: 8px 10px; min-width: 0; }
 .merit-help, .merit-import-message { color: var(--text-muted); font-size: .76rem; line-height: 1.6; margin: 12px 0 0; }
 .merit-import-message:empty { display: none; }
-.merit-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px 24px; padding: 10px 18px; position: sticky; top: 10px; z-index: 3; background: var(--panel-bg-solid); }
+.merit-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)) 124px; gap: 6px 24px; align-items: center; padding: 10px 18px; position: sticky; top: 10px; z-index: 3; background: var(--panel-bg-solid); }
 .merit-summary > div, .merit-summary > label { display: grid; gap: 2px; align-content: start; min-width: 0; }
 .merit-summary span { color: var(--text-muted); font-size: .78rem; }
 .merit-summary strong, .merit-summary input { font-size: 1.5rem; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.2; }
@@ -19,7 +16,9 @@
 .merit-summary [data-testid="merit-available"] { color: var(--accent-strong); }
 .merit-summary.is-over-budget [data-testid="merit-available"] { color: #dc2626; }
 :root[data-theme="dark"] .merit-summary.is-over-budget [data-testid="merit-available"] { color: #fca5a5; }
-.merit-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.merit-summary > .merit-summary-actions { gap: 4px; }
+.merit-summary-actions .panel-action-button { justify-content: center; min-height: 24px; padding: 3px 6px; font-size: .66rem; line-height: 1.2; white-space: normal; }
+.merit-summary-actions svg { flex-shrink: 0; }
 .merit-list-heading, .merit-row { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(290px, .95fr) 90px; gap: 22px; align-items: center; }
 .merit-list-heading { text-transform: uppercase; letter-spacing: .07em; font-size: .64rem; color: var(--text-muted); padding: 0 10px 12px; }
 .merit-list-heading > :last-child { text-align: right; }
@@ -37,8 +36,6 @@
 .merit-row-cost { text-align: right; font-variant-numeric: tabular-nums; }
 .merit-row-cost strong { display: block; font-size: 1rem; line-height: 1.2; }
 .merit-row-cost span { display: block; font-size: .63rem; line-height: 1.2; color: var(--text-muted); margin-top: 0; }
-.merit-bottom-bar { display: flex; align-items: center; flex-wrap: wrap; justify-content: space-between; gap: 15px; padding-top: 18px; margin-top: 5px; border-top: 1px solid var(--border-soft); }
-.merit-bottom-bar > span { font-size: .7rem; color: var(--text-muted); }
 .merit-sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 @media (max-width: 1120px) {
   .merit-list-heading { display: none; }
@@ -49,7 +46,7 @@
 }
 @media (max-width: 480px) {
   .merit-import-panel, .merit-planner-panel { padding: 12px; }
-  .merit-summary { gap: 8px; padding: 8px 12px; }
+  .merit-summary { grid-template-columns: repeat(3, minmax(0, 1fr)) 90px; gap: 8px; padding: 8px 12px; }
   .merit-summary strong, .merit-summary input { font-size: 1.25rem; }
   .merit-summary span { font-size: .68rem; }
   .merit-levels { gap: 3px; }

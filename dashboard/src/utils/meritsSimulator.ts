@@ -54,14 +54,15 @@ export function parseMeritImport(userData: unknown, catalogData: unknown): Merit
     upgrades.set(item.id, item.level);
   }
   const rows = [...catalog].map(([id, item]) => {
-    const known = MERIT_DEFINITIONS.find(definition => normalize(definition.name) === normalize(item.name));
+    const originalIndex = MERIT_DEFINITIONS.findIndex(definition => normalize(definition.name) === normalize(item.name));
+    const known = MERIT_DEFINITIONS[originalIndex];
     const definition: MeritDefinition = known ? { ...known, key: String(id), name: item.name,
       description: known.multiplier === null ? item.description || known.description : known.description } : {
       key: String(id), name: item.name, description: item.description, group: "Other",
       multiplier: null, unit: "", multiplier2: null, unit2: "",
     };
-    return { definition, level: upgrades.get(id) ?? 0 };
-  });
+    return { definition, level: upgrades.get(id) ?? 0, order: originalIndex < 0 ? MERIT_DEFINITIONS.length : originalIndex, id };
+  }).sort((a, b) => a.order - b.order || a.id - b.id);
   const used = rows.reduce((total, row) => total + meritCost(row.level), 0);
   if (used !== userData.merits.used) throw new Error("Torn's upgrade levels and used-merit total do not match. Your current plan has been kept; try importing again.");
   const budget = used + userData.merits.available;
