@@ -131,6 +131,10 @@ const MeritRow = React.memo(function MeritRow({ definition, index, level, baseli
     <div><h3 id={`merit-name-${definition.key}`}>{definition.name}</h3><p>{meritEffect(definition, shown)}</p></div>
     <div className="merit-allocation"
       onPointerLeave={() => onPreview(index, null)} onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget)) onPreview(index, null); }}>
+    <button type="button" className="merit-reset" disabled={level === 0}
+      onPointerEnter={event => { if (level > 0 && (event.pointerType === "mouse" || event.pointerType === "pen")) onPreview(index, 0); }}
+      onFocus={() => onPreview(index, 0)} onKeyDown={event => { if (event.key === "Escape") onPreview(index, null); }}
+      onClick={() => { firstLevel.current?.focus({ preventScroll: true }); onSelect(index, 0); }}>×</button>
     <div className="merit-levels" role="radiogroup" aria-labelledby={`merit-name-${definition.key}`}
       onKeyDown={event => {
         const target = event.target as HTMLButtonElement;
@@ -148,10 +152,6 @@ const MeritRow = React.memo(function MeritRow({ definition, index, level, baseli
         onPointerEnter={event => { if (event.pointerType === "mouse" || event.pointerType === "pen") onPreview(index, value); }}
         onFocus={() => onPreview(index, value)} onClick={() => onSelect(index, value)}>{value}</button>)}
     </div>
-    <button type="button" className="merit-reset" disabled={level === 0}
-      onPointerEnter={event => { if (level > 0 && (event.pointerType === "mouse" || event.pointerType === "pen")) onPreview(index, 0); }}
-      onFocus={() => onPreview(index, 0)} onKeyDown={event => { if (event.key === "Escape") onPreview(index, null); }}
-      onClick={() => { firstLevel.current?.focus({ preventScroll: true }); onSelect(index, 0); }}>×</button>
     </div>
     <div className="merit-row-cost"><strong>{meritCost(shown)}</strong>{difference !== 0 ? <span>{difference > 0 ? "+" : ""}{difference} vs original</span> : null}</div>
   </div>;
