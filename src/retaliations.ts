@@ -23,9 +23,8 @@ const RETALIATION_BOARD_FALLBACK_REFRESH_SECONDS = 60;
 const RETALIATION_BOARD_LIGHT_SYNC_ATTEMPT_STATE = "retaliation_board_light_sync_attempt";
 const RETALIATION_BOARD_LIGHT_SYNC_SUCCESS_STATE = "retaliation_board_light_sync_success";
 const RETALIATION_BOARD_LIGHT_SYNC_COOLDOWN_SECONDS = 10;
-const RETALIATION_BOARD_AVAILABLE_COLOR = 0xed4245;
-const RETALIATION_BOARD_PENDING_COLOR = 0xffa500;
-const RETALIATION_BOARD_CONFIRMED_COLOR = 0x57f287;
+const RETALIATION_BOARD_AVAILABLE_COLOR = 0x3498db;
+const RETALIATION_BOARD_EXPIRED_COLOR = 0xed4245;
 const RETALIATION_BOARD_ALARM_NAME = "retaliation-board";
 
 export type RetaliationAttackRow = {
@@ -913,7 +912,10 @@ function retaliationOpportunityColumns(): string {
 export function renderRetaliationMessagePayload(row: RetaliationOpportunity): RetaliationBoardDiscordPayload {
   // Discord's relative timestamps count down on their own. Only status/data
   // changes need an edit, avoiding a PATCH for every ten-second poll.
-  return { content: "**Retaliation opportunity**", embeds: [retaliationBoardEmbed(row)] };
+  const title = row.status === "expired"
+    ? "Retaliation timed out"
+    : row.status === "available" ? "Retaliation opportunity" : "Retaliation Claimed";
+  return { content: `**${title}**`, embeds: [retaliationBoardEmbed(row)] };
 }
 
 export function getRetaliationBoardRefreshPlan(
@@ -998,12 +1000,12 @@ function retaliationBoardEmbed(row: RetaliationOpportunity): DiscordEmbed {
     description: `from ${faction}`,
     color: retaliationBoardEmbedColor(row),
     fields: [
-      { name: "Time", value: discordRelativeTime(attackAt), inline: true },
+      { name: "Time", value: attackAt ? `<t:${attackAt}:T>` : "Unknown", inline: true },
       { name: "Timeout", value: discordRelativeTime(row.expires_at), inline: true },
       { name: "Defender", value: defender, inline: true },
       { name: "Status", value: retaliationBoardStatus(row), inline: true },
       { name: "Respect", value: formatDiscordRespect(attack?.respect_gain ?? attack?.respect_loss ?? null), inline: true },
-      { name: "Log", value: log, inline: true },
+      { name: "Result", value: log, inline: true },
     ],
   };
 }
@@ -1016,9 +1018,7 @@ function discordFactionLink(factionId: number | null, factionName: string | null
 }
 
 function retaliationBoardEmbedColor(row: RetaliationOpportunity): number {
-  if (row.status === "claimed_pending") return RETALIATION_BOARD_PENDING_COLOR;
-  if (row.status === "claimed_confirmed") return RETALIATION_BOARD_CONFIRMED_COLOR;
-  if (row.status === "expired") return 0x95a5a6;
+  if (row.status === "expired") return RETALIATION_BOARD_EXPIRED_COLOR;
   return RETALIATION_BOARD_AVAILABLE_COLOR;
 }
 

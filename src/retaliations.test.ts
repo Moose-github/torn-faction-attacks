@@ -261,21 +261,24 @@ describe("retaliation availability", () => {
     );
 
     const payloads = [available, pending, confirmed].map(renderRetaliationMessagePayload);
-    expect(payloads.every(payload => payload.content === "**Retaliation opportunity**" && payload.embeds.length === 1)).toBe(true);
+    expect(payloads.map(payload => payload.content)).toEqual([
+      "**Retaliation opportunity**", "**Retaliation Claimed**", "**Retaliation Claimed**",
+    ]);
+    expect(payloads.every(payload => payload.embeds.length === 1)).toBe(true);
     expect(payloads.flatMap(payload => payload.embeds)).toEqual([
       expect.objectContaining({
         title: "nex [2054500] ⚔️",
         url: "https://www.torn.com/page.php?sid=attack&user2ID=2054500",
         description: "from [Vulpes Vulpes](https://www.torn.com/factions.php?step=profile&ID=1234)",
-        color: 0xed4245,
+        color: 0x3498db,
         fields: [
-          { name: "Time", value: "<t:1000:R>", inline: true },
+          { name: "Time", value: "<t:1000:T>", inline: true },
           { name: "Timeout", value: "<t:1300:R>", inline: true },
           { name: "Defender", value: "[Whiskas](https://www.torn.com/profiles.php?XID=123)", inline: true },
           { name: "Status", value: "Open", inline: true },
           { name: "Respect", value: "2.86", inline: true },
           {
-            name: "Log",
+            name: "Result",
             value: "[Hospitalized](https://www.torn.com/loader.php?sid=attackLog&ID=attack-log-1)",
             inline: true,
           },
@@ -283,14 +286,14 @@ describe("retaliation availability", () => {
       }),
       expect.objectContaining({
         title: "hhk556 [2814133] ⚔️",
-        color: 0xffa500,
+        color: 0x3498db,
         fields: expect.arrayContaining([
           { name: "Status", value: "Attack started by Attacker", inline: true },
         ]),
       }),
       expect.objectContaining({
         title: "done [333333] ⚔️",
-        color: 0x57f287,
+        color: 0x3498db,
         fields: expect.arrayContaining([
           { name: "Status", value: "Taken — retaliated by Finisher", inline: true },
         ]),
@@ -301,8 +304,8 @@ describe("retaliation availability", () => {
   it("renders the final timeout without a future update promise", () => {
     const expired = resolveRetaliationOpportunity(attackRow({ id: 1, attacker_id: 200, attack_at: 1000 }), null, null, 1300);
     const payload = renderRetaliationMessagePayload(expired);
-    expect(payload.content).not.toContain("Update");
-    expect(payload.embeds[0].color).toBe(0x95a5a6);
+    expect(payload.content).toBe("**Retaliation timed out**");
+    expect(payload.embeds[0].color).toBe(0xed4245);
     expect(payload.embeds[0].fields).toContainEqual({ name: "Status", value: "Timed out", inline: true });
   });
 

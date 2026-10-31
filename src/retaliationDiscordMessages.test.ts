@@ -82,10 +82,11 @@ describe("individual retaliation message lifecycle", () => {
     time(10); pending(); await sync();
     expect(editedStatus()).toBe("Attack started by Alice");
     expect(vi.mocked(editDiscordBotMessage).mock.calls[0]).toMatchObject({
-      1: "111111", 2: "message-retal:1", 3: "**Retaliation opportunity**", 4: { users: [], roles: [] },
+      1: "111111", 2: "message-retal:1", 3: "**Retaliation Claimed**", 4: { users: [], roles: [] },
     });
     time(41); await sync();
     expect(editedStatus(1)).toBe("Open");
+    expect(vi.mocked(editDiscordBotMessage).mock.calls[1][3]).toBe("**Retaliation opportunity**");
     time(42); taken(); await sync(); // Final status bypasses the edit cooldown.
     expect(editedStatus(2)).toBe("Taken — retaliated by Alice");
     expect(state(1)).toMatchObject({ finalized_at: now, discord_message_id: null, discord_channel_id: null, last_rendered_hash: null });
