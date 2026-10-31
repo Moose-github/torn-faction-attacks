@@ -7,10 +7,17 @@ import type { MeritDefinition } from "../utils/meritDefinitions";
 import "./MeritsSimulator.css";
 
 type Preview = { index: number; level: number } | null;
-const LEVELS = Array.from({ length: 11 }, (_, level) => level);
+const LEVELS = Array.from({ length: 10 }, (_, index) => index + 1);
+const GROUP_ORDER = ["General", "Combat", "Weapons"];
+const groupOrder = (group: string) => {
+  const order = GROUP_ORDER.indexOf(group);
+  return order < 0 ? GROUP_ORDER.length : order;
+};
 
 export function MeritsSimulator() {
   const [plan, dispatch] = React.useReducer(meritReducer, undefined, initialMeritState);
+  const rows = React.useMemo(() => plan.definitions.map((definition, index) => ({ definition, index }))
+    .sort((a, b) => groupOrder(a.definition.group) - groupOrder(b.definition.group)), [plan.definitions]);
   const [preview, setPreview] = React.useState<Preview>(null);
   const [apiKey, setApiKey] = React.useState("");
   const [loading, setLoading] = React.useState(false);
@@ -104,40 +111,47 @@ export function MeritsSimulator() {
 
     <fieldset className="panel merit-planner-panel" disabled={loading}>
       <legend className="merit-sr-only">Merit allocation</legend>
-      <div className="merit-list-heading" aria-hidden="true"><span>Upgrade / effect</span><span>Level · 0–10</span><span>Cost</span></div>
-      {plan.definitions.map((definition, index) => <MeritRow key={definition.key} definition={definition} index={index} level={plan.levels[index]} baseline={plan.baseline[index]}
+      <div className="merit-list-heading" aria-hidden="true"><span>Upgrade / effect</span><span>Level · 1–10</span><span>Cost</span></div>
+      {rows.map(({ definition, index }, rowIndex) => <MeritRow key={definition.key} definition={definition} index={index} level={plan.levels[index]} baseline={plan.baseline[index]}
+        sectionStart={rowIndex > 0 && definition.group !== rows[rowIndex - 1].definition.group}
         preview={preview?.index === index ? preview.level : null} onSelect={selectLevel} onPreview={previewLevel} />)}
     </fieldset>
     <span className="merit-sr-only" role="status">Selected allocation: {plan.used} merits. {plan.budget - plan.used >= 0 ? `${plan.budget - plan.used} available` : `${plan.used - plan.budget} over budget`}.</span>
   </div>;
 }
 
-const MeritRow = React.memo(function MeritRow({ definition, index, level, baseline, preview, onSelect, onPreview }: {
-  definition: MeritDefinition; index: number; level: number; baseline: number; preview: number | null;
+const MeritRow = React.memo(function MeritRow({ definition, index, level, baseline, sectionStart, preview, onSelect, onPreview }: {
+  definition: MeritDefinition; index: number; level: number; baseline: number; sectionStart: boolean; preview: number | null;
   onSelect: (index: number, level: number) => void; onPreview: (index: number, level: number | null) => void;
 }) {
+  const firstLevel = React.useRef<HTMLButtonElement>(null);
   const shown = preview ?? level;
   const difference = meritCost(shown) - meritCost(baseline);
-  const sectionStart = definition.name === "Brawn" || definition.name === "Heavy Artillery Mastery";
   return <div className={`merit-row${sectionStart ? " merit-section-start" : ""}${preview !== null ? " is-preview" : ""}`}>
     <div><h3 id={`merit-name-${definition.key}`}>{definition.name}</h3><p>{meritEffect(definition, shown)}</p></div>
+    <div className="merit-allocation"
+      onPointerLeave={() => onPreview(index, null)} onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget)) onPreview(index, null); }}>
     <div className="merit-levels" role="radiogroup" aria-labelledby={`merit-name-${definition.key}`}
-      onPointerLeave={() => onPreview(index, null)} onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget)) onPreview(index, null); }}
       onKeyDown={event => {
         const target = event.target as HTMLButtonElement;
         const current = Number(target.dataset.level);
-        const next = event.key === "Home" ? 0 : event.key === "End" ? 10 : event.key === "ArrowRight" || event.key === "ArrowDown" ? Math.min(10, current + 1)
-          : event.key === "ArrowLeft" || event.key === "ArrowUp" ? Math.max(0, current - 1) : null;
+        const next = event.key === "Home" ? 1 : event.key === "End" ? 10 : event.key === "ArrowRight" || event.key === "ArrowDown" ? Math.min(10, current + 1)
+          : event.key === "ArrowLeft" || event.key === "ArrowUp" ? Math.max(1, current - 1) : null;
         if (event.key === "Escape") { onPreview(index, null); return; }
         if (next === null || !Number.isInteger(current)) return;
         event.preventDefault();
-        (event.currentTarget.children[next] as HTMLButtonElement).focus();
+        (event.currentTarget.children[next - 1] as HTMLButtonElement).focus();
         onSelect(index, next);
       }}>
-      {LEVELS.map(value => <button key={value} type="button" role="radio" aria-checked={value === level} aria-label={`${definition.name}: level ${value}, ${meritCost(value)} merits`}
-        tabIndex={value === level ? 0 : -1} data-level={value} className={`${value > 0 && value <= shown ? "filled " : ""}${value === level ? "selected" : ""}`}
+      {LEVELS.map(value => <button key={value} ref={value === 1 ? firstLevel : undefined} type="button" role="radio" aria-checked={value === level} aria-label={`${definition.name}: level ${value}, ${meritCost(value)} merits`}
+        tabIndex={value === Math.max(1, level) ? 0 : -1} data-level={value} className={`${value <= shown ? "filled " : ""}${value === level ? "selected" : ""}`}
         onPointerEnter={event => { if (event.pointerType === "mouse" || event.pointerType === "pen") onPreview(index, value); }}
         onFocus={() => onPreview(index, value)} onClick={() => onSelect(index, value)}>{value}</button>)}
+    </div>
+    <button type="button" className="merit-reset" disabled={level === 0}
+      onPointerEnter={event => { if (level > 0 && (event.pointerType === "mouse" || event.pointerType === "pen")) onPreview(index, 0); }}
+      onFocus={() => onPreview(index, 0)} onKeyDown={event => { if (event.key === "Escape") onPreview(index, null); }}
+      onClick={() => { firstLevel.current?.focus({ preventScroll: true }); onSelect(index, 0); }}>×</button>
     </div>
     <div className="merit-row-cost"><strong>{meritCost(shown)}</strong>{difference !== 0 ? <span>{difference > 0 ? "+" : ""}{difference} vs original</span> : null}</div>
   </div>;

@@ -41,21 +41,22 @@ describe("merit import", () => {
 });
 
 describe("merit allocation", () => {
-  it("charges incremental levels and restores the baseline through undo and reset", () => {
+  it("charges incremental levels, clears allocations and restores the imported baseline", () => {
     let state = meritReducer(initialMeritState(), { type: "import", snapshot: parseMeritImport(user, catalog) });
     state = meritReducer(state, { type: "level", index: 1, level: 5 });
     expect(state.used).toBe(70);
     expect(state.baseline).toEqual([10, 3]);
     state = meritReducer(state, { type: "level", index: 0, level: 0 });
     expect(state.used).toBe(15);
-    state = meritReducer(state, { type: "undo" });
-    expect(state.used).toBe(70);
     state = meritReducer(state, { type: "reset" });
     expect(state.used).toBe(61);
     expect(state.levels).toEqual([10, 3]);
     state = meritReducer(state, { type: "clear" });
     expect(state.used).toBe(0);
-    expect(meritReducer(state, { type: "undo" }).used).toBe(61);
+    expect(state.levels).toEqual([0, 0]);
+    state = meritReducer(state, { type: "reset" });
+    expect(state.used).toBe(61);
+    expect(state.levels).toEqual([10, 3]);
   });
   it("allows visible over-budget planning, rejects bad inputs and keeps rapid edits consistent", () => {
     let state = initialMeritState();
@@ -64,7 +65,6 @@ describe("merit allocation", () => {
       expect(state.used).toBe(state.levels.reduce((sum, level) => sum + meritCost(level), 0));
     }
     expect(state.used).toBeGreaterThan(state.budget);
-    expect(state.history.length).toBeLessThanOrEqual(100);
     expect(meritReducer(state, { type: "level", index: -1, level: 10 })).toBe(state);
     expect(meritReducer(state, { type: "level", index: 0, level: 11 })).toBe(state);
     expect(meritReducer(state, { type: "budget", budget: NaN })).toBe(state);

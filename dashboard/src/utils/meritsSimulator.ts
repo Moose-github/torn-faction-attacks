@@ -3,29 +3,28 @@ import { MERIT_DEFINITIONS, type MeritDefinition } from "./meritDefinitions";
 export const meritCost = (level: number): number => level * (level + 1) / 2;
 export const validMeritLevel = (value: unknown): value is number => Number.isInteger(value) && Number(value) >= 0 && Number(value) <= 10;
 export type MeritSnapshot = { definitions: MeritDefinition[]; levels: number[]; budget: number; used: number };
-export type MeritState = MeritSnapshot & { baseline: number[]; history: number[][]; imported: boolean };
+export type MeritState = MeritSnapshot & { baseline: number[]; imported: boolean };
 export type MeritAction = { type: "level"; index: number; level: number } | { type: "budget"; budget: number }
-  | { type: "import"; snapshot: MeritSnapshot } | { type: "undo" | "reset" | "clear" };
+  | { type: "import"; snapshot: MeritSnapshot } | { type: "reset" | "clear" };
 
 export function initialMeritState(): MeritState {
   const levels = MERIT_DEFINITIONS.map(() => 0);
-  return { definitions: MERIT_DEFINITIONS, levels, baseline: levels, budget: 0, used: 0, history: [], imported: false };
+  return { definitions: MERIT_DEFINITIONS, levels, baseline: levels, budget: 0, used: 0, imported: false };
 }
 
 export function meritReducer(state: MeritState, action: MeritAction): MeritState {
-  if (action.type === "import") return { ...action.snapshot, baseline: [...action.snapshot.levels], history: [], imported: true };
+  if (action.type === "import") return { ...action.snapshot, baseline: [...action.snapshot.levels], imported: true };
   if (action.type === "budget") return Number.isSafeInteger(action.budget) && action.budget >= 0 && action.budget <= 99999
     ? { ...state, budget: action.budget } : state;
   if (action.type === "level") {
     if (!Number.isInteger(action.index) || state.levels[action.index] === undefined || !validMeritLevel(action.level) || state.levels[action.index] === action.level) return state;
     const levels = [...state.levels];
     levels[action.index] = action.level;
-    return { ...state, levels, used: state.used + meritCost(action.level) - meritCost(state.levels[action.index]), history: [...state.history.slice(-99), state.levels] };
+    return { ...state, levels, used: state.used + meritCost(action.level) - meritCost(state.levels[action.index]) };
   }
-  const levels = action.type === "undo" ? state.history[state.history.length - 1] : action.type === "reset" ? state.baseline : state.levels.map(() => 0);
-  if (!levels || levels.every((level, index) => level === state.levels[index])) return state;
-  return { ...state, levels: [...levels], used: levels.reduce((total, level) => total + meritCost(level), 0),
-    history: action.type === "undo" ? state.history.slice(0, -1) : [...state.history.slice(-99), state.levels] };
+  const levels = action.type === "reset" ? state.baseline : state.levels.map(() => 0);
+  if (levels.every((level, index) => level === state.levels[index])) return state;
+  return { ...state, levels: [...levels], used: levels.reduce((total, level) => total + meritCost(level), 0) };
 }
 
 function record(value: unknown): value is Record<string, unknown> { return value !== null && typeof value === "object" && !Array.isArray(value); }
