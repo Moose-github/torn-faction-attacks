@@ -19,6 +19,7 @@
 .merit-list-heading { text-transform: uppercase; letter-spacing: .07em; font-size: .64rem; color: var(--text-muted); padding: 0 10px 12px; }
 .merit-list-heading > :last-child { text-align: right; }
 .merit-row { border-top: 1px solid var(--border-soft); padding: 9px 10px; }
+.merit-row.merit-section-start { border-top: 3px solid var(--border-solid); }
 .merit-row.is-preview { background: var(--panel-hover-bg); }
 .merit-row h3 { font-size: .84rem; color: var(--text-main); margin: 0; }
 .merit-row h3 small { display: block; color: var(--text-muted); font-size: .66rem; font-weight: 400; margin-top: 2px; }

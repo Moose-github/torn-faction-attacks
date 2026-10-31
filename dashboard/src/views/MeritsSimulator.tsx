@@ -109,7 +109,8 @@ const MeritRow = React.memo(function MeritRow({ definition, index, level, baseli
 }) {
   const shown = preview ?? level;
   const difference = meritCost(shown) - meritCost(baseline);
-  return <div className={`merit-row${preview !== null ? " is-preview" : ""}`}>
+  const sectionStart = definition.name === "Brawn" || definition.name === "Heavy Artillery Mastery";
+  return <div className={`merit-row${sectionStart ? " merit-section-start" : ""}${preview !== null ? " is-preview" : ""}`}>
     <div><h3 id={`merit-name-${definition.key}`}>{definition.name}<small>Original {baseline} → {shown}</small></h3><p>{meritEffect(definition, shown)}</p></div>
     <div className="merit-levels" role="radiogroup" aria-labelledby={`merit-name-${definition.key}`}
       onPointerLeave={() => onPreview(index, null)} onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget)) onPreview(index, null); }}
