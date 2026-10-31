@@ -64,7 +64,7 @@ export function MeritsSimulator() {
   return <div className="merits-simulator">
     <section className="hero-panel compact-hero-panel">
       <div><p className="eyebrow">Miscellaneous · Calculator</p><h2>Merits simulator</h2>
-        <p>Try a new allocation and see what it costs. Every change here is a simulation.</p></div><Award size={30} aria-hidden="true" />
+        <p>Simulate merit costs</p></div><Award size={30} aria-hidden="true" />
     </section>
 
     <section className="panel merit-import-panel">
