@@ -13,6 +13,7 @@ import type { Env } from "../src/types";
 import { memberRespectAveragesSql, respectAverageSql } from "../src/warStats/respectCounters";
 import { buildHistoricalImportStatement, buildLiveInsertStatement } from "../src/ingestion";
 import { auditRecentEventAttackLinks } from "../src/eventTracking";
+import { EVENT_ATTACK_MATCH_SQL } from "../src/sql";
 import type { TornAttack } from "../src/types";
 
 // External collection is covered separately; these tests exercise the real SQL,
@@ -88,11 +89,13 @@ function expectRespectCountersMatchRaw() {
   });
   expect(db.prepare("SELECT COUNT(*) AS count FROM war_respect_totals WHERE hit_count < 0 OR (hit_count = 0 AND respect_sum != 0)").get()?.count).toBe(0);
 }
-// attacks.event_id must always agree with the tracker_attacks view's event branch.
+// attacks.event_id must always agree with the event windows, and no attack may be
+// owned by an event through war_id, or tracker_attacks would list it twice.
 function expectEventIdsMatchTracker() {
   expect(db.prepare("SELECT id, event_id FROM attacks WHERE event_id IS NOT NULL ORDER BY id").all())
-    .toEqual(db.prepare(`SELECT a.id, a.war_id AS event_id FROM tracker_attacks a
-      JOIN wars w ON w.id = a.war_id WHERE w.war_type = 'event' ORDER BY a.id`).all());
+    .toEqual(db.prepare(`SELECT a.id, w.id AS event_id FROM attacks a JOIN wars w ON ${EVENT_ATTACK_MATCH_SQL}
+      ORDER BY a.id`).all());
+  expect(db.prepare("SELECT id FROM attacks WHERE war_id IN (SELECT id FROM wars WHERE war_type = 'event')").all()).toEqual([]);
 }
 function attack(id: number, at: number, owner: number | null = 1) {
   db.prepare(`INSERT INTO attacks (id, war_id, started, ended, attacker_id, attacker_name,
@@ -236,11 +239,11 @@ describe("independent event tracking", () => {
     expect(db.prepare("SELECT attacks_vs_enemy_total FROM war_summary WHERE war_id = ?").get(eventId)?.attacks_vs_enemy_total).toBe(3);
   });
 
-  it("processes late lower-ID attacks even after the war consumed its pending flag", async () => {
+  it("processes late lower-ID attacks even after the war applied its queue", async () => {
     const eventId = await create();
     attack(100, START + 300);
     await applyIncrementalWarSummaries(env, 1);
-    expect(db.prepare("SELECT stats_pending FROM attacks WHERE id = 100").get()?.stats_pending).toBe(0);
+    expect(db.prepare("SELECT COUNT(*) AS count FROM war_stats_dirty WHERE war_id = 1").get()?.count).toBe(0);
     await refreshEventTracking(env);
     attack(4, START + 50);
     await refreshEventTracking(env);
@@ -500,6 +503,8 @@ describe("independent event tracking", () => {
     attack(4, START + 1100);
     db.exec(readFileSync(new URL("../migrations/0191_war_respect_totals.sql", import.meta.url), "utf8"));
     expectRespectCountersMatchRaw();
+    // 0198 replaced 0191's contributions view; window edits rely on its event matching.
+    db.exec(readFileSync(new URL("../migrations/0198_tracker_attacks_by_event_id.sql", import.meta.url), "utf8"));
     db.prepare("UPDATE wars SET practical_start_time = ?, practical_finish_time = ? WHERE id = ?")
       .run(START + 1000, START + 1800, eventId);
     expectRespectCountersMatchRaw();
@@ -686,9 +691,12 @@ describe("attack event ids", () => {
 
   it("audits recent links and reports any that disagree with the event windows", async () => {
     await create();
-    await expect(auditRecentEventAttackLinks(env)).resolves.toMatchObject({ details: { checked: 3, mismatched: 0 } });
+    await expect(auditRecentEventAttackLinks(env)).resolves.toMatchObject({ details: { checked: 3, mismatched: 0, eventOwned: 0 } });
     db.exec("UPDATE attacks SET event_id = NULL WHERE id = 2");
     await expect(auditRecentEventAttackLinks(env)).rejects.toThrow("1 of 3 recent attacks have the wrong event_id");
     db.exec("UPDATE attacks SET event_id = (SELECT id FROM wars WHERE war_type = 'event') WHERE id = 2");
+    db.exec("UPDATE attacks SET war_id = (SELECT id FROM wars WHERE war_type = 'event') WHERE id = 3");
+    await expect(auditRecentEventAttackLinks(env)).rejects.toThrow("1 attacks are owned by an event through war_id");
+    db.exec("UPDATE attacks SET war_id = NULL WHERE id = 3");
   });
 });

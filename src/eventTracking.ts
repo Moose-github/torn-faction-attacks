@@ -46,16 +46,23 @@ export async function refreshEventTracking(env: Env, now = nowSeconds()): Promis
   }
 }
 
-/** Fails, surfacing in maintenance health, when a recent attack's event_id disagrees with the event windows. */
+/**
+ * Fails, surfacing in maintenance health, when a recent attack's event_id disagrees
+ * with the event windows, or when any attack is owned by an event through war_id,
+ * which tracker_attacks would then list twice.
+ */
 export async function auditRecentEventAttackLinks(env: Env, now = nowSeconds()) {
   const row = await env.DB.prepare(`SELECT COUNT(*) AS checked,
       COALESCE(SUM(a.event_id IS NOT (SELECT w.id FROM wars w WHERE ${EVENT_ATTACK_MATCH_SQL}
-        ORDER BY w.id LIMIT 1)), 0) AS mismatched
+        ORDER BY w.id LIMIT 1)), 0) AS mismatched,
+      (SELECT COUNT(*) FROM attacks WHERE war_id IN (SELECT id FROM wars WHERE war_type = 'event')) AS event_owned
     FROM attacks a INDEXED BY idx_attacks_started
     WHERE a.started >= ?`).bind(now - EVENT_LINK_AUDIT_SECONDS)
-    .first<{ checked: number; mismatched: number }>();
+    .first<{ checked: number; mismatched: number; event_owned: number }>();
   const checked = Number(row?.checked ?? 0);
   const mismatched = Number(row?.mismatched ?? 0);
+  const eventOwned = Number(row?.event_owned ?? 0);
   if (mismatched > 0) throw new Error(`${mismatched} of ${checked} recent attacks have the wrong event_id`);
-  return { writeStatements: 0, changedRows: 0, details: { checked, mismatched } };
+  if (eventOwned > 0) throw new Error(`${eventOwned} attacks are owned by an event through war_id`);
+  return { writeStatements: 0, changedRows: 0, details: { checked, mismatched, eventOwned } };
 }

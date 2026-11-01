@@ -193,7 +193,6 @@ describe("durable war corrections", () => {
     expect(plans).toContainEqual(expect.stringMatching(/idx_attacks_war_attacker_started \(war_id=\? AND attacker_id=\? AND started>\? AND started<\?\)/));
     expect(plans).toContainEqual(expect.stringMatching(/idx_attacks_war_defender_started \(war_id=\? AND defender_id=\? AND started>\? AND started<\?\)/));
     expect(plans).toContainEqual(expect.stringContaining("idx_attacks_war_bonus"));
-    expect(plans).toContainEqual(expect.stringContaining("idx_attacks_pending_stats"));
     await matchesRaw();
   });
 

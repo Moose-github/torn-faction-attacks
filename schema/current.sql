@@ -2426,7 +2426,9 @@ CREATE TABLE IF NOT EXISTS ranked_research_analyses (
   created_at INTEGER NOT NULL
 );
 
--- Event membership is a time-window projection, independent of war ownership.
+-- Wars own attacks through war_id and events through event_id, so an attack can
+-- appear under its war and its event. No attack is owned by an event through
+-- war_id (the event link audit checks this), so neither branch looks up wars.
 CREATE VIEW tracker_attacks AS
 SELECT a.id, a.war_id, a.code, a.started, a.ended,
   a.attacker_id, a.attacker_name, a.attacker_level, a.attacker_faction_id, a.attacker_faction_name,
@@ -2436,22 +2438,16 @@ SELECT a.id, a.war_id, a.code, a.started, a.ended,
   a.m_retaliation, a.m_group, a.m_overseas, a.m_chain, a.m_warlord,
   a.fetched_at, a.ingest_run_id, a.stats_pending
 FROM attacks a
-WHERE a.war_id IS NULL OR NOT EXISTS (
-  SELECT 1 FROM wars w WHERE w.id = a.war_id AND w.war_type = 'event'
-)
 UNION ALL
-SELECT a.id, w.id AS war_id, a.code, a.started, a.ended,
+SELECT a.id, a.event_id AS war_id, a.code, a.started, a.ended,
   a.attacker_id, a.attacker_name, a.attacker_level, a.attacker_faction_id, a.attacker_faction_name,
   a.defender_id, a.defender_name, a.defender_level, a.defender_faction_id, a.defender_faction_name,
-  a.result, a.respect_gain, a.respect_loss, a.chain,
-  a.is_interrupted, a.is_stealthed, a.is_raid, a.is_ranked_war,
-  a.m_fair_fight, a.m_war, a.m_retaliation, a.m_group, a.m_overseas, a.m_chain, a.m_warlord,
+  a.result, a.respect_gain, a.respect_loss, a.chain, a.is_interrupted,
+  a.is_stealthed, a.is_raid, a.is_ranked_war, a.m_fair_fight, a.m_war,
+  a.m_retaliation, a.m_group, a.m_overseas, a.m_chain, a.m_warlord,
   a.fetched_at, a.ingest_run_id, a.stats_pending
-FROM wars w JOIN attacks a
-  ON a.started >= w.practical_start_time
-  AND (w.practical_finish_time IS NULL OR COALESCE(a.ended, a.started) <= w.practical_finish_time)
-WHERE w.war_type = 'event'
-  AND (a.attacker_faction_id = 8803 OR a.defender_faction_id = 8803);
+FROM attacks a
+WHERE a.event_id IS NOT NULL;
 CREATE TABLE event_chain_history (
   war_id INTEGER NOT NULL REFERENCES wars(id) ON DELETE CASCADE,
   sampled_at INTEGER NOT NULL,
@@ -2472,10 +2468,22 @@ CREATE TABLE war_respect_totals (
 );
 
 -- Used only for initialization and boundary/phase edits, never routine averages.
+-- Events match attacks by window rather than event_id: these recomputes fire on
+-- the same wars change as the triggers that move event_id, in no fixed order.
 CREATE VIEW war_respect_contributions AS
   SELECT w.id AS war_id, 'outgoing' AS direction, COALESCE(a.attacker_id, 0) AS attacker_id,
     a.respect_gain AS respect_sum, 1 AS hit_count
-  FROM tracker_attacks a JOIN wars w ON w.id = a.war_id
+  FROM (
+    SELECT a.war_id, a.started, a.ended, a.attacker_id, a.attacker_faction_id, a.defender_id,
+      a.defender_faction_id, a.result, a.respect_gain, a.chain, a.is_ranked_war
+    FROM attacks a WHERE a.war_id IS NOT NULL
+    UNION ALL
+    SELECT ew.id, a.started, a.ended, a.attacker_id, a.attacker_faction_id, a.defender_id,
+      a.defender_faction_id, a.result, a.respect_gain, a.chain, a.is_ranked_war
+    FROM wars ew JOIN attacks a ON a.started >= ew.practical_start_time
+      AND (ew.practical_finish_time IS NULL OR COALESCE(a.ended, a.started) <= ew.practical_finish_time)
+    WHERE ew.war_type = 'event' AND (a.attacker_faction_id = 8803 OR a.defender_faction_id = 8803)
+  ) a JOIN wars w ON w.id = a.war_id
   WHERE (
       (COALESCE(w.war_type, 'real') != 'termed' AND (
         a.started IS NULL OR (a.started >= w.practical_start_time
@@ -2499,7 +2507,17 @@ CREATE VIEW war_respect_contributions AS
   UNION ALL
   SELECT w.id AS war_id, 'incoming' AS direction, COALESCE(a.attacker_id, 0) AS attacker_id,
     a.respect_gain AS respect_sum, 1 AS hit_count
-  FROM tracker_attacks a JOIN wars w ON w.id = a.war_id
+  FROM (
+    SELECT a.war_id, a.started, a.ended, a.attacker_id, a.attacker_faction_id, a.defender_id,
+      a.defender_faction_id, a.result, a.respect_gain, a.chain, a.is_ranked_war
+    FROM attacks a WHERE a.war_id IS NOT NULL
+    UNION ALL
+    SELECT ew.id, a.started, a.ended, a.attacker_id, a.attacker_faction_id, a.defender_id,
+      a.defender_faction_id, a.result, a.respect_gain, a.chain, a.is_ranked_war
+    FROM wars ew JOIN attacks a ON a.started >= ew.practical_start_time
+      AND (ew.practical_finish_time IS NULL OR COALESCE(a.ended, a.started) <= ew.practical_finish_time)
+    WHERE ew.war_type = 'event' AND (a.attacker_faction_id = 8803 OR a.defender_faction_id = 8803)
+  ) a JOIN wars w ON w.id = a.war_id
   WHERE (
       (COALESCE(w.war_type, 'real') != 'termed' AND (
         a.started IS NULL OR (a.started >= w.practical_start_time

@@ -123,9 +123,9 @@ export const RELEVANT_DEFEND_SQL = `
 `;
 
 // An attack belongs to an event when it involves the home faction inside the
-// event window, as in the tracker_attacks view. Events never overlap each other
-// (readTrackerOverlap), so attacks.event_id holds at most one event. Migration
-// 0196's triggers repeat this rule.
+// event window. Events never overlap each other (readTrackerOverlap), so
+// attacks.event_id holds at most one event. Migration 0196's triggers repeat
+// this rule, and tracker_attacks lists event attacks by that event_id.
 export const EVENT_ATTACK_MATCH_SQL = `
   w.war_type = 'event'
   AND a.started >= w.practical_start_time

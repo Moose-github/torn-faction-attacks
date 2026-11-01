@@ -309,8 +309,8 @@ describe("practical phase database and lifecycle", () => {
     expect(db.prepare("SELECT attacks_vs_enemy_total, total_respect_gain_raw FROM war_summary WHERE war_id=1").get())
       .toEqual({ attacks_vs_enemy_total: 2, total_respect_gain_raw: 1000 });
     expect(db.prepare("SELECT SUM(attacks_successful) AS n FROM war_member_combat_buckets WHERE war_id=1").get()!.n).toBe(2);
-    expect(db.prepare("SELECT ingest_run_id, stats_pending FROM attacks WHERE id=2").get())
-      .toEqual({ ingest_run_id: "in-flight", stats_pending: 0 });
+    expect(db.prepare("SELECT ingest_run_id FROM attacks WHERE id=2").get()).toEqual({ ingest_run_id: "in-flight" });
+    expect(db.prepare("SELECT COUNT(*) AS n FROM war_stats_dirty WHERE war_id=1").get()!.n).toBe(0);
   });
 
   it("does not consume later pages of the same ingestion run during a rebuild", async () => {
@@ -321,7 +321,7 @@ describe("practical phase database and lifecycle", () => {
     await applyIncrementalWarSummaries(env, 1);
     await applyIncrementalWarSummaries(env, 1);
     expect(db.prepare("SELECT attacks_vs_enemy_total FROM war_member_stats WHERE war_id=1").get()!.attacks_vs_enemy_total).toBe(2);
-    expect(db.prepare("SELECT COUNT(*) AS n FROM attacks WHERE stats_pending=1").get()!.n).toBe(0);
+    expect(db.prepare("SELECT COUNT(*) AS n FROM war_stats_dirty WHERE war_id=1").get()!.n).toBe(0);
   });
 
   it("keeps queued attacks when a full rebuild holds the lease", async () => {
@@ -346,7 +346,7 @@ describe("practical phase database and lifecycle", () => {
       : rebuildWarStatsFromRaw(env, { scope: "single-war", warId: 1 });
     await expect(apply()).rejects.toThrow("simulated failure");
     expect(db.prepare("SELECT attacks_vs_enemy_total FROM war_member_stats WHERE war_id=1").get()!.attacks_vs_enemy_total).toBe(1);
-    expect(db.prepare("SELECT stats_pending FROM attacks WHERE id=2").get()!.stats_pending).toBe(1);
+    expect(db.prepare("SELECT COUNT(*) AS n FROM war_stats_dirty WHERE war_id=1").get()!.n).toBeGreaterThan(0);
     db.exec("DROP TRIGGER fail_review_stats");
     await apply();
     await applyIncrementalWarSummaries(env, 1);
@@ -362,7 +362,7 @@ describe("practical phase database and lifecycle", () => {
     await refreshPendingWarSummaries(env);
     expect((await practicalPhaseSummary(env, 1)).practical_rebuild_pending).toBe(0);
     expect(db.prepare("SELECT attacks_vs_enemy_total FROM war_member_stats WHERE war_id=1").get()!.attacks_vs_enemy_total).toBe(1);
-    expect(db.prepare("SELECT stats_pending FROM attacks WHERE id=1").get()!.stats_pending).toBe(0);
+    expect(db.prepare("SELECT COUNT(*) AS n FROM war_stats_dirty WHERE war_id=1").get()!.n).toBe(0);
   });
 
   it("reopens immediately using the requested timestamp and can start a pending phase now", async () => {

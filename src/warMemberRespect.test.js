@@ -123,6 +123,8 @@ describe("individual member respect recalculation", () => {
     db.attack({ respect_gain: 90, ended: 2001 });
     db.attack({ attacker_id: 31, attacker_faction_id: 123, defender_id: 10, defender_faction_id: 8803, respect_gain: 5 });
     db.attack({ attacker_id: 31, attacker_faction_id: 123, defender_id: 10, defender_faction_id: 8803, respect_gain: 99, started: 999 });
+    // Events own attacks through event_id; initializeIndependentEvents clears war_id.
+    db.sqlite.exec("UPDATE attacks SET war_id = NULL");
     expect(await recalculateWarMemberRespectFromRaw(db.env, 7, 10)).toMatchObject({
       respect_gained: 7, respect_lost: 5,
     });
@@ -669,7 +671,7 @@ function database() {
   }
   sqlite.exec(schema.match(/CREATE VIEW tracker_attacks AS[\s\S]*?;/)[0]);
   sqlite.exec(schema.match(/CREATE VIEW war_respect_contributions AS[\s\S]*?;/)[0]);
-  for (const [trigger] of schema.matchAll(/CREATE TRIGGER (?:war_respect_|war_stats_)[\s\S]*?\nEND;/g)) sqlite.exec(trigger);
+  for (const [trigger] of schema.matchAll(/CREATE TRIGGER (?:war_respect_|war_stats_|attack_event_id_)[\s\S]*?\nEND;/g)) sqlite.exec(trigger);
   sqlite.exec(`INSERT INTO wars (id, name, status, practical_start_time, practical_finish_time, enemy_faction_id, war_type, member_respect_limit)
     VALUES (7, 'Test War', 'active', 1000, 2000, 99, 'real', 100), (8, 'Other War', 'ended', 1000, 2000, 99, 'real', NULL)`);
 

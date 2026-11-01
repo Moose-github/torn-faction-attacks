@@ -322,7 +322,6 @@ export async function rebuildWarMemberStatsFromRaw(env: Env, warId: number): Pro
     warMemberDefendStatsStatement(env, warId),
     warMemberCombatBucketsStatement(env, warId),
     warSummaryFromMemberStatsStatement(env, warId),
-    env.DB.prepare("UPDATE attacks INDEXED BY idx_attacks_pending_stats SET stats_pending = 0 WHERE war_id = ? AND stats_pending = 1").bind(warId),
     env.DB.prepare("DELETE FROM war_stats_dirty WHERE war_id = ?").bind(warId),
     env.DB.prepare("DELETE FROM war_respect_changes WHERE war_id = ?").bind(warId),
   ]);
@@ -353,9 +352,6 @@ async function applyPendingSummaries(env: Env, warId: number): Promise<boolean> 
       warMemberCombatBucketsStatement(env, warId, owner),
       deleteObsoletePendingBucketsStatement(env, warId),
       warSummaryFromMemberStatsStatement(env, warId),
-      ...(owner === "war_id" ? [env.DB.prepare(
-        "UPDATE attacks INDEXED BY idx_attacks_pending_stats SET stats_pending = 0 WHERE war_id = ? AND stats_pending = 1",
-      ).bind(warId)] : []),
       env.DB.prepare("DELETE FROM war_respect_changes WHERE war_id = ?").bind(warId),
       env.DB.prepare("DELETE FROM war_stats_dirty WHERE war_id = ?").bind(warId),
     ]);
