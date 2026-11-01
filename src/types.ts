@@ -10,6 +10,8 @@ export interface Env {
   DISCORD_GUILD_ID?: string;
   DISCORD_BOT_TOKEN?: string;
   DISCORD_PUBLIC_KEY?: string;
+  BILLING_ALERT_WEBHOOK_SECRET?: string;
+  BILLING_ALERT_DISCORD_USER_ID?: string;
   DASHBOARD_BASE_URL?: string;
   MONITOR_TICKET_SECRET?: string | SecretsStoreSecret;
 }

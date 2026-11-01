@@ -4,7 +4,8 @@
   "name": "torn-faction-attacks",
   "upload_source_maps": true,
   "vars": {
-    "DISCORD_GUILD_ID": "833065345023606805"
+    "DISCORD_GUILD_ID": "833065345023606805",
+    "BILLING_ALERT_DISCORD_USER_ID": "327916221330620436"
   },
   "triggers": {
     "crons": ["* * * * *"]

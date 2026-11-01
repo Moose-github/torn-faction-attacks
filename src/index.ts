@@ -1,4 +1,5 @@
 import { buildCronPlan } from "./cronPlan";
+import { handleBillingAlert } from "./billingAlert";
 export { ChainWatchAlarm } from "./chainWatchAlarm";
 export { ChainWatchSessions } from "./chainWatchSessions";
 export { RetaliationBoardAlarm } from "./retaliationBoardAlarm";
@@ -19,6 +20,10 @@ export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
     const routeContext = { request, env, ctx, url };
+
+    if (url.pathname === "/billing-alert") {
+      return handleBillingAlert(request, env);
+    }
 
     if (request.method === "OPTIONS") {
       return new Response(null, {
