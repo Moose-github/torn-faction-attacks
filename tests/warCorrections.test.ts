@@ -201,6 +201,8 @@ describe("durable war corrections", () => {
     attack(); await refreshPendingWarSummaries(env);
     for (const row of db.prepare("SELECT name FROM sqlite_schema WHERE type='trigger' AND name LIKE 'war_stats_%'").all()) db.exec(`DROP TRIGGER ${row.name}`);
     db.exec("DROP TABLE war_stats_dirty; DROP INDEX idx_attacks_war_bonus; DROP INDEX idx_attacks_pending_stats; UPDATE war_member_stats SET respect_gained=999 WHERE war_id=1");
+    // 0192 ran while 0190's event queue existed; 0197 later merged it into war_stats_dirty.
+    db.exec("CREATE TABLE event_stats_dirty (war_id INTEGER NOT NULL, member_id INTEGER NOT NULL, bucket_start INTEGER NOT NULL, PRIMARY KEY (war_id, member_id, bucket_start))");
     const raw = db.prepare("SELECT * FROM attacks").all();
     db.exec(readFileSync(new URL("../migrations/0192_war_stats_corrections.sql", import.meta.url), "utf8"));
     expect(db.prepare("SELECT * FROM attacks").all()).toEqual(raw);

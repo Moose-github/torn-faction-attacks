@@ -2460,100 +2460,6 @@ CREATE TABLE event_chain_history (
   recorded_at INTEGER NOT NULL,
   PRIMARY KEY (war_id, sampled_at)
 );
--- Independent event work queues survive retries and do not consume war stats_pending.
-CREATE TABLE event_stats_dirty (
-  war_id INTEGER NOT NULL REFERENCES wars(id) ON DELETE CASCADE,
-  member_id INTEGER NOT NULL,
-  bucket_start INTEGER NOT NULL,
-  PRIMARY KEY (war_id, member_id, bucket_start)
-);
-
-CREATE TRIGGER event_stats_attack_insert AFTER INSERT ON attacks
-BEGIN
-  INSERT INTO event_stats_dirty (war_id, member_id, bucket_start)
-  SELECT w.id, NEW.attacker_id, CAST(NEW.started / 900 AS INTEGER) * 900
-  FROM wars w
-  WHERE w.war_type = 'event' AND w.status IN ('scheduled', 'active', 'ended')
-    AND NEW.started >= w.practical_start_time
-    AND (w.practical_finish_time IS NULL OR COALESCE(NEW.ended, NEW.started) <= w.practical_finish_time)
-    AND NEW.attacker_faction_id = 8803 AND NEW.attacker_id IS NOT NULL
-  UNION
-  SELECT w.id, NEW.defender_id, CAST(NEW.started / 900 AS INTEGER) * 900
-  FROM wars w
-  WHERE w.war_type = 'event' AND w.status IN ('scheduled', 'active', 'ended')
-    AND NEW.started >= w.practical_start_time
-    AND (w.practical_finish_time IS NULL OR COALESCE(NEW.ended, NEW.started) <= w.practical_finish_time)
-    AND NEW.defender_faction_id = 8803 AND NEW.defender_id IS NOT NULL
-  ON CONFLICT(war_id, member_id, bucket_start) DO NOTHING;
-END;
-
-
-CREATE TRIGGER event_stats_attack_update AFTER UPDATE OF started, ended, attacker_id, attacker_name, attacker_faction_id, defender_id, defender_name, defender_faction_id, result, respect_gain, chain, m_fair_fight, m_retaliation, is_ranked_war ON attacks
-WHEN OLD.started IS NOT NEW.started
-  OR OLD.ended IS NOT NEW.ended
-  OR OLD.attacker_id IS NOT NEW.attacker_id
-  OR OLD.attacker_name IS NOT NEW.attacker_name
-  OR OLD.attacker_faction_id IS NOT NEW.attacker_faction_id
-  OR OLD.defender_id IS NOT NEW.defender_id
-  OR OLD.defender_name IS NOT NEW.defender_name
-  OR OLD.defender_faction_id IS NOT NEW.defender_faction_id
-  OR OLD.result IS NOT NEW.result
-  OR OLD.respect_gain IS NOT NEW.respect_gain
-  OR OLD.chain IS NOT NEW.chain
-  OR OLD.m_fair_fight IS NOT NEW.m_fair_fight
-  OR OLD.m_retaliation IS NOT NEW.m_retaliation
-  OR OLD.is_ranked_war IS NOT NEW.is_ranked_war
-BEGIN
-  INSERT INTO event_stats_dirty (war_id, member_id, bucket_start)
-  SELECT w.id, OLD.attacker_id, CAST(OLD.started / 900 AS INTEGER) * 900
-  FROM wars w
-  WHERE w.war_type = 'event' AND w.status IN ('scheduled', 'active', 'ended')
-    AND OLD.started >= w.practical_start_time
-    AND (w.practical_finish_time IS NULL OR COALESCE(OLD.ended, OLD.started) <= w.practical_finish_time)
-    AND OLD.attacker_faction_id = 8803 AND OLD.attacker_id IS NOT NULL
-  UNION
-  SELECT w.id, OLD.defender_id, CAST(OLD.started / 900 AS INTEGER) * 900
-  FROM wars w
-  WHERE w.war_type = 'event' AND w.status IN ('scheduled', 'active', 'ended')
-    AND OLD.started >= w.practical_start_time
-    AND (w.practical_finish_time IS NULL OR COALESCE(OLD.ended, OLD.started) <= w.practical_finish_time)
-    AND OLD.defender_faction_id = 8803 AND OLD.defender_id IS NOT NULL
-  UNION
-  SELECT w.id, NEW.attacker_id, CAST(NEW.started / 900 AS INTEGER) * 900
-  FROM wars w
-  WHERE w.war_type = 'event' AND w.status IN ('scheduled', 'active', 'ended')
-    AND NEW.started >= w.practical_start_time
-    AND (w.practical_finish_time IS NULL OR COALESCE(NEW.ended, NEW.started) <= w.practical_finish_time)
-    AND NEW.attacker_faction_id = 8803 AND NEW.attacker_id IS NOT NULL
-  UNION
-  SELECT w.id, NEW.defender_id, CAST(NEW.started / 900 AS INTEGER) * 900
-  FROM wars w
-  WHERE w.war_type = 'event' AND w.status IN ('scheduled', 'active', 'ended')
-    AND NEW.started >= w.practical_start_time
-    AND (w.practical_finish_time IS NULL OR COALESCE(NEW.ended, NEW.started) <= w.practical_finish_time)
-    AND NEW.defender_faction_id = 8803 AND NEW.defender_id IS NOT NULL
-  ON CONFLICT(war_id, member_id, bucket_start) DO NOTHING;
-END;
-
-CREATE TRIGGER event_stats_attack_delete AFTER DELETE ON attacks
-BEGIN
-  INSERT INTO event_stats_dirty (war_id, member_id, bucket_start)
-  SELECT w.id, OLD.attacker_id, CAST(OLD.started / 900 AS INTEGER) * 900
-  FROM wars w
-  WHERE w.war_type = 'event' AND w.status IN ('scheduled', 'active', 'ended')
-    AND OLD.started >= w.practical_start_time
-    AND (w.practical_finish_time IS NULL OR COALESCE(OLD.ended, OLD.started) <= w.practical_finish_time)
-    AND OLD.attacker_faction_id = 8803 AND OLD.attacker_id IS NOT NULL
-  UNION
-  SELECT w.id, OLD.defender_id, CAST(OLD.started / 900 AS INTEGER) * 900
-  FROM wars w
-  WHERE w.war_type = 'event' AND w.status IN ('scheduled', 'active', 'ended')
-    AND OLD.started >= w.practical_start_time
-    AND (w.practical_finish_time IS NULL OR COALESCE(OLD.ended, OLD.started) <= w.practical_finish_time)
-    AND OLD.defender_faction_id = 8803 AND OLD.defender_id IS NOT NULL
-  ON CONFLICT(war_id, member_id, bucket_start) DO NOTHING;
-END;
-
 -- Exact non-bonus sums/counts for events, normal wars and termed practical phases.
 -- Counts match AVG: missing respect is excluded; unknown attackers use key 0.
 CREATE TABLE war_respect_totals (
@@ -2953,12 +2859,14 @@ BEGIN
   INSERT INTO war_stats_dirty (war_id, member_id, bucket_start)
   SELECT w.id, COALESCE(NEW.attacker_id, 0), COALESCE(CAST(NEW.started / 900 AS INTEGER) * 900, -1)
   FROM wars w
-  WHERE w.id = NEW.war_id AND COALESCE(w.war_type, 'real') != 'event'
+  WHERE w.id IN (NEW.war_id, NEW.event_id)
+    AND (w.id IS NEW.event_id OR COALESCE(w.war_type, 'real') != 'event')
     AND NEW.attacker_faction_id = 8803
   UNION
   SELECT w.id, COALESCE(NEW.defender_id, 0), COALESCE(CAST(NEW.started / 900 AS INTEGER) * 900, -1)
   FROM wars w
-  WHERE w.id = NEW.war_id AND COALESCE(w.war_type, 'real') != 'event'
+  WHERE w.id IN (NEW.war_id, NEW.event_id)
+    AND (w.id IS NEW.event_id OR COALESCE(w.war_type, 'real') != 'event')
     AND NEW.defender_faction_id = 8803
   ON CONFLICT(war_id, member_id, bucket_start) DO NOTHING;
 END;
@@ -3003,17 +2911,53 @@ BEGIN
   ON CONFLICT(war_id, member_id, bucket_start) DO NOTHING;
 END;
 
+-- Wars keep their own update trigger, so a war_id change does not requeue the
+-- event and an event_id change does not requeue the war.
+CREATE TRIGGER war_stats_attack_event_update AFTER UPDATE OF event_id, started, ended, attacker_id, attacker_name, attacker_faction_id, defender_id, defender_name, defender_faction_id, result, respect_gain, chain, m_fair_fight, m_retaliation, is_ranked_war ON attacks
+WHEN OLD.event_id IS NOT NEW.event_id
+  OR OLD.started IS NOT NEW.started
+  OR OLD.ended IS NOT NEW.ended
+  OR OLD.attacker_id IS NOT NEW.attacker_id
+  OR OLD.attacker_name IS NOT NEW.attacker_name
+  OR OLD.attacker_faction_id IS NOT NEW.attacker_faction_id
+  OR OLD.defender_id IS NOT NEW.defender_id
+  OR OLD.defender_name IS NOT NEW.defender_name
+  OR OLD.defender_faction_id IS NOT NEW.defender_faction_id
+  OR OLD.result IS NOT NEW.result
+  OR OLD.respect_gain IS NOT NEW.respect_gain
+  OR OLD.chain IS NOT NEW.chain
+  OR OLD.m_fair_fight IS NOT NEW.m_fair_fight
+  OR OLD.m_retaliation IS NOT NEW.m_retaliation
+  OR OLD.is_ranked_war IS NOT NEW.is_ranked_war
+BEGIN
+  INSERT INTO war_stats_dirty (war_id, member_id, bucket_start)
+  SELECT w.id, COALESCE(OLD.attacker_id, 0), COALESCE(CAST(OLD.started / 900 AS INTEGER) * 900, -1)
+  FROM wars w WHERE w.id = OLD.event_id AND OLD.attacker_faction_id = 8803
+  UNION
+  SELECT w.id, COALESCE(OLD.defender_id, 0), COALESCE(CAST(OLD.started / 900 AS INTEGER) * 900, -1)
+  FROM wars w WHERE w.id = OLD.event_id AND OLD.defender_faction_id = 8803
+  UNION
+  SELECT w.id, COALESCE(NEW.attacker_id, 0), COALESCE(CAST(NEW.started / 900 AS INTEGER) * 900, -1)
+  FROM wars w WHERE w.id = NEW.event_id AND NEW.attacker_faction_id = 8803
+  UNION
+  SELECT w.id, COALESCE(NEW.defender_id, 0), COALESCE(CAST(NEW.started / 900 AS INTEGER) * 900, -1)
+  FROM wars w WHERE w.id = NEW.event_id AND NEW.defender_faction_id = 8803
+  ON CONFLICT(war_id, member_id, bucket_start) DO NOTHING;
+END;
+
 CREATE TRIGGER war_stats_attack_delete AFTER DELETE ON attacks
 BEGIN
   INSERT INTO war_stats_dirty (war_id, member_id, bucket_start)
   SELECT w.id, COALESCE(OLD.attacker_id, 0), COALESCE(CAST(OLD.started / 900 AS INTEGER) * 900, -1)
   FROM wars w
-  WHERE w.id = OLD.war_id AND COALESCE(w.war_type, 'real') != 'event'
+  WHERE w.id IN (OLD.war_id, OLD.event_id)
+    AND (w.id IS OLD.event_id OR COALESCE(w.war_type, 'real') != 'event')
     AND OLD.attacker_faction_id = 8803
   UNION
   SELECT w.id, COALESCE(OLD.defender_id, 0), COALESCE(CAST(OLD.started / 900 AS INTEGER) * 900, -1)
   FROM wars w
-  WHERE w.id = OLD.war_id AND COALESCE(w.war_type, 'real') != 'event'
+  WHERE w.id IN (OLD.war_id, OLD.event_id)
+    AND (w.id IS OLD.event_id OR COALESCE(w.war_type, 'real') != 'event')
     AND OLD.defender_faction_id = 8803
   ON CONFLICT(war_id, member_id, bucket_start) DO NOTHING;
 END;
@@ -3027,13 +2971,8 @@ WHEN OLD.war_type IS NOT NEW.war_type
     OR OLD.practical_finish_time IS NOT NEW.practical_finish_time))
 BEGIN
   INSERT INTO war_stats_dirty (war_id, member_id, bucket_start)
-  SELECT id, -1, -1 FROM wars WHERE id IN (NEW.id) AND COALESCE(war_type, 'real') != 'event'
+  VALUES (NEW.id, -1, -1)
   ON CONFLICT(war_id, member_id, bucket_start) DO NOTHING;
-  INSERT INTO event_stats_dirty (war_id, member_id, bucket_start)
-  SELECT id, -1, -1 FROM wars WHERE id = NEW.id AND war_type = 'event'
-  ON CONFLICT(war_id, member_id, bucket_start) DO NOTHING;
-  DELETE FROM war_stats_dirty WHERE war_id = NEW.id AND NEW.war_type = 'event';
-  DELETE FROM event_stats_dirty WHERE war_id = NEW.id AND COALESCE(NEW.war_type, 'real') != 'event';
 END;
 
 CREATE TRIGGER war_stats_phase_insert AFTER INSERT ON war_practical_phases
@@ -3069,7 +3008,7 @@ END;
 CREATE TRIGGER war_stats_unknown_event_insert AFTER INSERT ON war_respect_totals
 WHEN NEW.direction = 'outgoing' AND NEW.attacker_id = 0
 BEGIN
-  INSERT INTO event_stats_dirty (war_id, member_id, bucket_start)
+  INSERT INTO war_stats_dirty (war_id, member_id, bucket_start)
   SELECT id, 0, -1 FROM wars WHERE id = NEW.war_id AND war_type = 'event'
   ON CONFLICT(war_id, member_id, bucket_start) DO NOTHING;
 END;
@@ -3077,7 +3016,7 @@ END;
 CREATE TRIGGER war_stats_unknown_event_update AFTER UPDATE ON war_respect_totals
 WHEN NEW.direction = 'outgoing' AND NEW.attacker_id = 0
 BEGIN
-  INSERT INTO event_stats_dirty (war_id, member_id, bucket_start)
+  INSERT INTO war_stats_dirty (war_id, member_id, bucket_start)
   SELECT id, 0, -1 FROM wars WHERE id = NEW.war_id AND war_type = 'event'
   ON CONFLICT(war_id, member_id, bucket_start) DO NOTHING;
 END;
@@ -3085,7 +3024,7 @@ END;
 CREATE TRIGGER war_stats_unknown_event_delete AFTER DELETE ON war_respect_totals
 WHEN OLD.direction = 'outgoing' AND OLD.attacker_id = 0
 BEGIN
-  INSERT INTO event_stats_dirty (war_id, member_id, bucket_start)
+  INSERT INTO war_stats_dirty (war_id, member_id, bucket_start)
   SELECT id, 0, -1 FROM wars WHERE id = OLD.war_id AND war_type = 'event'
   ON CONFLICT(war_id, member_id, bucket_start) DO NOTHING;
 END;
@@ -3128,16 +3067,6 @@ BEGIN
   WHERE EXISTS (SELECT 1 FROM wars WHERE id = OLD.war_id)
   ON CONFLICT(war_id, direction, attacker_id) DO NOTHING;
 END;
-
--- Events do not own attacks by war_id. Queued event summaries read a member's
--- attacks inside the event window instead of scanning every home attack in it.
-CREATE INDEX idx_attacks_attacker_started ON attacks (attacker_id, started);
-CREATE INDEX idx_attacks_defender_started ON attacks (defender_id, started);
-
--- Only bonus hits enter this index; events find theirs by time, not war_id.
-CREATE INDEX idx_attacks_bonus_started ON attacks (started)
-WHERE result IN ('Hospitalized','Mugged','Attacked','Arrested')
-  AND chain IN (10,25,50,100,250,500,1000,2500,5000,10000,25000,50000,100000);
 
 -- Events select attacks by window instead of owning them through war_id. Store
 -- that membership on the attack, like war_id, so an attack can belong to a war
@@ -3228,3 +3157,9 @@ WHEN OLD.war_type = 'event'
 BEGIN
   UPDATE attacks SET event_id = NULL WHERE event_id = OLD.id;
 END;
+
+-- Only event bonus hits enter this index, like idx_attacks_war_bonus for wars.
+CREATE INDEX idx_attacks_event_bonus ON attacks (event_id, started)
+WHERE event_id IS NOT NULL
+  AND result IN ('Hospitalized','Mugged','Attacked','Arrested')
+  AND chain IN (10,25,50,100,250,500,1000,2500,5000,10000,25000,50000,100000);

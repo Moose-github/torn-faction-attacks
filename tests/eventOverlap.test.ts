@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createManualEvent, updateEvent, deleteWar } from "../src/wars";
 import { initializeIndependentEvents, refreshEventTracking } from "../src/eventTracking";
 import { finishEventTracking } from "../src/warLifecycle";
-import { rebuildWarStatsFromRaw, applyIncrementalWarSummaries, applyIncrementalEventSummaries } from "../src/warStats";
+import { rebuildWarStatsFromRaw, applyIncrementalWarSummaries, applyIncrementalEventSummaries, refreshPendingWarSummaries } from "../src/warStats";
 import { getWarAttacks, getWarMemberAttacks, getOverallStats } from "../src/warQueries";
 import { exportWarAttacksCsv } from "../src/warExports";
 import { relinkWarAttacks } from "../src/warRelink";
@@ -27,6 +27,7 @@ function statement(sql: string, values: SQLInputValue[] = []) {
   const runSync = () => ({ success: true, meta: { changes: Number(db.prepare(sql).run(...values).changes) } });
   return {
     sql,
+    values,
     bind: (...args: SQLInputValue[]) => statement(sql, args),
     first: async () => db.prepare(sql).get(...values) ?? null,
     all: async () => ({ results: db.prepare(sql).all(...values) }),
@@ -206,7 +207,7 @@ describe("independent event tracking", () => {
     await Promise.all([refreshEventTracking(env), refreshEventTracking(env)]);
     expect(db.prepare("SELECT COUNT(*) AS count FROM bucket_delete_audit").get()?.count).toBe(0);
     expect(db.prepare("SELECT attacks_vs_enemy_total FROM war_summary WHERE war_id = ?").get(eventId)?.attacks_vs_enemy_total).toBe(3);
-    expect(db.prepare("SELECT COUNT(*) AS count FROM event_stats_dirty").get()?.count).toBe(0);
+    expect(db.prepare("SELECT COUNT(*) AS count FROM war_stats_dirty WHERE war_id = ?").get(eventId)?.count).toBe(0);
   });
 
   it("rolls back partial updates and retains queued work for a retry", async () => {
@@ -216,7 +217,7 @@ describe("independent event tracking", () => {
       BEGIN SELECT RAISE(ABORT, 'simulated rebuild failure'); END;`);
     await expect(refreshEventTracking(env)).rejects.toThrow("simulated rebuild failure");
     expect(db.prepare("SELECT attacks_vs_enemy_total FROM war_summary WHERE war_id = ?").get(eventId)?.attacks_vs_enemy_total).toBe(2);
-    expect(db.prepare("SELECT COUNT(*) AS count FROM event_stats_dirty").get()?.count).toBeGreaterThan(0);
+    expect(db.prepare("SELECT COUNT(*) AS count FROM war_stats_dirty WHERE war_id = ?").get(eventId)?.count).toBeGreaterThan(0);
     db.exec("DROP TRIGGER fail_rebuild");
     await refreshEventTracking(env);
     expect(db.prepare("SELECT attacks_vs_enemy_total FROM war_summary WHERE war_id = ?").get(eventId)?.attacks_vs_enemy_total).toBe(3);
@@ -308,7 +309,7 @@ describe("independent event tracking", () => {
     db.exec("UPDATE attacks SET stats_pending = 0, ingest_run_id = 'another-run', war_id = NULL WHERE id = 2;");
     db.exec("UPDATE attacks SET result = result, ended = ended WHERE id = 3;");
     db.exec("INSERT INTO attacks (id) VALUES (3) ON CONFLICT(id) DO NOTHING;");
-    expect(db.prepare("SELECT COUNT(*) AS count FROM event_stats_dirty").get()?.count).toBe(0);
+    expect(db.prepare("SELECT COUNT(*) AS count FROM war_stats_dirty WHERE war_id = ?").get(eventId)?.count).toBe(0);
     const writes = db.prepare("SELECT total_changes() AS count").get()?.count;
     expect(await applyIncrementalEventSummaries(env, eventId)).toBe(false);
     expect(db.prepare("SELECT total_changes() AS count").get()?.count).toBe(writes);
@@ -326,7 +327,7 @@ describe("independent event tracking", () => {
     }) as typeof env.DB.batch;
     await applyIncrementalEventSummaries(env, eventId);
     expect(db.prepare("SELECT attacks_vs_enemy_total FROM war_summary WHERE war_id = ?").get(eventId)?.attacks_vs_enemy_total).toBe(3);
-    expect(db.prepare("SELECT COUNT(*) AS count FROM event_stats_dirty").get()?.count).toBeGreaterThan(0);
+    expect(db.prepare("SELECT COUNT(*) AS count FROM war_stats_dirty WHERE war_id = ?").get(eventId)?.count).toBeGreaterThan(0);
     env.DB.batch = batch;
     await applyIncrementalEventSummaries(env, eventId);
     expect(db.prepare("SELECT attacks_vs_enemy_total FROM war_summary WHERE war_id = ?").get(eventId)?.attacks_vs_enemy_total).toBe(4);
@@ -343,16 +344,54 @@ describe("independent event tracking", () => {
     await expectMatchesFullRebuild(eventId);
   });
 
-  it("seeds pending work when migrating an existing live event", async () => {
+  it("carries pending event work into the shared queue when migrating", async () => {
     const eventId = await create();
-    for (const row of db.prepare("SELECT name FROM sqlite_schema WHERE type='trigger' AND name LIKE 'war_stats_%'").all()) {
-      db.exec(`DROP TRIGGER ${row.name}`);
-    }
-    db.exec("DROP TRIGGER event_stats_attack_insert; DROP TRIGGER event_stats_attack_update; DROP TRIGGER event_stats_attack_delete; DROP TABLE event_stats_dirty;");
-    attack(4, START + 300);
+    await refreshEventTracking(env);
+    // Rebuild the pre-0197 schema: the event queue (seeded by 0190) and the 0195 indexes.
+    db.exec("DROP INDEX idx_attacks_event_bonus; DROP TRIGGER war_stats_attack_event_update");
+    db.exec(readFileSync(new URL("../migrations/0195_event_attack_lookup_indexes.sql", import.meta.url), "utf8"));
     db.exec(readFileSync(new URL("../migrations/0190_incremental_event_stats.sql", import.meta.url), "utf8"));
+    attack(4, START + 300);
+    db.exec("DELETE FROM war_stats_dirty");
+    expect(db.prepare("SELECT COUNT(*) AS count FROM event_stats_dirty WHERE war_id = ?").get(eventId)?.count).toBeGreaterThan(0);
+    db.exec(readFileSync(new URL("../migrations/0197_merge_event_stats_queue.sql", import.meta.url), "utf8"));
+    expect(db.prepare("SELECT COUNT(*) AS count FROM war_stats_dirty WHERE war_id = ?").get(eventId)?.count).toBeGreaterThan(0);
     await refreshEventTracking(env);
     expect(db.prepare("SELECT attacks_vs_enemy_total FROM war_summary WHERE war_id = ?").get(eventId)?.attacks_vs_enemy_total).toBe(3);
+    await expectMatchesFullRebuild(eventId);
+  });
+
+  it("queues an attack for its war and its event and applies both from the shared queue", async () => {
+    const eventId = await create();
+    await refreshEventTracking(env);
+    await applyIncrementalWarSummaries(env, 1);
+    attack(4, START + 300);
+    expect(db.prepare("SELECT war_id, member_id FROM war_stats_dirty ORDER BY war_id, member_id").all())
+      .toEqual([{ war_id: 1, member_id: 10 }, { war_id: eventId, member_id: 10 }]);
+    await refreshPendingWarSummaries(env);
+    expect(db.prepare("SELECT COUNT(*) AS count FROM war_stats_dirty").get()?.count).toBe(0);
+    expect(db.prepare("SELECT war_id, attacks_vs_enemy_total FROM war_summary ORDER BY war_id").all())
+      .toEqual([{ war_id: 1, attacks_vs_enemy_total: 3 }, { war_id: eventId, attacks_vs_enemy_total: 3 }]);
+    await expectMatchesFullRebuild(eventId);
+    await expectMatchesFullRebuild(1);
+  });
+
+  it("reads queued event attacks through the event_id indexes", async () => {
+    const eventId = await create();
+    db.exec("UPDATE attacks SET chain = 10 WHERE id = 2");
+    await refreshEventTracking(env);
+    db.exec("UPDATE attacks SET respect_gain = 8 WHERE id = 3");
+    const plans: string[] = [];
+    const batch = env.DB.batch.bind(env.DB);
+    env.DB.batch = (async (items: ReturnType<typeof statement>[]) => {
+      for (const { sql, values } of items) plans.push(...db.prepare(`EXPLAIN QUERY PLAN ${sql}`).all(...values).map(row => String(row.detail)));
+      return batch(items as unknown as D1PreparedStatement[]);
+    }) as typeof env.DB.batch;
+    expect(await applyIncrementalEventSummaries(env, eventId)).toBe(true);
+    expect(plans).toContainEqual(expect.stringMatching(/idx_attacks_event_attacker_started \(event_id=\? AND attacker_id=\? AND started>\? AND started<\?\)/));
+    expect(plans).toContainEqual(expect.stringMatching(/idx_attacks_event_defender_started \(event_id=\? AND defender_id=\? AND started>\? AND started<\?\)/));
+    expect(plans).toContainEqual(expect.stringContaining("idx_attacks_event_bonus (event_id=?)"));
+    expect(plans.filter(plan => /^SCAN (a|x)/.test(plan))).toEqual([]);
     await expectMatchesFullRebuild(eventId);
   });
 
@@ -370,7 +409,7 @@ describe("independent event tracking", () => {
       ["DELETE FROM attacks WHERE id=5", 5],
     ] as const) {
       db.exec(sql);
-      expect(db.prepare("SELECT * FROM event_stats_dirty WHERE war_id=? AND member_id=0").all(eventId)).toHaveLength(1);
+      expect(db.prepare("SELECT * FROM war_stats_dirty WHERE war_id=? AND member_id=0 AND bucket_start=-1").all(eventId)).toHaveLength(1);
       await refreshEventTracking(env);
       expect(db.prepare("SELECT respect_gained FROM war_member_stats WHERE war_id=? AND member_id=11").get(eventId)?.respect_gained).toBe(expected);
       await expectMatchesFullRebuild(eventId);

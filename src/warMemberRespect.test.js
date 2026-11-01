@@ -661,7 +661,7 @@ function database() {
   const sqlite = new DatabaseSync(":memory:");
   sqlite.exec("PRAGMA foreign_keys = ON");
   const schema = readFileSync(new URL("../schema/current.sql", import.meta.url), "utf8").replaceAll("\r\n", "\n");
-  for (const table of ["wars", "war_practical_phases", "attacks", "sync_state", "war_member_stats", "war_summary", "war_member_combat_buckets", "event_stats_dirty", "war_stats_dirty", "war_respect_totals", "war_respect_changes", "home_faction_members", "discord_member_links"]) {
+  for (const table of ["wars", "war_practical_phases", "attacks", "sync_state", "war_member_stats", "war_summary", "war_member_combat_buckets", "war_stats_dirty", "war_respect_totals", "war_respect_changes", "home_faction_members", "discord_member_links"]) {
     sqlite.exec(schema.match(new RegExp(`CREATE TABLE ${table} \\([\\s\\S]*?\\n\\);`))[0]);
   }
   for (const index of ["idx_attacks_war_bonus", "idx_attacks_pending_stats"]) {

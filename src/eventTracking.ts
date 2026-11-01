@@ -29,7 +29,7 @@ export async function refreshEventTracking(env: Env, now = nowSeconds()): Promis
   const events = await env.DB.prepare(`SELECT id, status, practical_finish_time FROM wars
     WHERE war_type = 'event' AND practical_start_time <= ?
       AND (status IN ('scheduled', 'active') OR (status = 'ended'
-        AND EXISTS (SELECT 1 FROM event_stats_dirty WHERE war_id = wars.id)))
+        AND EXISTS (SELECT 1 FROM war_stats_dirty WHERE war_id = wars.id)))
     ORDER BY practical_start_time, id`).bind(now)
     .all<{ id: number; status: string; practical_finish_time: number | null }>();
   for (const event of events.results ?? []) {
