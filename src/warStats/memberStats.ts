@@ -14,6 +14,7 @@ const MEMBER_ACTIVITY_BUCKET_SECONDS = 15 * 60;
 const WAR_STATS_REBUILD_LEASE_SECONDS = 15 * 60;
 const WAR_STATS_REBUILD_LEASE_PREFIX = "war_stats_rebuild";
 const PRACTICAL_DEFENSE_ACTION_WINDOW_SQL = OUTGOING_ACTION_WINDOW_SQL;
+const COMBAT_BUCKET_STATS = ["attacks_successful", "assists_vs_enemy", "outside_hits", "defends_lost", "defends_won", "defends_other", "respect_gained", "respect_lost"];
 
 export type WarStatsRebuildScope = "single-war" | "open-wars" | "all-wars";
 
@@ -112,7 +113,7 @@ async function rebuildOpenWarStatsFromRaw(
   throwOnLeaseConflict: boolean,
   excludeEvents: boolean,
 ): Promise<WarStatsRebuildResult> {
-  // Event cron rebuilds have their own hourly claim in refreshEventTracking.
+  // Events use their own incremental queue; only explicit repairs rebuild them.
   const rows = await env.DB.prepare(
     `
     SELECT id
@@ -397,7 +398,52 @@ export async function rebuildWarMemberStatsFromRaw(env: Env, warId: number): Pro
     warMemberCombatBucketsStatement(env, warId),
     warSummaryFromMemberStatsStatement(env, warId),
     env.DB.prepare("UPDATE attacks SET stats_pending = 0 WHERE war_id = ? AND stats_pending = 1").bind(warId),
+    env.DB.prepare("DELETE FROM event_stats_dirty WHERE war_id = ?").bind(warId),
   ]);
+}
+
+/** Recompute only pending event members/buckets, independently of war ownership. */
+export async function applyIncrementalEventSummaries(env: Env, warId: number): Promise<boolean> {
+  if (!await env.DB.prepare("SELECT 1 FROM event_stats_dirty WHERE war_id = ? LIMIT 1").bind(warId).first()) return false;
+  const lease = await claimWarStatsRebuildLease(env, warId);
+  if (!lease) return false;
+  try {
+    // Queue reads, exact replacements and acknowledgement share one transaction.
+    // A late/corrected/deleted attack is therefore either included or stays queued.
+    const results = await env.DB.batch([
+      env.DB.prepare(`INSERT INTO event_stats_dirty (war_id, member_id, bucket_start)
+        SELECT a.war_id, a.attacker_id, CAST(a.started / ${MEMBER_ACTIVITY_BUCKET_SECONDS} AS INTEGER) * ${MEMBER_ACTIVITY_BUCKET_SECONDS}
+        FROM tracker_attacks a WHERE a.war_id = ? AND a.attacker_faction_id = ${HOME_FACTION_ID}
+          AND a.attacker_id IS NOT NULL AND a.started IS NOT NULL
+          AND a.result IN (${POSITIVE_RESULTS_SQL}) AND a.chain IN (${CHAIN_BONUS_HITS_SQL})
+          AND EXISTS (SELECT 1 FROM event_stats_dirty WHERE war_id = a.war_id)
+        UNION
+        SELECT a.war_id, a.defender_id, CAST(a.started / ${MEMBER_ACTIVITY_BUCKET_SECONDS} AS INTEGER) * ${MEMBER_ACTIVITY_BUCKET_SECONDS}
+        FROM tracker_attacks a WHERE a.war_id = ? AND a.defender_faction_id = ${HOME_FACTION_ID}
+          AND a.defender_id IS NOT NULL AND a.started IS NOT NULL
+          AND a.result IN (${POSITIVE_RESULTS_SQL}) AND a.chain IN (${CHAIN_BONUS_HITS_SQL})
+          AND EXISTS (SELECT 1 FROM event_stats_dirty WHERE war_id = a.war_id)
+        ON CONFLICT(war_id, member_id, bucket_start) DO NOTHING`).bind(warId, warId),
+      // New non-bonus hits can change earlier bonus valuations, including members
+      // using the event-wide fallback average. Only those historical buckets join
+      // the newly affected buckets above; unrelated history is never rewritten.
+      ...resetDerivedWarMemberStatsStatements(env, warId, true),
+      warMemberAttackStatsStatement(env, warId, true),
+      warMemberDefendStatsStatement(env, warId, true),
+      warMemberCombatBucketsStatement(env, warId, true),
+      deleteObsoleteEventBucketsStatement(env, warId),
+      warSummaryFromMemberStatsStatement(env, warId),
+      env.DB.prepare("DELETE FROM event_stats_dirty WHERE war_id = ?").bind(warId),
+    ]);
+    return d1Changes(results[results.length - 1]) > 0;
+  } finally {
+    await releaseWarStatsRebuildLease(env, lease);
+  }
+}
+
+function pendingEventMemberSql(member: string, war = "a.war_id", bucket?: string): string {
+  return `EXISTS (SELECT 1 FROM event_stats_dirty d WHERE d.war_id = ${war}
+    AND d.member_id = ${member}${bucket ? ` AND d.bucket_start = ${bucket}` : ""})`;
 }
 
 async function refreshWarChainBonusAdjustmentsFromRaw(env: Env, warId: number): Promise<number> {
@@ -719,8 +765,9 @@ function warDefendRespectStatement(
     .bind(memberId ?? warId, warId, warId, warId);
 }
 
-function resetDerivedWarMemberStatsStatements(env: Env, warId?: number): D1PreparedStatement[] {
-  const whereClause = warId === undefined ? "" : "WHERE war_id = ?";
+function resetDerivedWarMemberStatsStatements(env: Env, warId?: number, onlyPendingEvent = false): D1PreparedStatement[] {
+  const whereClause = (warId === undefined ? "" : "WHERE war_id = ?") + (onlyPendingEvent
+    ? ` AND ${pendingEventMemberSql("war_member_stats.member_id", "war_member_stats.war_id")}` : "");
   const bindValue = warId === undefined ? [] : [warId];
 
   const resetStatement = env.DB.prepare(
@@ -773,6 +820,7 @@ function resetDerivedWarMemberStatsStatements(env: Env, warId?: number): D1Prepa
 function warMemberAttackStatsStatement(
   env: Env,
   warId: number,
+  onlyPendingEvent = false,
 ): D1PreparedStatement {
   return env.DB.prepare(
     `
@@ -942,6 +990,7 @@ function warMemberAttackStatsStatement(
       AND a.attacker_faction_id = ?
       AND a.attacker_id IS NOT NULL
       AND ${OUTGOING_ACTION_WINDOW_SQL}
+      ${onlyPendingEvent ? `AND ${pendingEventMemberSql("a.attacker_id")}` : ""}
     GROUP BY a.war_id, a.attacker_id
     ON CONFLICT(war_id, member_id) DO UPDATE SET
 ${ATTACK_MEMBER_STAT_MERGE_SQL}
@@ -988,6 +1037,7 @@ async function applyIngestedWarMemberStats(
 export function warMemberCombatBucketsCte(
   outgoingWindowSql = OUTGOING_ACTION_WINDOW_SQL,
   defenseWindowSql = PRACTICAL_DEFENSE_ACTION_WINDOW_SQL,
+  onlyPendingEvent = false,
 ): string {
   return `
     WITH outgoing_member_averages AS (
@@ -1096,6 +1146,7 @@ export function warMemberCombatBucketsCte(
         AND a.attacker_faction_id = ${HOME_FACTION_ID}
         AND a.attacker_id IS NOT NULL
         AND ${outgoingWindowSql}
+        ${onlyPendingEvent ? `AND ${pendingEventMemberSql("a.attacker_id", "a.war_id", `CAST(a.started / ${MEMBER_ACTIVITY_BUCKET_SECONDS} AS INTEGER) * ${MEMBER_ACTIVITY_BUCKET_SECONDS}`)}` : ""}
       GROUP BY a.war_id, a.attacker_id, bucket_start
       HAVING attacks_successful > 0
         OR assists_vs_enemy > 0
@@ -1150,6 +1201,7 @@ export function warMemberCombatBucketsCte(
         AND a.defender_id IS NOT NULL
         AND ${RELEVANT_DEFEND_SQL}
         AND ${defenseWindowSql}
+        ${onlyPendingEvent ? `AND ${pendingEventMemberSql("a.defender_id", "a.war_id", `CAST(a.started / ${MEMBER_ACTIVITY_BUCKET_SECONDS} AS INTEGER) * ${MEMBER_ACTIVITY_BUCKET_SECONDS}`)}` : ""}
       GROUP BY a.war_id, a.defender_id, bucket_start
       HAVING defends_lost > 0
         OR defends_won > 0
@@ -1178,8 +1230,37 @@ export function warMemberCombatBucketsCte(
 function warMemberCombatBucketsStatement(
   env: Env,
   warId: number,
+  onlyPendingEvent = false,
 ): D1PreparedStatement {
-  const bindValues = [
+  return env.DB.prepare(
+    `
+    ${warMemberCombatBucketsCte(undefined, undefined, onlyPendingEvent)}
+    INSERT INTO war_member_combat_buckets (
+      war_id, member_id, bucket_start, ${COMBAT_BUCKET_STATS.join(", ")}
+    )
+    SELECT war_id, member_id, bucket_start, ${COMBAT_BUCKET_STATS.join(", ")}
+    FROM grouped_rows
+    WHERE true
+    ON CONFLICT(war_id, member_id, bucket_start) DO UPDATE SET
+      ${COMBAT_BUCKET_STATS.map(column => `${column} = ${onlyPendingEvent ? "" : `war_member_combat_buckets.${column} + `}excluded.${column}`).join(",\n      ")}
+      ${onlyPendingEvent ? `WHERE ${COMBAT_BUCKET_STATS.map(column => `war_member_combat_buckets.${column} IS NOT excluded.${column}`).join(" OR ")}` : ""}
+    `,
+  ).bind(...combatBucketBindings(warId));
+}
+
+function deleteObsoleteEventBucketsStatement(env: Env, warId: number): D1PreparedStatement {
+  return env.DB.prepare(`
+    ${warMemberCombatBucketsCte(undefined, undefined, true)}
+    DELETE FROM war_member_combat_buckets
+    WHERE war_id = ?
+      AND ${pendingEventMemberSql("war_member_combat_buckets.member_id", "war_member_combat_buckets.war_id", "war_member_combat_buckets.bucket_start")}
+      AND NOT EXISTS (SELECT 1 FROM grouped_rows g WHERE g.war_id = war_member_combat_buckets.war_id
+        AND g.member_id = war_member_combat_buckets.member_id AND g.bucket_start = war_member_combat_buckets.bucket_start)
+  `).bind(...combatBucketBindings(warId), warId);
+}
+
+function combatBucketBindings(warId: number): number[] {
+  return [
     warId,
     warId,
     warId,
@@ -1191,49 +1272,6 @@ function warMemberCombatBucketsStatement(
     MEMBER_ACTIVITY_BUCKET_SECONDS,
     warId,
   ];
-
-  return env.DB.prepare(
-    `
-    ${warMemberCombatBucketsCte()}
-    INSERT INTO war_member_combat_buckets (
-      war_id,
-      member_id,
-      bucket_start,
-      attacks_successful,
-      assists_vs_enemy,
-      outside_hits,
-      defends_lost,
-      defends_won,
-      defends_other,
-      respect_gained,
-      respect_lost
-    )
-    SELECT
-      war_id,
-      member_id,
-      bucket_start,
-      attacks_successful,
-      assists_vs_enemy,
-      outside_hits,
-      defends_lost,
-      defends_won,
-      defends_other,
-      respect_gained,
-      respect_lost
-    FROM grouped_rows
-    WHERE true
-    ON CONFLICT(war_id, member_id, bucket_start) DO UPDATE SET
-      attacks_successful = war_member_combat_buckets.attacks_successful + excluded.attacks_successful,
-      assists_vs_enemy = war_member_combat_buckets.assists_vs_enemy + excluded.assists_vs_enemy,
-      outside_hits = war_member_combat_buckets.outside_hits + excluded.outside_hits,
-      defends_lost = war_member_combat_buckets.defends_lost + excluded.defends_lost,
-      defends_won = war_member_combat_buckets.defends_won + excluded.defends_won,
-      defends_other = war_member_combat_buckets.defends_other + excluded.defends_other,
-      respect_gained = war_member_combat_buckets.respect_gained + excluded.respect_gained,
-      respect_lost = war_member_combat_buckets.respect_lost + excluded.respect_lost
-    `,
-  )
-    .bind(...bindValues);
 }
 
 function ingestedWarMemberCombatBucketsStatement(
@@ -1773,6 +1811,7 @@ ${DEFEND_MEMBER_STAT_MERGE_SQL}
 function warMemberDefendStatsStatement(
   env: Env,
   warId: number,
+  onlyPendingEvent = false,
 ): D1PreparedStatement {
   return env.DB.prepare(
     `
@@ -1904,6 +1943,7 @@ function warMemberDefendStatsStatement(
       AND a.defender_id IS NOT NULL
       AND ${RELEVANT_DEFEND_SQL}
       AND ${PRACTICAL_DEFENSE_ACTION_WINDOW_SQL}
+      ${onlyPendingEvent ? `AND ${pendingEventMemberSql("a.defender_id")}` : ""}
     GROUP BY a.war_id, a.defender_id
     ON CONFLICT(war_id, member_id) DO UPDATE SET
 ${DEFEND_MEMBER_STAT_MERGE_SQL}

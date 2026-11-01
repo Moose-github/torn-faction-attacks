@@ -1,5 +1,6 @@
 export {
   applyIncrementalWarSummaries,
+  applyIncrementalEventSummaries,
   clearWarStats,
   finalizeWar,
   rebuildDerivedStatsFromRaw,

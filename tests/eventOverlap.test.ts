@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createManualEvent, updateEvent, deleteWar } from "../src/wars";
 import { initializeIndependentEvents, refreshEventTracking } from "../src/eventTracking";
 import { finishEventTracking } from "../src/warLifecycle";
-import { rebuildWarStatsFromRaw, applyIncrementalWarSummaries } from "../src/warStats";
+import { rebuildWarStatsFromRaw, applyIncrementalWarSummaries, applyIncrementalEventSummaries } from "../src/warStats";
 import { getWarAttacks, getWarMemberAttacks, getOverallStats } from "../src/warQueries";
 import { exportWarAttacksCsv } from "../src/warExports";
 import { relinkWarAttacks } from "../src/warRelink";
@@ -34,6 +34,20 @@ function request(body: unknown) {
 }
 function globalWar() { return db.prepare("SELECT active_war_id, war_state FROM sync_state WHERE name = 'attacks'").get(); }
 function ownership() { return db.prepare("SELECT id, war_id FROM attacks ORDER BY id").all(); }
+function eventStats(warId: number) {
+  const summary = { ...db.prepare("SELECT * FROM war_summary WHERE war_id = ?").get(warId) };
+  delete summary.updated_at;
+  return {
+    members: db.prepare("SELECT * FROM war_member_stats WHERE war_id = ? ORDER BY member_id").all(warId),
+    buckets: db.prepare("SELECT * FROM war_member_combat_buckets WHERE war_id = ? ORDER BY member_id, bucket_start").all(warId),
+    summary,
+  };
+}
+async function expectMatchesFullRebuild(warId: number) {
+  const incremental = eventStats(warId);
+  await rebuildWarStatsFromRaw(env, { scope: "single-war", warId, reason: "admin" });
+  expect(incremental).toEqual(eventStats(warId));
+}
 function attack(id: number, at: number, owner: number | null = 1) {
   db.prepare(`INSERT INTO attacks (id, war_id, started, ended, attacker_id, attacker_name,
     attacker_faction_id, defender_id, defender_faction_id, result, respect_gain, ingest_run_id)
@@ -112,7 +126,7 @@ describe("independent event tracking", () => {
     expect(globalWar()).toEqual({ active_war_id: 1, war_state: "current" });
   });
 
-  it("rebuilds event history once per hour, catching up after missed ticks without rewriting it each minute", async () => {
+  it("updates new event buckets immediately without rewriting history on later minutes or hours", async () => {
     const eventId = await create({ practical_finish_time: START + 3 * 3600 });
     await refreshEventTracking(env);
     db.exec(`CREATE TABLE bucket_delete_audit (war_id INTEGER);
@@ -124,34 +138,38 @@ describe("independent event tracking", () => {
       await refreshEventTracking(env);
     }
     expect(db.prepare("SELECT COUNT(*) AS count FROM bucket_delete_audit").get()?.count).toBe(0);
-    expect(db.prepare("SELECT attacks_vs_enemy_total FROM war_summary WHERE war_id = ?").get(eventId)?.attacks_vs_enemy_total).toBe(2);
+    expect(db.prepare("SELECT attacks_vs_enemy_total FROM war_summary WHERE war_id = ?").get(eventId)?.attacks_vs_enemy_total).toBe(3);
 
-    // The first ten minutes of the next hour were missed; the next tick catches up.
+    // Crossing an hour no longer triggers a full historical rebuild.
     vi.setSystemTime((START + 4200) * 1000);
     await refreshEventTracking(env);
     expect(db.prepare("SELECT attacks_vs_enemy_total FROM war_summary WHERE war_id = ?").get(eventId)?.attacks_vs_enemy_total).toBe(3);
     const deleted = db.prepare("SELECT COUNT(*) AS count FROM bucket_delete_audit").get()?.count;
-    expect(deleted).toBeGreaterThan(0);
+    expect(deleted).toBe(0);
     await refreshEventTracking(env);
     expect(db.prepare("SELECT COUNT(*) AS count FROM bucket_delete_audit").get()?.count).toBe(deleted);
   });
 
-  it("does not rebuild an event twice when refreshes overlap", async () => {
+  it("applies event changes exactly once when refreshes overlap", async () => {
     const eventId = await create();
     db.exec(`CREATE TABLE bucket_delete_audit (war_id INTEGER);
       CREATE TRIGGER audit_bucket_delete AFTER DELETE ON war_member_combat_buckets
       BEGIN INSERT INTO bucket_delete_audit VALUES (OLD.war_id); END;`);
-    const buckets = db.prepare("SELECT COUNT(*) AS count FROM war_member_combat_buckets WHERE war_id = ?").get(eventId)?.count;
+    attack(4, START + 300);
     await Promise.all([refreshEventTracking(env), refreshEventTracking(env)]);
-    expect(db.prepare("SELECT COUNT(*) AS count FROM bucket_delete_audit").get()?.count).toBe(buckets);
+    expect(db.prepare("SELECT COUNT(*) AS count FROM bucket_delete_audit").get()?.count).toBe(0);
+    expect(db.prepare("SELECT attacks_vs_enemy_total FROM war_summary WHERE war_id = ?").get(eventId)?.attacks_vs_enemy_total).toBe(3);
+    expect(db.prepare("SELECT COUNT(*) AS count FROM event_stats_dirty").get()?.count).toBe(0);
   });
 
-  it("allows a failed rebuild to retry in the same hour", async () => {
+  it("rolls back partial updates and retains queued work for a retry", async () => {
     const eventId = await create();
     attack(4, START + 300);
-    db.exec(`CREATE TRIGGER fail_rebuild BEFORE DELETE ON war_member_combat_buckets
+    db.exec(`CREATE TRIGGER fail_rebuild BEFORE UPDATE ON war_member_combat_buckets
       BEGIN SELECT RAISE(ABORT, 'simulated rebuild failure'); END;`);
     await expect(refreshEventTracking(env)).rejects.toThrow("simulated rebuild failure");
+    expect(db.prepare("SELECT attacks_vs_enemy_total FROM war_summary WHERE war_id = ?").get(eventId)?.attacks_vs_enemy_total).toBe(2);
+    expect(db.prepare("SELECT COUNT(*) AS count FROM event_stats_dirty").get()?.count).toBeGreaterThan(0);
     db.exec("DROP TRIGGER fail_rebuild");
     await refreshEventTracking(env);
     expect(db.prepare("SELECT attacks_vs_enemy_total FROM war_summary WHERE war_id = ?").get(eventId)?.attacks_vs_enemy_total).toBe(3);
@@ -170,7 +188,7 @@ describe("independent event tracking", () => {
     expect(db.prepare("SELECT attacks_vs_enemy_total FROM war_summary WHERE war_id = ?").get(eventId)?.attacks_vs_enemy_total).toBe(3);
   });
 
-  it("leaves event cron rebuilding to its hourly gate while preserving explicit admin rebuilds", async () => {
+  it("excludes events from periodic full rebuilds while preserving explicit admin repairs", async () => {
     const eventId = await create();
     db.prepare("UPDATE wars SET practical_finish_time = NULL WHERE id = ?").run(eventId);
     await refreshEventTracking(env);
@@ -182,6 +200,125 @@ describe("independent event tracking", () => {
     const admin = await rebuildWarStatsFromRaw(env, { scope: "open-wars", reason: "admin" });
     expect(admin.wars_rebuilt).toBe(2);
     expect(db.prepare("SELECT attacks_vs_enemy_total FROM war_summary WHERE war_id = ?").get(eventId)?.attacks_vs_enemy_total).toBe(3);
+  });
+
+  it("processes late lower-ID attacks even after the war consumed its pending flag", async () => {
+    const eventId = await create();
+    attack(100, START + 300);
+    await applyIncrementalWarSummaries(env, 1, "batch");
+    expect(db.prepare("SELECT stats_pending FROM attacks WHERE id = 100").get()?.stats_pending).toBe(0);
+    await refreshEventTracking(env);
+    attack(4, START + 50);
+    await refreshEventTracking(env);
+    expect(db.prepare("SELECT attacks_vs_enemy_total FROM war_summary WHERE war_id = ?").get(eventId)?.attacks_vs_enemy_total).toBe(4);
+    await expectMatchesFullRebuild(eventId);
+  });
+
+  it("moves corrected attacks between members and buckets and removes obsolete rows", async () => {
+    const eventId = await create();
+    db.prepare("UPDATE attacks SET attacker_id = 11, started = ?, ended = ? WHERE id = 2").run(START + 1000, START + 1001);
+    await refreshEventTracking(env);
+    await expectMatchesFullRebuild(eventId);
+    db.exec("DELETE FROM attacks WHERE id = 3");
+    await refreshEventTracking(env);
+    expect(db.prepare("SELECT member_id FROM war_member_stats WHERE war_id = ? AND member_id = 10").get(eventId)).toBeUndefined();
+    await expectMatchesFullRebuild(eventId);
+    // A formerly counted attack completes after the event's finish boundary.
+    db.prepare("UPDATE attacks SET ended = ? WHERE id = 2").run(START + 3601);
+    await refreshEventTracking(env);
+    expect(db.prepare("SELECT COUNT(*) AS count FROM war_member_combat_buckets WHERE war_id = ?").get(eventId)?.count).toBe(0);
+    await expectMatchesFullRebuild(eventId);
+  });
+
+  it("keeps historical outgoing and incoming bonus valuations exact as averages change", async () => {
+    const eventId = await create({ practical_finish_time: START + 7200 });
+    attack(4, START + 1000);
+    db.exec("UPDATE attacks SET attacker_id = 11, chain = 10, respect_gain = 100 WHERE id = 4");
+    attack(5, START + 1100);
+    db.exec("UPDATE attacks SET attacker_faction_id = 99, defender_faction_id = 8803, attacker_id = NULL, defender_id = 12, chain = 10, respect_gain = 100 WHERE id = 5");
+    await refreshEventTracking(env);
+    await expectMatchesFullRebuild(eventId);
+    attack(6, START + 2000);
+    db.exec("UPDATE attacks SET respect_gain = 20 WHERE id = 6");
+    attack(7, START + 2100);
+    db.exec("UPDATE attacks SET attacker_faction_id = 99, defender_faction_id = 8803, defender_id = 13, respect_gain = 8 WHERE id = 7");
+    await refreshEventTracking(env);
+    expect(db.prepare("SELECT respect_gained FROM war_member_combat_buckets WHERE war_id = ? AND member_id = 11").get(eventId)?.respect_gained).toBe(10);
+    expect(db.prepare("SELECT respect_lost FROM war_member_combat_buckets WHERE war_id = ? AND member_id = 12").get(eventId)?.respect_lost).toBe(8);
+    await expectMatchesFullRebuild(eventId);
+    db.exec("UPDATE attacks SET result = 'Lost', chain = NULL, respect_gain = 0 WHERE id = 5; DELETE FROM attacks WHERE id = 6;");
+    await refreshEventTracking(env);
+    await expectMatchesFullRebuild(eventId);
+  });
+
+  it("ignores duplicate feeds and bookkeeping updates without writing event summaries", async () => {
+    const eventId = await create();
+    db.exec("UPDATE attacks SET stats_pending = 0, ingest_run_id = 'another-run', war_id = NULL WHERE id = 2;");
+    db.exec("UPDATE attacks SET result = result, ended = ended WHERE id = 3;");
+    db.exec("INSERT INTO attacks (id) VALUES (3) ON CONFLICT(id) DO NOTHING;");
+    expect(db.prepare("SELECT COUNT(*) AS count FROM event_stats_dirty").get()?.count).toBe(0);
+    const writes = db.prepare("SELECT total_changes() AS count").get()?.count;
+    expect(await applyIncrementalEventSummaries(env, eventId)).toBe(false);
+    expect(db.prepare("SELECT total_changes() AS count").get()?.count).toBe(writes);
+  });
+
+  it("preserves a change that arrives after an atomic update finishes", async () => {
+    const eventId = await create();
+    attack(4, START + 300);
+    const batch = env.DB.batch.bind(env.DB);
+    let injected = false;
+    env.DB.batch = (async (...args: Parameters<typeof batch>) => {
+      const result = await batch(...args);
+      if (!injected) { injected = true; attack(5, START + 400); }
+      return result;
+    }) as typeof env.DB.batch;
+    await applyIncrementalEventSummaries(env, eventId);
+    expect(db.prepare("SELECT attacks_vs_enemy_total FROM war_summary WHERE war_id = ?").get(eventId)?.attacks_vs_enemy_total).toBe(3);
+    expect(db.prepare("SELECT COUNT(*) AS count FROM event_stats_dirty").get()?.count).toBeGreaterThan(0);
+    env.DB.batch = batch;
+    await applyIncrementalEventSummaries(env, eventId);
+    expect(db.prepare("SELECT attacks_vs_enemy_total FROM war_summary WHERE war_id = ?").get(eventId)?.attacks_vs_enemy_total).toBe(4);
+  });
+
+  it("incorporates attacks arriving late after finalization without reopening the event", async () => {
+    const eventId = await create();
+    vi.setSystemTime((START + 3601) * 1000);
+    await refreshEventTracking(env);
+    attack(4, START + 3500);
+    await refreshEventTracking(env);
+    expect(db.prepare("SELECT status FROM wars WHERE id = ?").get(eventId)?.status).toBe("ended");
+    expect(db.prepare("SELECT attacks_vs_enemy_total FROM war_summary WHERE war_id = ?").get(eventId)?.attacks_vs_enemy_total).toBe(3);
+    await expectMatchesFullRebuild(eventId);
+  });
+
+  it("seeds pending work when migrating an existing live event", async () => {
+    const eventId = await create();
+    db.exec("DROP TRIGGER event_stats_attack_insert; DROP TRIGGER event_stats_attack_update; DROP TRIGGER event_stats_attack_delete; DROP TABLE event_stats_dirty;");
+    attack(4, START + 300);
+    db.exec(readFileSync(new URL("../migrations/0190_incremental_event_stats.sql", import.meta.url), "utf8"));
+    await refreshEventTracking(env);
+    expect(db.prepare("SELECT attacks_vs_enemy_total FROM war_summary WHERE war_id = ?").get(eventId)?.attacks_vs_enemy_total).toBe(3);
+    await expectMatchesFullRebuild(eventId);
+  });
+
+  it("adds one bucket without rewriting 2,000 historical buckets", async () => {
+    const eventId = await create({ practical_finish_time: START + 3 * 86400 });
+    db.exec("BEGIN");
+    for (let i = 0; i < 2000; i++) {
+      attack(i + 100, START + Math.floor(i / 10) * 900 + 10);
+      db.prepare("UPDATE attacks SET attacker_id = ? WHERE id = ?").run(1000 + i % 10, i + 100);
+    }
+    db.exec("COMMIT");
+    await refreshEventTracking(env);
+    db.exec(`CREATE TABLE bucket_write_audit (operation TEXT);
+      CREATE TRIGGER audit_insert AFTER INSERT ON war_member_combat_buckets BEGIN INSERT INTO bucket_write_audit VALUES ('insert'); END;
+      CREATE TRIGGER audit_update AFTER UPDATE ON war_member_combat_buckets BEGIN INSERT INTO bucket_write_audit VALUES ('update'); END;
+      CREATE TRIGGER audit_delete AFTER DELETE ON war_member_combat_buckets BEGIN INSERT INTO bucket_write_audit VALUES ('delete'); END;`);
+    attack(3000, START + 200 * 900 + 10);
+    await refreshEventTracking(env);
+    expect(db.prepare("SELECT operation, COUNT(*) AS count FROM bucket_write_audit GROUP BY operation").all()).toEqual([{ operation: "insert", count: 1 }]);
+    await refreshEventTracking(env);
+    expect(db.prepare("SELECT COUNT(*) AS count FROM bucket_write_audit").get()?.count).toBe(1);
   });
 
   it("uses shared event membership for detail, member attacks, CSV and relinking without duplicate export rows", async () => {
