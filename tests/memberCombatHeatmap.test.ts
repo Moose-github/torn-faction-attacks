@@ -120,9 +120,9 @@ describe("member combat heatmap time windows", () => {
     const stats = () => db.prepare(`SELECT attacks_vs_enemy_successful, respect_gained,
       defends_total, respect_lost, respect_lost_raw FROM war_member_stats WHERE member_id = 10`).get();
     const expected = { attacks_vs_enemy_successful: 1, respect_gained: 5, defends_total: 2, respect_lost: 10, respect_lost_raw: 10 };
-    await applyIncrementalWarSummaries(env, 1, "stealth-test");
+    await applyIncrementalWarSummaries(env, 1);
     expect(stats()).toMatchObject(expected);
-    await applyIncrementalWarSummaries(env, 1, "stealth-test");
+    await applyIncrementalWarSummaries(env, 1);
     expect(stats()).toMatchObject(expected);
     await rebuildWarStatsFromRaw(env, { scope: "single-war", warId: 1 });
     expect(stats()).toMatchObject(expected);

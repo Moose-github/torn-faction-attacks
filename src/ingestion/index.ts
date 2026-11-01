@@ -283,7 +283,7 @@ export async function runIngestion(
 
 
     if (newOrAssignedWarAttackCount > 0) {
-      await applyIncrementalWarSummaries(env, ingestionWar.id, ingestRunId);
+      await applyIncrementalWarSummaries(env, ingestionWar.id);
       metrics.statWriteOperations += 1;
       metrics.statsFinishedAt = nowSeconds();
     }

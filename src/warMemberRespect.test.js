@@ -10,7 +10,6 @@ import {
   applyIncrementalWarSummaries,
   recalculateWarMemberRespectFromRaw,
   rebuildWarStatsFromRaw,
-  refreshOpenWarChainBonusAdjustmentsFromRaw,
   refreshWarMemberRespect,
   refreshPendingWarSummaries,
   WarStatsRebuildLeaseError,
@@ -156,19 +155,6 @@ describe("individual member respect recalculation", () => {
     expect(db.member(7, 10)).toEqual(before);
     expect(db.sqlite.prepare("SELECT * FROM sync_state").all()).toEqual([]);
   });
-
-  it("preserves scheduled refresh behavior for members with chain bonuses", async () => {
-    const db = database();
-    seedAttacks(db);
-    await rebuildWarStatsFromRaw(db.env, { scope: "single-war", warId: 7 });
-    const expected = db.member(7, 10);
-    db.sqlite.exec(`UPDATE wars SET practical_finish_time = NULL WHERE id = 7;
-      UPDATE war_member_stats SET respect_gained = 999 WHERE member_id IN (10, 11)`);
-    const result = await refreshOpenWarChainBonusAdjustmentsFromRaw(db.env);
-    expect(result).toMatchObject({ wars_updated: 1, stat_rows_updated: 2 });
-    expect(db.member(7, 10)).toEqual(expected);
-    expect(db.member(7, 11).respect_gained).toBe(999);
-  });
 });
 
 describe("running respect counters for normal and termed wars", () => {
@@ -183,10 +169,10 @@ describe("running respect counters for normal and termed wars", () => {
     db.attack({ ...incoming, attacker_id: 20, respect_gain: 100, chain: 10 });
     db.attack({ ...incoming, attacker_id: null, attacker_faction_id: null, is_ranked_war: 1, respect_gain: 6 });
     db.attack({ ...incoming, attacker_id: null, attacker_faction_id: null, is_ranked_war: 1, respect_gain: 100, chain: 25 });
-    await applyIncrementalWarSummaries(db.env, 7, "counter-batch");
+    await applyIncrementalWarSummaries(db.env, 7);
     expect(db.member(7, 10)).toMatchObject({ respect_gained: 9, respect_lost: 44 });
     const incremental = warStatsSnapshot(db);
-    await applyIncrementalWarSummaries(db.env, 7, "counter-batch");
+    await applyIncrementalWarSummaries(db.env, 7);
     expect(warStatsSnapshot(db)).toEqual(incremental);
     await rebuildWarStatsFromRaw(db.env, { scope: "single-war", warId: 7 });
     expect(warStatsSnapshot(db)).toEqual(incremental);
@@ -196,21 +182,21 @@ describe("running respect counters for normal and termed wars", () => {
   it("uses zero for a bonus-only war instead of counting the bonus as an ordinary hit", async () => {
     const db = database();
     db.attack({ respect_gain: 100, chain: 10, ingest_run_id: "bonus", stats_pending: 1 });
-    await applyIncrementalWarSummaries(db.env, 7, "bonus");
+    await applyIncrementalWarSummaries(db.env, 7);
     expect(db.member(7, 10)).toMatchObject({ respect_gained: 0, respect_gained_raw: 100 });
     const incremental = warStatsSnapshot(db);
     await rebuildWarStatsFromRaw(db.env, { scope: "single-war", warId: 7 });
     expect(warStatsSnapshot(db)).toEqual(incremental);
   });
 
-  it("uses counters for quarter-hour corrections while preserving the raw repair check", async () => {
+  it("uses counters for queued corrections while preserving the raw repair check", async () => {
     const db = database();
     db.sqlite.exec("UPDATE wars SET practical_finish_time = NULL WHERE id = 7");
     seedAttacks(db);
     await rebuildWarStatsFromRaw(db.env, { scope: "single-war", warId: 7 });
     db.attack({ respect_gain: 12 });
     const prepare = vi.spyOn(db.env.DB, "prepare");
-    await refreshOpenWarChainBonusAdjustmentsFromRaw(db.env);
+    await applyIncrementalWarSummaries(db.env, 7);
     expect(prepare.mock.calls.some(([sql]) => /AVG\(a\.respect_gain\)/.test(sql))).toBe(false);
     const corrected = db.member(7, 10);
     expect(corrected.respect_gained).toBe(30);

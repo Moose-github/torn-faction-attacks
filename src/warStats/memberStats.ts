@@ -9,7 +9,7 @@ import { OUTGOING_ACTION_WINDOW_SQL, RELEVANT_DEFEND_SQL } from "../sql";
 import { Env } from "../types";
 import { d1Changes, nowSeconds } from "../utils";
 import { ATTACK_MEMBER_STAT_MERGE_SQL, DEFEND_MEMBER_STAT_MERGE_SQL } from "./sqlFragments";
-import { rebuildWarSummaryFromMemberStats, warSummaryFromMemberStatsStatement } from "./warSummary";
+import { warSummaryFromMemberStatsStatement } from "./warSummary";
 import { memberRespectAveragesSql, respectAverageSql } from "./respectCounters";
 
 const MEMBER_ACTIVITY_BUCKET_SECONDS = 15 * 60;
@@ -19,8 +19,10 @@ const PRACTICAL_DEFENSE_ACTION_WINDOW_SQL = OUTGOING_ACTION_WINDOW_SQL;
 const COMBAT_BUCKET_STATS = ["attacks_successful", "assists_vs_enemy", "outside_hits", "defends_lost", "defends_won", "defends_other", "respect_gained", "respect_lost"];
 
 type PendingStatsQueue = "event_stats_dirty" | "war_stats_dirty";
+// Attacks without a start time are queued under -1, matching the queue triggers.
+const PENDING_BUCKET_SQL = `COALESCE(CAST(a.started / ${MEMBER_ACTIVITY_BUCKET_SECONDS} AS INTEGER) * ${MEMBER_ACTIVITY_BUCKET_SECONDS}, -1)`;
 
-export type WarStatsRebuildScope = "single-war" | "open-wars" | "all-wars";
+export type WarStatsRebuildScope = "single-war" | "all-wars";
 
 export type WarStatsRebuildReason =
   | "admin"
@@ -68,11 +70,7 @@ export async function clearWarStats(env: Env, warId: number): Promise<void> {
   ]);
 }
 
-export async function applyIncrementalWarSummaries(
-  env: Env,
-  warId: number,
-  _ingestRunId?: string,
-): Promise<void> {
+export async function applyIncrementalWarSummaries(env: Env, warId: number): Promise<void> {
   if (await applyPendingSummaries(env, warId, "war_stats_dirty")) {
     await bumpWarCacheVersionById(env, warId);
   }
@@ -103,95 +101,7 @@ export async function rebuildWarStatsFromRaw(
     return rebuildSingleWarStatsFromRaw(env, options.warId, throwOnLeaseConflict);
   }
 
-  if (options.scope === "open-wars") {
-    return rebuildOpenWarStatsFromRaw(env, throwOnLeaseConflict, options.reason === "cron");
-  }
-
   return rebuildAllWarStatsFromRaw(env, throwOnLeaseConflict);
-}
-
-export async function rebuildOpenWarMemberStatsFromRaw(env: Env): Promise<{ wars_rebuilt: number }> {
-  const result = await rebuildWarStatsFromRaw(env, {
-    scope: "open-wars",
-    reason: "compatibility",
-  });
-
-  return {
-    wars_rebuilt: result.wars_rebuilt,
-  };
-}
-
-async function rebuildOpenWarStatsFromRaw(
-  env: Env,
-  throwOnLeaseConflict: boolean,
-  excludeEvents: boolean,
-): Promise<WarStatsRebuildResult> {
-  // Events use their own incremental queue; only explicit repairs rebuild them.
-  const rows = await env.DB.prepare(
-    `
-    SELECT id
-    FROM wars
-    WHERE status = 'active'
-      AND finalized_at IS NULL
-      AND practical_finish_time IS NULL
-      AND (? = 0 OR COALESCE(war_type, 'real') != 'event')
-    ORDER BY practical_start_time ASC, id ASC
-    `,
-  ).bind(excludeEvents ? 1 : 0).all();
-
-  const wars = (rows.results ?? []) as { id: number }[];
-  let warsRebuilt = 0;
-  let warsSkipped = 0;
-
-  for (const war of wars) {
-    const rebuilt = await rebuildKnownWarStatsFromRaw(env, war.id, throwOnLeaseConflict);
-    if (rebuilt) {
-      warsRebuilt += 1;
-    } else {
-      warsSkipped += 1;
-    }
-  }
-
-  return withSkippedWars({
-    wars_rebuilt: warsRebuilt,
-    combat_bucket_rows: await countWarMemberCombatBuckets(env),
-  }, warsSkipped);
-}
-
-export async function refreshOpenWarChainBonusAdjustmentsFromRaw(env: Env): Promise<{
-  wars_checked: number;
-  wars_updated: number;
-  stat_rows_updated: number;
-}> {
-  const rows = await env.DB.prepare(
-    `
-    SELECT id
-    FROM wars
-    WHERE status = 'active'
-      AND finalized_at IS NULL
-      AND practical_finish_time IS NULL
-    ORDER BY practical_start_time ASC, id ASC
-    `,
-  ).all();
-
-  const wars = (rows.results ?? []) as { id: number }[];
-  let warsUpdated = 0;
-  let statRowsUpdated = 0;
-
-  for (const war of wars) {
-    const updated = await refreshWarChainBonusAdjustmentsFromRaw(env, war.id);
-    if (updated > 0) {
-      warsUpdated += 1;
-      statRowsUpdated += updated;
-      await rebuildWarSummaryFromMemberStats(env, war.id);
-    }
-  }
-
-  return {
-    wars_checked: wars.length,
-    wars_updated: warsUpdated,
-    stat_rows_updated: statRowsUpdated,
-  };
 }
 
 export async function finalizeWar(env: Env, warId: number): Promise<void> {
@@ -430,21 +340,7 @@ async function applyPendingSummaries(env: Env, warId: number, queue: PendingStat
     // A late/corrected/deleted attack is therefore either included or stays queued.
     const results = await env.DB.batch([
       expandPendingWindowStatement(env, warId, queue),
-      env.DB.prepare(`INSERT INTO ${queue} (war_id, member_id, bucket_start)
-        SELECT a.war_id, a.attacker_id, COALESCE(CAST(a.started / ${MEMBER_ACTIVITY_BUCKET_SECONDS} AS INTEGER) * ${MEMBER_ACTIVITY_BUCKET_SECONDS}, -1)
-        FROM ${queue === "war_stats_dirty" ? "attacks a INDEXED BY idx_attacks_war_bonus" : "tracker_attacks a"} WHERE a.war_id = ? AND a.attacker_faction_id = ${HOME_FACTION_ID}
-          AND a.attacker_id IS NOT NULL
-          AND a.result IN (${POSITIVE_RESULTS_SQL}) AND a.chain IN (${CHAIN_BONUS_HITS_SQL})
-          AND EXISTS (SELECT 1 FROM ${queue} WHERE war_id = a.war_id)
-        UNION
-        SELECT a.war_id, a.defender_id, COALESCE(CAST(a.started / ${MEMBER_ACTIVITY_BUCKET_SECONDS} AS INTEGER) * ${MEMBER_ACTIVITY_BUCKET_SECONDS}, -1)
-        FROM ${queue === "war_stats_dirty" ? "attacks a INDEXED BY idx_attacks_war_bonus" : "tracker_attacks a"} WHERE a.war_id = ? AND a.defender_faction_id = ${HOME_FACTION_ID}
-          AND a.defender_id IS NOT NULL
-          AND a.result IN (${POSITIVE_RESULTS_SQL}) AND a.chain IN (${CHAIN_BONUS_HITS_SQL})
-          AND EXISTS (SELECT 1 FROM ${queue} WHERE war_id = a.war_id)
-        ON CONFLICT(war_id, member_id, bucket_start) DO NOTHING`).bind(warId, warId),
-      // Ordinary hits change earlier bonus valuations, including other members
-      // using the war-wide fallback. Revisit those members and historical buckets.
+      requeueBonusBucketsStatement(env, warId, queue),
       ...resetDerivedWarMemberStatsStatements(env, warId, queue),
       warMemberAttackStatsStatement(env, warId, queue),
       warMemberDefendStatsStatement(env, warId, queue),
@@ -472,13 +368,37 @@ function expandPendingWindowStatement(env: Env, warId: number, queue: PendingSta
     UNION SELECT m.war_id, m.member_id, -1 FROM ${queue} q
       CROSS JOIN war_member_stats m ON m.war_id = q.war_id
       WHERE q.war_id = ? AND q.member_id = -1
-    UNION SELECT a.war_id, a.attacker_id, COALESCE(CAST(a.started / ${MEMBER_ACTIVITY_BUCKET_SECONDS} AS INTEGER) * ${MEMBER_ACTIVITY_BUCKET_SECONDS}, -1)
-      FROM ${queue} q CROSS JOIN ${queue === "war_stats_dirty" ? "attacks" : "tracker_attacks"} a ON a.war_id = q.war_id
+    UNION SELECT a.war_id, a.attacker_id, ${PENDING_BUCKET_SQL}
+      FROM ${queue} q CROSS JOIN ${queueAttackTable(queue)} a ON a.war_id = q.war_id
       WHERE q.war_id = ? AND q.member_id = -1 AND a.attacker_faction_id = ${HOME_FACTION_ID} AND a.attacker_id IS NOT NULL
-    UNION SELECT a.war_id, a.defender_id, COALESCE(CAST(a.started / ${MEMBER_ACTIVITY_BUCKET_SECONDS} AS INTEGER) * ${MEMBER_ACTIVITY_BUCKET_SECONDS}, -1)
-      FROM ${queue} q CROSS JOIN ${queue === "war_stats_dirty" ? "attacks" : "tracker_attacks"} a ON a.war_id = q.war_id
+    UNION SELECT a.war_id, a.defender_id, ${PENDING_BUCKET_SQL}
+      FROM ${queue} q CROSS JOIN ${queueAttackTable(queue)} a ON a.war_id = q.war_id
       WHERE q.war_id = ? AND q.member_id = -1 AND a.defender_faction_id = ${HOME_FACTION_ID} AND a.defender_id IS NOT NULL
     ON CONFLICT(war_id, member_id, bucket_start) DO NOTHING`).bind(warId, warId, warId, warId);
+}
+
+function requeueBonusBucketsStatement(env: Env, warId: number, queue: PendingStatsQueue): D1PreparedStatement {
+  // Ordinary hits change earlier bonus valuations, including other members
+  // using the war-wide fallback. Revisit those members and historical buckets.
+  const bonusAttacks = queue === "war_stats_dirty" ? "attacks a INDEXED BY idx_attacks_war_bonus" : "tracker_attacks a";
+  return env.DB.prepare(`INSERT INTO ${queue} (war_id, member_id, bucket_start)
+    SELECT a.war_id, a.attacker_id, ${PENDING_BUCKET_SQL}
+    FROM ${bonusAttacks} WHERE a.war_id = ? AND a.attacker_faction_id = ${HOME_FACTION_ID}
+      AND a.attacker_id IS NOT NULL
+      AND a.result IN (${POSITIVE_RESULTS_SQL}) AND a.chain IN (${CHAIN_BONUS_HITS_SQL})
+      AND EXISTS (SELECT 1 FROM ${queue} WHERE war_id = a.war_id)
+    UNION
+    SELECT a.war_id, a.defender_id, ${PENDING_BUCKET_SQL}
+    FROM ${bonusAttacks} WHERE a.war_id = ? AND a.defender_faction_id = ${HOME_FACTION_ID}
+      AND a.defender_id IS NOT NULL
+      AND a.result IN (${POSITIVE_RESULTS_SQL}) AND a.chain IN (${CHAIN_BONUS_HITS_SQL})
+      AND EXISTS (SELECT 1 FROM ${queue} WHERE war_id = a.war_id)
+    ON CONFLICT(war_id, member_id, bucket_start) DO NOTHING`).bind(warId, warId);
+}
+
+/** War attacks are owned by war_id; event membership comes from the tracker view. */
+function queueAttackTable(queue: PendingStatsQueue): string {
+  return queue === "war_stats_dirty" ? "attacks" : "tracker_attacks";
 }
 
 function pendingAttackSource(queue: PendingStatsQueue | undefined, member: "attacker" | "defender", buckets = false): string {
@@ -493,12 +413,6 @@ function pendingAttackSource(queue: PendingStatsQueue | undefined, member: "atta
 function pendingMemberSql(queue: PendingStatsQueue, member: string, war = "a.war_id", bucket?: string): string {
   return `EXISTS (SELECT 1 FROM ${queue} d WHERE d.war_id = ${war}
     AND d.member_id = ${member}${bucket ? ` AND d.bucket_start = ${bucket}` : ""})`;
-}
-
-async function refreshWarChainBonusAdjustmentsFromRaw(env: Env, warId: number): Promise<number> {
-  const outgoing = await warOutgoingRespectStatement(env, warId, undefined, true).run();
-  const defending = await warDefendRespectStatement(env, warId, undefined, true).run();
-  return d1Changes(outgoing) + d1Changes(defending);
 }
 
 /** Recalculate respect from stored attacks; callers authenticate the member separately. */
@@ -550,7 +464,6 @@ function warOutgoingRespectStatement(
   env: Env,
   warId: number,
   memberId?: number,
-  useCounters = false,
 ): D1PreparedStatement {
   return env.DB.prepare(
     `
@@ -569,7 +482,6 @@ function warOutgoingRespectStatement(
       ` : "SELECT ? AS member_id"}
     ),
     member_averages AS (
-      ${useCounters ? memberRespectAveragesSql("outgoing", "member_id") : `
       SELECT
         a.attacker_id AS member_id,
         AVG(a.respect_gain) AS avg_respect
@@ -583,10 +495,8 @@ function warOutgoingRespectStatement(
         AND a.result IN (${POSITIVE_RESULTS_SQL})
         AND (a.chain IS NULL OR a.chain NOT IN (${CHAIN_BONUS_HITS_SQL}))
       GROUP BY a.attacker_id
-      `}
     ),
     war_average AS (
-      ${useCounters ? respectAverageSql("outgoing") : `
       SELECT AVG(a.respect_gain) AS avg_respect
       FROM tracker_attacks a
       JOIN wars w ON w.id = a.war_id
@@ -596,7 +506,6 @@ function warOutgoingRespectStatement(
         AND (w.enemy_faction_id IS NULL OR a.defender_faction_id = w.enemy_faction_id)
         AND a.result IN (${POSITIVE_RESULTS_SQL})
         AND (a.chain IS NULL OR a.chain NOT IN (${CHAIN_BONUS_HITS_SQL}))
-      `}
     )
     INSERT INTO war_member_stats (
       war_id,
@@ -685,7 +594,6 @@ function warDefendRespectStatement(
   env: Env,
   warId: number,
   memberId?: number,
-  useCounters = false,
 ): D1PreparedStatement {
   return env.DB.prepare(
     `
@@ -704,7 +612,6 @@ function warDefendRespectStatement(
       ` : "SELECT ? AS member_id"}
     ),
     member_averages AS (
-      ${useCounters ? memberRespectAveragesSql("incoming") : `
       SELECT
         a.attacker_id,
         AVG(a.respect_gain) AS avg_respect
@@ -718,10 +625,8 @@ function warDefendRespectStatement(
         AND (a.chain IS NULL OR a.chain NOT IN (${CHAIN_BONUS_HITS_SQL}))
         AND ${PRACTICAL_DEFENSE_ACTION_WINDOW_SQL}
       GROUP BY a.attacker_id
-      `}
     ),
     war_average AS (
-      ${useCounters ? respectAverageSql("incoming") : `
       SELECT AVG(a.respect_gain) AS avg_respect
       FROM tracker_attacks a
       JOIN wars w ON w.id = a.war_id
@@ -732,7 +637,6 @@ function warDefendRespectStatement(
         AND a.result IN (${POSITIVE_RESULTS_SQL})
         AND (a.chain IS NULL OR a.chain NOT IN (${CHAIN_BONUS_HITS_SQL}))
         AND ${PRACTICAL_DEFENSE_ACTION_WINDOW_SQL}
-      `}
     )
     INSERT INTO war_member_stats (
       war_id,

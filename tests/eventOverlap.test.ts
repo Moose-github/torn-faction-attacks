@@ -133,7 +133,7 @@ describe("independent event tracking", () => {
       .toMatchObject({ member_id: 10 });
 
     attack(4, START + 300);
-    await applyIncrementalWarSummaries(env, 1, "batch");
+    await applyIncrementalWarSummaries(env, 1);
     await refreshEventTracking(env);
     expect(db.prepare("SELECT attacks_vs_enemy_total FROM war_summary WHERE war_id = 1").get())
       .toMatchObject({ attacks_vs_enemy_total: 3 });
@@ -224,24 +224,10 @@ describe("independent event tracking", () => {
     expect(db.prepare("SELECT attacks_vs_enemy_total FROM war_summary WHERE war_id = ?").get(eventId)?.attacks_vs_enemy_total).toBe(3);
   });
 
-  it("excludes events from periodic full rebuilds while preserving explicit admin repairs", async () => {
-    const eventId = await create();
-    db.prepare("UPDATE wars SET practical_finish_time = NULL WHERE id = ?").run(eventId);
-    await refreshEventTracking(env);
-    attack(4, START + 300);
-    const cron = await rebuildWarStatsFromRaw(env, { scope: "open-wars", reason: "cron" });
-    expect(cron.wars_rebuilt).toBe(1);
-    expect(db.prepare("SELECT attacks_vs_enemy_total FROM war_summary WHERE war_id = ?").get(eventId)?.attacks_vs_enemy_total).toBe(2);
-    expect(db.prepare("SELECT attacks_vs_enemy_total FROM war_summary WHERE war_id = 1").get()?.attacks_vs_enemy_total).toBe(3);
-    const admin = await rebuildWarStatsFromRaw(env, { scope: "open-wars", reason: "admin" });
-    expect(admin.wars_rebuilt).toBe(2);
-    expect(db.prepare("SELECT attacks_vs_enemy_total FROM war_summary WHERE war_id = ?").get(eventId)?.attacks_vs_enemy_total).toBe(3);
-  });
-
   it("processes late lower-ID attacks even after the war consumed its pending flag", async () => {
     const eventId = await create();
     attack(100, START + 300);
-    await applyIncrementalWarSummaries(env, 1, "batch");
+    await applyIncrementalWarSummaries(env, 1);
     expect(db.prepare("SELECT stats_pending FROM attacks WHERE id = 100").get()?.stats_pending).toBe(0);
     await refreshEventTracking(env);
     attack(4, START + 50);
