@@ -404,8 +404,8 @@ describe("independent event tracking", () => {
     const eventSql = respectAverageSql("outgoing");
     expect(statement(memberSql, [eventId]).accessedTables()).toEqual(["war_respect_totals"]);
     expect(statement(eventSql, [eventId]).accessedTables()).toEqual(["war_respect_totals"]);
+    // Unknown attackers never match a member join, so only known members are listed.
     expect(db.prepare(memberSql).all(eventId)).toEqual([
-      { war_id: eventId, attacker_id: null, avg_respect: 20 },
       { war_id: eventId, attacker_id: 10, avg_respect: 5 },
     ]);
     // Unknown attackers contribute to the fallback; NULL respect does not count.
