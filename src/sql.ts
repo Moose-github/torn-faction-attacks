@@ -121,3 +121,24 @@ export const RELEVANT_DEFEND_SQL = `
     )
   )
 `;
+
+// An attack belongs to an event when it involves the home faction inside the
+// event window, as in the tracker_attacks view. Events never overlap each other
+// (readTrackerOverlap), so attacks.event_id holds at most one event. Migration
+// 0196's triggers repeat this rule.
+export const EVENT_ATTACK_MATCH_SQL = `
+  w.war_type = 'event'
+  AND a.started >= w.practical_start_time
+  AND (w.practical_finish_time IS NULL OR COALESCE(a.ended, a.started) <= w.practical_finish_time)
+  AND (a.attacker_faction_id = ${HOME_FACTION_ID} OR a.defender_faction_id = ${HOME_FACTION_ID})
+`;
+
+/** Inline event_id for an attack insert. Binds started, ended, attacker and defender faction ids. */
+export const ATTACK_EVENT_ID_SQL = `(
+  SELECT w.id
+  FROM (SELECT ? AS started, ? AS ended, ? AS attacker_faction_id, ? AS defender_faction_id) a
+  CROSS JOIN wars w
+  WHERE ${EVENT_ATTACK_MATCH_SQL}
+  ORDER BY w.id
+  LIMIT 1
+)`;

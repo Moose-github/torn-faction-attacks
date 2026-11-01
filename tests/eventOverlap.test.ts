@@ -11,6 +11,9 @@ import { relinkWarAttacks } from "../src/warRelink";
 import { readChainWatchDemand } from "../src/chainWatchDemand";
 import type { Env } from "../src/types";
 import { memberRespectAveragesSql, respectAverageSql } from "../src/warStats/respectCounters";
+import { buildHistoricalImportStatement, buildLiveInsertStatement } from "../src/ingestion";
+import { auditRecentEventAttackLinks } from "../src/eventTracking";
+import type { TornAttack } from "../src/types";
 
 // External collection is covered separately; these tests exercise the real SQL,
 // lifecycle, summaries, and API readers using overlapping attack windows.
@@ -84,6 +87,12 @@ function expectRespectCountersMatchRaw() {
   });
   expect(db.prepare("SELECT COUNT(*) AS count FROM war_respect_totals WHERE hit_count < 0 OR (hit_count = 0 AND respect_sum != 0)").get()?.count).toBe(0);
 }
+// attacks.event_id must always agree with the tracker_attacks view's event branch.
+function expectEventIdsMatchTracker() {
+  expect(db.prepare("SELECT id, event_id FROM attacks WHERE event_id IS NOT NULL ORDER BY id").all())
+    .toEqual(db.prepare(`SELECT a.id, a.war_id AS event_id FROM tracker_attacks a
+      JOIN wars w ON w.id = a.war_id WHERE w.war_type = 'event' ORDER BY a.id`).all());
+}
 function attack(id: number, at: number, owner: number | null = 1) {
   db.prepare(`INSERT INTO attacks (id, war_id, started, ended, attacker_id, attacker_name,
     attacker_faction_id, defender_id, defender_faction_id, result, respect_gain, ingest_run_id)
@@ -116,7 +125,9 @@ beforeEach(() => {
   attack(2, START + 100);
   attack(3, START + 200, null);
 });
-afterEach(() => { db.close(); vi.useRealTimers(); });
+afterEach(() => {
+  try { expectEventIdsMatchTracker(); } finally { db.close(); vi.useRealTimers(); }
+});
 
 describe("independent event tracking", () => {
   it("starts Halloween over a current war, shares attacks, and leaves ownership and war totals intact", async () => {
@@ -581,5 +592,64 @@ describe("independent event tracking", () => {
     db.exec("UPDATE wars SET chain_watch_enabled = 1 WHERE id = 1");
     expect(await readChainWatchDemand(env)).toMatchObject({ active: true, war_id: 1 });
     expect(globalWar()).toEqual({ active_war_id: 1, war_state: "current" });
+  });
+});
+
+describe("attack event ids", () => {
+  function tornAttack(id: number, started: number, ended: number | undefined, attackerFaction: number): TornAttack {
+    return { id, started, ended, result: "Hospitalized", respect_gain: 5,
+      attacker: { id: 10, name: "Player", faction: { id: attackerFaction, name: "Faction" } },
+      defender: { id: 20, name: "Enemy", faction: { id: 99, name: "Enemy" } } } as TornAttack;
+  }
+  function eventIdOf(id: number) { return db.prepare("SELECT event_id FROM attacks WHERE id = ?").get(id)?.event_id; }
+
+  it("sets event_id inline when ingesting, without relying on the insert trigger", async () => {
+    const eventId = await create();
+    db.exec("DROP TRIGGER attack_event_id_insert");
+    await buildLiveInsertStatement(env, "live", 1, tornAttack(10, START + 300, START + 301, 8803)).run();
+    await buildLiveInsertStatement(env, "live", null, tornAttack(11, START + 300, START + 301, 77)).run();
+    await buildHistoricalImportStatement(env, null, "import", tornAttack(12, START + 3599, START + 3601, 8803)).run();
+    await buildHistoricalImportStatement(env, null, "import", tornAttack(13, START + 1200, undefined, 8803)).run();
+    expect([10, 11, 12, 13].map(eventIdOf)).toEqual([eventId, null, null, eventId]);
+  });
+
+  it("follows completion updates across the event finish time", async () => {
+    const eventId = await create();
+    db.prepare("INSERT INTO attacks (id, started, attacker_id, attacker_faction_id, defender_faction_id) VALUES (14, ?, 10, 8803, 99)")
+      .run(START + 3590);
+    expect(eventIdOf(14)).toBe(eventId);
+    db.prepare("UPDATE attacks SET ended = ? WHERE id = 14").run(START + 3610);
+    expect(eventIdOf(14)).toBeNull();
+    db.prepare("UPDATE attacks SET ended = ? WHERE id = 14").run(START + 3595);
+    expect(eventIdOf(14)).toBe(eventId);
+  });
+
+  it("moves links with event edits and clears them when the event is deleted", async () => {
+    const eventId = await create();
+    expect([1, 2, 3].map(eventIdOf)).toEqual([null, eventId, eventId]);
+    db.prepare("UPDATE wars SET practical_start_time = ? WHERE id = ?").run(START - 60, eventId);
+    expect([1, 2, 3].map(eventIdOf)).toEqual([eventId, eventId, eventId]);
+    db.prepare("UPDATE wars SET practical_finish_time = ? WHERE id = ?").run(START + 150, eventId);
+    expect([1, 2, 3].map(eventIdOf)).toEqual([eventId, eventId, null]);
+    expect((await deleteWar(request({ war_id: eventId }), env)).status).toBe(200);
+    expect(db.prepare("SELECT COUNT(*) AS count FROM attacks WHERE event_id IS NOT NULL").get()?.count).toBe(0);
+  });
+
+  it("backfills existing attacks with the migration's rule", async () => {
+    await create();
+    attack(4, START + 900, null);
+    const linked = db.prepare("SELECT id, event_id FROM attacks ORDER BY id").all();
+    db.exec("UPDATE attacks SET event_id = NULL");
+    const migration = readFileSync(new URL("../migrations/0196_attack_event_ids.sql", import.meta.url), "utf8");
+    db.exec(migration.match(/UPDATE attacks SET event_id = w\.id[\s\S]*?;/)![0]);
+    expect(db.prepare("SELECT id, event_id FROM attacks ORDER BY id").all()).toEqual(linked);
+  });
+
+  it("audits recent links and reports any that disagree with the event windows", async () => {
+    await create();
+    await expect(auditRecentEventAttackLinks(env)).resolves.toMatchObject({ details: { checked: 3, mismatched: 0 } });
+    db.exec("UPDATE attacks SET event_id = NULL WHERE id = 2");
+    await expect(auditRecentEventAttackLinks(env)).rejects.toThrow("1 of 3 recent attacks have the wrong event_id");
+    db.exec("UPDATE attacks SET event_id = (SELECT id FROM wars WHERE war_type = 'event') WHERE id = 2");
   });
 });

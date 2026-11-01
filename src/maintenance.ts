@@ -1,3 +1,4 @@
+import { auditRecentEventAttackLinks } from "./eventTracking";
 import { HeatmapSamplingError, sampleFactionActivityHeatmaps } from "./heatmap";
 import { syncHomeFactionMembershipAndSessions } from "./homeFactionMembers";
 import { syncMissingRankedWarReports } from "./ingestion";
@@ -132,6 +133,10 @@ function buildScheduledMaintenanceTasks(
     {
       name: "api usage rollups",
       run: () => refreshTornApiUsageRollups(env),
+    },
+    {
+      name: "event attack links",
+      run: () => auditRecentEventAttackLinks(env),
     },
   ];
 }

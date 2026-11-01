@@ -21,6 +21,7 @@ import {
   readSyncState,
   upsertSyncTimestamp,
 } from "../syncState";
+import { ATTACK_EVENT_ID_SQL } from "../sql";
 import {
   Env,
   TornAttack,
@@ -1495,7 +1496,7 @@ function isRetaliationOpeningAttack(attack: TornAttack): boolean {
   );
 }
 
-function buildLiveInsertStatement(
+export function buildLiveInsertStatement(
   env: Env,
   ingestRunId: string,
   warId: number | null,
@@ -1506,6 +1507,7 @@ function buildLiveInsertStatement(
     INSERT INTO attacks (
       id,
       war_id,
+      event_id,
       code,
       started,
       ended,
@@ -1537,12 +1539,16 @@ function buildLiveInsertStatement(
       ingest_run_id,
       fetched_at
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+    VALUES (?, ?, ${ATTACK_EVENT_ID_SQL}, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
     ON CONFLICT(id) DO NOTHING
     `,
   ).bind(
     attack.id,
     warId,
+    attack.started ?? null,
+    attack.ended ?? null,
+    attack.attacker?.faction?.id ?? null,
+    attack.defender?.faction?.id ?? null,
     attack.code ?? null,
     attack.started ?? null,
     attack.ended ?? null,
@@ -1575,7 +1581,7 @@ function buildLiveInsertStatement(
   );
 }
 
-function buildHistoricalImportStatement(
+export function buildHistoricalImportStatement(
   env: Env,
   warId: number | null,
   ingestRunId: string,
@@ -1586,6 +1592,7 @@ function buildHistoricalImportStatement(
     INSERT INTO attacks (
       id,
       war_id,
+      event_id,
       code,
       started,
       ended,
@@ -1617,13 +1624,17 @@ function buildHistoricalImportStatement(
       ingest_run_id,
       fetched_at
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+    VALUES (?, ?, ${ATTACK_EVENT_ID_SQL}, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
     ON CONFLICT(id) DO UPDATE SET
       war_id = COALESCE(attacks.war_id, excluded.war_id)
     `,
   ).bind(
     attack.id,
     warId,
+    attack.started ?? null,
+    attack.ended ?? null,
+    attack.attacker?.faction?.id ?? null,
+    attack.defender?.faction?.id ?? null,
     attack.code ?? null,
     attack.started ?? null,
     attack.ended ?? null,
