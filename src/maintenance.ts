@@ -43,16 +43,7 @@ const TORN_API_KEY_USAGE_WINDOW_DELETE_LIMIT = 100_000;
 const TORN_API_USAGE_ROLLUP_RETENTION_SECONDS = 30 * 24 * 60 * 60;
 const TORN_API_USAGE_ROLLUP_DELETE_LIMIT = 100_000;
 const METRICS_RETENTION_STATE_NAME = "scheduled_metrics_retention";
-const MEMBER_STAT_CORRECTION_INTERVAL_SECONDS = 60 * 60;
-const MEMBER_STAT_CORRECTION_STATE_NAME = "open_war_member_stats_rebuild";
 const NOOP_MAINTENANCE_METRIC_INTERVAL_SECONDS = 60 * 60;
-
-export async function markOpenWarMemberStatsRebuildComplete(
-  env: Env,
-  completedAt = nowSeconds(),
-): Promise<void> {
-  await upsertSyncTimestamp(env, MEMBER_STAT_CORRECTION_STATE_NAME, completedAt);
-}
 
 export async function runScheduledMaintenance(
   env: Env,
@@ -129,10 +120,6 @@ function buildScheduledMaintenanceTasks(
           details: result,
         };
       },
-    },
-    {
-      name: "member stat correction",
-      run: () => runMemberStatCorrectionIfDue(env),
     },
     {
       name: "member achievements",
@@ -336,32 +323,6 @@ async function shouldWriteMaintenanceRunMetric(
     .catch(() => null)) as { started_at: number | null } | null;
 
   return Number(latest?.started_at ?? 0) <= startedAt - NOOP_MAINTENANCE_METRIC_INTERVAL_SECONDS;
-}
-
-async function runMemberStatCorrectionIfDue(env: Env): Promise<MaintenanceTaskMetrics> {
-  const now = nowSeconds();
-  const lastCorrectionAt = await readSyncTimestamp(env, MEMBER_STAT_CORRECTION_STATE_NAME);
-
-  if (lastCorrectionAt > now - MEMBER_STAT_CORRECTION_INTERVAL_SECONDS) {
-    return {
-      writeStatements: 0,
-      changedRows: 0,
-      details: {
-        skipped: true,
-        reason: "member stat correction already ran in the last hour",
-      },
-    };
-  }
-
-  return {
-    writeStatements: 0,
-    changedRows: 0,
-    details: {
-      skipped: true,
-      reason: "member stat correction is handled by the hourly exact war summaries job",
-      last_rebuild_at: lastCorrectionAt || null,
-    },
-  };
 }
 
 async function cleanupOldMetrics(env: Env): Promise<MaintenanceTaskMetrics> {

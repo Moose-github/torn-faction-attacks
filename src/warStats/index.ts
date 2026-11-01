@@ -1,5 +1,6 @@
 export {
   applyIncrementalWarSummaries,
+  refreshPendingWarSummaries,
   applyIncrementalEventSummaries,
   clearWarStats,
   finalizeWar,

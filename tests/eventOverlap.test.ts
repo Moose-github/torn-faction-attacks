@@ -348,12 +348,36 @@ describe("independent event tracking", () => {
 
   it("seeds pending work when migrating an existing live event", async () => {
     const eventId = await create();
+    for (const row of db.prepare("SELECT name FROM sqlite_schema WHERE type='trigger' AND name LIKE 'war_stats_%'").all()) {
+      db.exec(`DROP TRIGGER ${row.name}`);
+    }
     db.exec("DROP TRIGGER event_stats_attack_insert; DROP TRIGGER event_stats_attack_update; DROP TRIGGER event_stats_attack_delete; DROP TABLE event_stats_dirty;");
     attack(4, START + 300);
     db.exec(readFileSync(new URL("../migrations/0190_incremental_event_stats.sql", import.meta.url), "utf8"));
     await refreshEventTracking(env);
     expect(db.prepare("SELECT attacks_vs_enemy_total FROM war_summary WHERE war_id = ?").get(eventId)?.attacks_vs_enemy_total).toBe(3);
     await expectMatchesFullRebuild(eventId);
+  });
+
+  it("revalues fallback bonuses when an unknown outgoing attacker changes", async () => {
+    const eventId = await create();
+    attack(4, START + 1800);
+    db.exec("UPDATE attacks SET attacker_id=11, chain=10, respect_gain=100 WHERE id=4");
+    await refreshEventTracking(env);
+    db.prepare(`INSERT INTO attacks (id, started, ended, attacker_id, attacker_faction_id,
+      defender_id, defender_faction_id, result, respect_gain, chain)
+      VALUES (5, ?, ?, NULL, 8803, 20, 99, 'Attacked', 20, 1)`).run(START + 300, START + 301);
+    for (const [sql, expected] of [
+      ["SELECT 1", 10],
+      ["UPDATE attacks SET respect_gain=50 WHERE id=5", 20],
+      ["DELETE FROM attacks WHERE id=5", 5],
+    ] as const) {
+      db.exec(sql);
+      expect(db.prepare("SELECT * FROM event_stats_dirty WHERE war_id=? AND member_id=0").all(eventId)).toHaveLength(1);
+      await refreshEventTracking(env);
+      expect(db.prepare("SELECT respect_gained FROM war_member_stats WHERE war_id=? AND member_id=11").get(eventId)?.respect_gained).toBe(expected);
+      await expectMatchesFullRebuild(eventId);
+    }
   });
 
   it("maintains respect counters through corrections, deleted hits and unknown attackers", async () => {

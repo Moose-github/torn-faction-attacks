@@ -1,3 +1,4 @@
+import { bumpWarCacheVersionById } from "../cacheVersions";
 import {
   CHAIN_BONUS_HITS_SQL,
   DEFEND_WON_RESULTS_SQL,
@@ -16,6 +17,8 @@ const WAR_STATS_REBUILD_LEASE_SECONDS = 15 * 60;
 const WAR_STATS_REBUILD_LEASE_PREFIX = "war_stats_rebuild";
 const PRACTICAL_DEFENSE_ACTION_WINDOW_SQL = OUTGOING_ACTION_WINDOW_SQL;
 const COMBAT_BUCKET_STATS = ["attacks_successful", "assists_vs_enemy", "outside_hits", "defends_lost", "defends_won", "defends_other", "respect_gained", "respect_lost"];
+
+type PendingStatsQueue = "event_stats_dirty" | "war_stats_dirty";
 
 export type WarStatsRebuildScope = "single-war" | "open-wars" | "all-wars";
 
@@ -68,17 +71,26 @@ export async function clearWarStats(env: Env, warId: number): Promise<void> {
 export async function applyIncrementalWarSummaries(
   env: Env,
   warId: number,
-  ingestRunId: string,
+  _ingestRunId?: string,
 ): Promise<void> {
-  try {
-    await applyIngestedWarMemberStats(env, warId, ingestRunId);
-  } catch (error) {
-    // Raw ingestion may already have advanced its cursor. Queue a rebuild so
-    // termed wars recover on the next tick even if no new attacks arrive.
-    await env.DB.prepare("UPDATE wars SET practical_rebuild_pending = 1 WHERE id = ? AND war_type = 'termed'")
-      .bind(warId).run();
-    throw error;
+  if (await applyPendingSummaries(env, warId, "war_stats_dirty")) {
+    await bumpWarCacheVersionById(env, warId);
   }
+}
+
+/** Retry durable corrections even without new attacks, including ended wars. */
+export async function refreshPendingWarSummaries(env: Env): Promise<void> {
+  const rows = await env.DB.prepare("SELECT DISTINCT war_id FROM war_stats_dirty ORDER BY war_id").all<{ war_id: number }>();
+  const errors: unknown[] = [];
+  for (const { war_id } of rows.results ?? []) {
+    try {
+      await applyIncrementalWarSummaries(env, war_id);
+    } catch (error) {
+      // One bad war must not starve the others; its transaction keeps the queue.
+      errors.push(error);
+    }
+  }
+  if (errors.length) throw new AggregateError(errors, "Unable to apply queued war corrections");
 }
 
 export async function rebuildWarStatsFromRaw(
@@ -398,43 +410,51 @@ export async function rebuildWarMemberStatsFromRaw(env: Env, warId: number): Pro
     warMemberDefendStatsStatement(env, warId),
     warMemberCombatBucketsStatement(env, warId),
     warSummaryFromMemberStatsStatement(env, warId),
-    env.DB.prepare("UPDATE attacks SET stats_pending = 0 WHERE war_id = ? AND stats_pending = 1").bind(warId),
+    env.DB.prepare("UPDATE attacks INDEXED BY idx_attacks_pending_stats SET stats_pending = 0 WHERE war_id = ? AND stats_pending = 1").bind(warId),
     env.DB.prepare("DELETE FROM event_stats_dirty WHERE war_id = ?").bind(warId),
+    env.DB.prepare("DELETE FROM war_stats_dirty WHERE war_id = ?").bind(warId),
   ]);
 }
 
-/** Recompute only pending event members/buckets, independently of war ownership. */
+/** Event membership is independent of raw attack war ownership. */
 export async function applyIncrementalEventSummaries(env: Env, warId: number): Promise<boolean> {
-  if (!await env.DB.prepare("SELECT 1 FROM event_stats_dirty WHERE war_id = ? LIMIT 1").bind(warId).first()) return false;
+  return applyPendingSummaries(env, warId, "event_stats_dirty");
+}
+
+async function applyPendingSummaries(env: Env, warId: number, queue: PendingStatsQueue): Promise<boolean> {
+  if (!await env.DB.prepare(`SELECT 1 FROM ${queue} WHERE war_id = ? LIMIT 1`).bind(warId).first()) return false;
   const lease = await claimWarStatsRebuildLease(env, warId);
   if (!lease) return false;
   try {
     // Queue reads, exact replacements and acknowledgement share one transaction.
     // A late/corrected/deleted attack is therefore either included or stays queued.
     const results = await env.DB.batch([
-      env.DB.prepare(`INSERT INTO event_stats_dirty (war_id, member_id, bucket_start)
-        SELECT a.war_id, a.attacker_id, CAST(a.started / ${MEMBER_ACTIVITY_BUCKET_SECONDS} AS INTEGER) * ${MEMBER_ACTIVITY_BUCKET_SECONDS}
-        FROM tracker_attacks a WHERE a.war_id = ? AND a.attacker_faction_id = ${HOME_FACTION_ID}
-          AND a.attacker_id IS NOT NULL AND a.started IS NOT NULL
+      expandPendingWindowStatement(env, warId, queue),
+      env.DB.prepare(`INSERT INTO ${queue} (war_id, member_id, bucket_start)
+        SELECT a.war_id, a.attacker_id, COALESCE(CAST(a.started / ${MEMBER_ACTIVITY_BUCKET_SECONDS} AS INTEGER) * ${MEMBER_ACTIVITY_BUCKET_SECONDS}, -1)
+        FROM ${queue === "war_stats_dirty" ? "attacks a INDEXED BY idx_attacks_war_bonus" : "tracker_attacks a"} WHERE a.war_id = ? AND a.attacker_faction_id = ${HOME_FACTION_ID}
+          AND a.attacker_id IS NOT NULL
           AND a.result IN (${POSITIVE_RESULTS_SQL}) AND a.chain IN (${CHAIN_BONUS_HITS_SQL})
-          AND EXISTS (SELECT 1 FROM event_stats_dirty WHERE war_id = a.war_id)
+          AND EXISTS (SELECT 1 FROM ${queue} WHERE war_id = a.war_id)
         UNION
-        SELECT a.war_id, a.defender_id, CAST(a.started / ${MEMBER_ACTIVITY_BUCKET_SECONDS} AS INTEGER) * ${MEMBER_ACTIVITY_BUCKET_SECONDS}
-        FROM tracker_attacks a WHERE a.war_id = ? AND a.defender_faction_id = ${HOME_FACTION_ID}
-          AND a.defender_id IS NOT NULL AND a.started IS NOT NULL
+        SELECT a.war_id, a.defender_id, COALESCE(CAST(a.started / ${MEMBER_ACTIVITY_BUCKET_SECONDS} AS INTEGER) * ${MEMBER_ACTIVITY_BUCKET_SECONDS}, -1)
+        FROM ${queue === "war_stats_dirty" ? "attacks a INDEXED BY idx_attacks_war_bonus" : "tracker_attacks a"} WHERE a.war_id = ? AND a.defender_faction_id = ${HOME_FACTION_ID}
+          AND a.defender_id IS NOT NULL
           AND a.result IN (${POSITIVE_RESULTS_SQL}) AND a.chain IN (${CHAIN_BONUS_HITS_SQL})
-          AND EXISTS (SELECT 1 FROM event_stats_dirty WHERE war_id = a.war_id)
+          AND EXISTS (SELECT 1 FROM ${queue} WHERE war_id = a.war_id)
         ON CONFLICT(war_id, member_id, bucket_start) DO NOTHING`).bind(warId, warId),
-      // New non-bonus hits can change earlier bonus valuations, including members
-      // using the event-wide fallback average. Only those historical buckets join
-      // the newly affected buckets above; unrelated history is never rewritten.
-      ...resetDerivedWarMemberStatsStatements(env, warId, true),
-      warMemberAttackStatsStatement(env, warId, true),
-      warMemberDefendStatsStatement(env, warId, true),
-      warMemberCombatBucketsStatement(env, warId, true),
-      deleteObsoleteEventBucketsStatement(env, warId),
+      // Ordinary hits change earlier bonus valuations, including other members
+      // using the war-wide fallback. Revisit those members and historical buckets.
+      ...resetDerivedWarMemberStatsStatements(env, warId, queue),
+      warMemberAttackStatsStatement(env, warId, queue),
+      warMemberDefendStatsStatement(env, warId, queue),
+      warMemberCombatBucketsStatement(env, warId, queue),
+      deleteObsoletePendingBucketsStatement(env, warId, queue),
       warSummaryFromMemberStatsStatement(env, warId),
-      env.DB.prepare("DELETE FROM event_stats_dirty WHERE war_id = ?").bind(warId),
+      ...(queue === "war_stats_dirty" ? [env.DB.prepare(
+        "UPDATE attacks INDEXED BY idx_attacks_pending_stats SET stats_pending = 0 WHERE war_id = ? AND stats_pending = 1",
+      ).bind(warId)] : []),
+      env.DB.prepare(`DELETE FROM ${queue} WHERE war_id = ?`).bind(warId),
     ]);
     return d1Changes(results[results.length - 1]) > 0;
   } finally {
@@ -442,8 +462,36 @@ export async function applyIncrementalEventSummaries(env: Env, warId: number): P
   }
 }
 
-function pendingEventMemberSql(member: string, war = "a.war_id", bucket?: string): string {
-  return `EXISTS (SELECT 1 FROM event_stats_dirty d WHERE d.war_id = ${war}
+function expandPendingWindowStatement(env: Env, warId: number, queue: PendingStatsQueue): D1PreparedStatement {
+  // Window/phase edits are uncommon. Their durable sentinel expands once, using
+  // both stored rows and current attacks so removed contributions are cleared.
+  return env.DB.prepare(`INSERT INTO ${queue} (war_id, member_id, bucket_start)
+    SELECT b.war_id, b.member_id, b.bucket_start FROM ${queue} q
+      CROSS JOIN war_member_combat_buckets b ON b.war_id = q.war_id
+      WHERE q.war_id = ? AND q.member_id = -1
+    UNION SELECT m.war_id, m.member_id, -1 FROM ${queue} q
+      CROSS JOIN war_member_stats m ON m.war_id = q.war_id
+      WHERE q.war_id = ? AND q.member_id = -1
+    UNION SELECT a.war_id, a.attacker_id, COALESCE(CAST(a.started / ${MEMBER_ACTIVITY_BUCKET_SECONDS} AS INTEGER) * ${MEMBER_ACTIVITY_BUCKET_SECONDS}, -1)
+      FROM ${queue} q CROSS JOIN ${queue === "war_stats_dirty" ? "attacks" : "tracker_attacks"} a ON a.war_id = q.war_id
+      WHERE q.war_id = ? AND q.member_id = -1 AND a.attacker_faction_id = ${HOME_FACTION_ID} AND a.attacker_id IS NOT NULL
+    UNION SELECT a.war_id, a.defender_id, COALESCE(CAST(a.started / ${MEMBER_ACTIVITY_BUCKET_SECONDS} AS INTEGER) * ${MEMBER_ACTIVITY_BUCKET_SECONDS}, -1)
+      FROM ${queue} q CROSS JOIN ${queue === "war_stats_dirty" ? "attacks" : "tracker_attacks"} a ON a.war_id = q.war_id
+      WHERE q.war_id = ? AND q.member_id = -1 AND a.defender_faction_id = ${HOME_FACTION_ID} AND a.defender_id IS NOT NULL
+    ON CONFLICT(war_id, member_id, bucket_start) DO NOTHING`).bind(warId, warId, warId, warId);
+}
+
+function pendingAttackSource(queue: PendingStatsQueue | undefined, member: "attacker" | "defender", buckets = false): string {
+  if (queue !== "war_stats_dirty") return "FROM tracker_attacks a";
+  // CROSS JOIN fixes the queue as the driving input. The existing war/member/time
+  // indexes then read only affected member histories or individual bucket ranges.
+  return `FROM (${buckets ? "SELECT *" : "SELECT DISTINCT war_id, member_id"} FROM war_stats_dirty) d
+    CROSS JOIN attacks a ON a.war_id = d.war_id AND a.${member}_id = d.member_id
+      ${buckets ? `AND a.started >= d.bucket_start AND a.started < d.bucket_start + ${MEMBER_ACTIVITY_BUCKET_SECONDS}` : ""}`;
+}
+
+function pendingMemberSql(queue: PendingStatsQueue, member: string, war = "a.war_id", bucket?: string): string {
+  return `EXISTS (SELECT 1 FROM ${queue} d WHERE d.war_id = ${war}
     AND d.member_id = ${member}${bucket ? ` AND d.bucket_start = ${bucket}` : ""})`;
 }
 
@@ -776,9 +824,9 @@ function warDefendRespectStatement(
     .bind(memberId ?? warId, warId, warId, warId);
 }
 
-function resetDerivedWarMemberStatsStatements(env: Env, warId?: number, onlyPendingEvent = false): D1PreparedStatement[] {
-  const whereClause = (warId === undefined ? "" : "WHERE war_id = ?") + (onlyPendingEvent
-    ? ` AND ${pendingEventMemberSql("war_member_stats.member_id", "war_member_stats.war_id")}` : "");
+function resetDerivedWarMemberStatsStatements(env: Env, warId?: number, pendingQueue?: PendingStatsQueue): D1PreparedStatement[] {
+  const whereClause = (warId === undefined ? "" : "WHERE war_id = ?") + (pendingQueue
+    ? ` AND ${pendingMemberSql(pendingQueue, "war_member_stats.member_id", "war_member_stats.war_id")}` : "");
   const bindValue = warId === undefined ? [] : [warId];
 
   const resetStatement = env.DB.prepare(
@@ -831,12 +879,12 @@ function resetDerivedWarMemberStatsStatements(env: Env, warId?: number, onlyPend
 function warMemberAttackStatsStatement(
   env: Env,
   warId: number,
-  onlyPendingEvent = false,
+  pendingQueue?: PendingStatsQueue,
 ): D1PreparedStatement {
   return env.DB.prepare(
     `
     WITH member_averages AS (
-      ${onlyPendingEvent ? memberRespectAveragesSql("outgoing") : `
+      ${pendingQueue ? memberRespectAveragesSql("outgoing") : `
       SELECT
         a.war_id,
         a.attacker_id,
@@ -854,7 +902,7 @@ function warMemberAttackStatsStatement(
       `}
     ),
     war_average AS (
-      ${onlyPendingEvent ? respectAverageSql("outgoing") : `
+      ${pendingQueue ? respectAverageSql("outgoing") : `
       SELECT AVG(a.respect_gain) AS avg_respect
       FROM tracker_attacks a
       JOIN wars w ON w.id = a.war_id
@@ -997,7 +1045,7 @@ function warMemberAttackStatsStatement(
       END) AS average_fair_fight,
       MIN(a.started) AS first_action_at,
       MAX(a.started) AS last_action_at
-    FROM tracker_attacks a
+    ${pendingAttackSource(pendingQueue, "attacker")}
     JOIN wars w ON w.id = a.war_id
     LEFT JOIN member_averages ma ON ma.war_id = a.war_id AND ma.attacker_id = a.attacker_id
     LEFT JOIN war_average wa ON 1 = 1
@@ -1005,7 +1053,7 @@ function warMemberAttackStatsStatement(
       AND a.attacker_faction_id = ?
       AND a.attacker_id IS NOT NULL
       AND ${OUTGOING_ACTION_WINDOW_SQL}
-      ${onlyPendingEvent ? `AND ${pendingEventMemberSql("a.attacker_id")}` : ""}
+      ${pendingQueue ? `AND ${pendingMemberSql(pendingQueue, "a.attacker_id")}` : ""}
     GROUP BY a.war_id, a.attacker_id
     ON CONFLICT(war_id, member_id) DO UPDATE SET
 ${ATTACK_MEMBER_STAT_MERGE_SQL}
@@ -1014,49 +1062,14 @@ ${ATTACK_MEMBER_STAT_MERGE_SQL}
     .bind(warId, warId, warId, HOME_FACTION_ID);
 }
 
-async function applyIngestedWarMemberStats(
-  env: Env,
-  warId: number,
-  ingestRunId: string,
-): Promise<number> {
-  const countRow = (await env.DB.prepare(
-    `
-    SELECT COUNT(*) AS count
-    FROM tracker_attacks
-    WHERE war_id = ?
-      AND ingest_run_id = ?
-      AND stats_pending = 1
-    `,
-  )
-    .bind(warId, ingestRunId)
-    .first()) as { count: number | null } | null;
-  const appliedAttacks = Number(countRow?.count ?? 0);
-
-  if (appliedAttacks === 0) {
-    return 0;
-  }
-
-  // Keep the pending predicates inside this transaction as well: a rebuild may
-  // have consumed the batch after the count above. Repeating a run is a no-op.
-  await env.DB.batch([
-    ingestedWarMemberAttackStatsStatement(env, warId, ingestRunId),
-    ingestedWarMemberDefendStatsStatement(env, warId, ingestRunId),
-    ingestedWarMemberCombatBucketsStatement(env, warId, ingestRunId),
-    warSummaryFromMemberStatsStatement(env, warId),
-    env.DB.prepare("UPDATE attacks SET stats_pending = 0 WHERE war_id = ? AND ingest_run_id = ? AND stats_pending = 1")
-      .bind(warId, ingestRunId),
-  ]);
-  return appliedAttacks;
-}
-
 export function warMemberCombatBucketsCte(
   outgoingWindowSql = OUTGOING_ACTION_WINDOW_SQL,
   defenseWindowSql = PRACTICAL_DEFENSE_ACTION_WINDOW_SQL,
-  onlyPendingEvent = false,
+  pendingQueue?: PendingStatsQueue,
 ): string {
   return `
     WITH outgoing_member_averages AS (
-      ${onlyPendingEvent ? memberRespectAveragesSql("outgoing", "member_id") : `
+      ${pendingQueue ? memberRespectAveragesSql("outgoing", "member_id") : `
       SELECT
         a.attacker_id AS member_id,
         AVG(a.respect_gain) AS avg_respect
@@ -1073,7 +1086,7 @@ export function warMemberCombatBucketsCte(
       `}
     ),
     outgoing_war_average AS (
-      ${onlyPendingEvent ? respectAverageSql("outgoing") : `
+      ${pendingQueue ? respectAverageSql("outgoing") : `
       SELECT AVG(a.respect_gain) AS avg_respect
       FROM tracker_attacks a
       JOIN wars w ON w.id = a.war_id
@@ -1086,7 +1099,7 @@ export function warMemberCombatBucketsCte(
       `}
     ),
     defend_member_averages AS (
-      ${onlyPendingEvent ? memberRespectAveragesSql("incoming") : `
+      ${pendingQueue ? memberRespectAveragesSql("incoming") : `
       SELECT
         a.attacker_id,
         AVG(a.respect_gain) AS avg_respect
@@ -1103,7 +1116,7 @@ export function warMemberCombatBucketsCte(
       `}
     ),
     defend_war_average AS (
-      ${onlyPendingEvent ? respectAverageSql("incoming") : `
+      ${pendingQueue ? respectAverageSql("incoming") : `
       SELECT AVG(a.respect_gain) AS avg_respect
       FROM tracker_attacks a
       JOIN wars w ON w.id = a.war_id
@@ -1160,7 +1173,7 @@ export function warMemberCombatBucketsCte(
           ELSE 0
         END), 0) AS respect_gained,
         0 AS respect_lost
-      FROM tracker_attacks a
+      ${pendingAttackSource(pendingQueue, "attacker", true)}
       JOIN wars w ON w.id = a.war_id
       LEFT JOIN outgoing_member_averages oma ON oma.member_id = a.attacker_id
       LEFT JOIN outgoing_war_average owa ON 1 = 1
@@ -1169,7 +1182,7 @@ export function warMemberCombatBucketsCte(
         AND a.attacker_faction_id = ${HOME_FACTION_ID}
         AND a.attacker_id IS NOT NULL
         AND ${outgoingWindowSql}
-        ${onlyPendingEvent ? `AND ${pendingEventMemberSql("a.attacker_id", "a.war_id", `CAST(a.started / ${MEMBER_ACTIVITY_BUCKET_SECONDS} AS INTEGER) * ${MEMBER_ACTIVITY_BUCKET_SECONDS}`)}` : ""}
+        ${pendingQueue ? `AND ${pendingMemberSql(pendingQueue, "a.attacker_id", "a.war_id", `CAST(a.started / ${MEMBER_ACTIVITY_BUCKET_SECONDS} AS INTEGER) * ${MEMBER_ACTIVITY_BUCKET_SECONDS}`)}` : ""}
       GROUP BY a.war_id, a.attacker_id, bucket_start
       HAVING attacks_successful > 0
         OR assists_vs_enemy > 0
@@ -1214,7 +1227,7 @@ export function warMemberCombatBucketsCte(
           END
           ELSE 0
         END), 0) AS respect_lost
-      FROM tracker_attacks a
+      ${pendingAttackSource(pendingQueue, "defender", true)}
       JOIN wars w ON w.id = a.war_id
       LEFT JOIN defend_member_averages dma ON dma.attacker_id = a.attacker_id
       LEFT JOIN defend_war_average dwa ON 1 = 1
@@ -1224,7 +1237,7 @@ export function warMemberCombatBucketsCte(
         AND a.defender_id IS NOT NULL
         AND ${RELEVANT_DEFEND_SQL}
         AND ${defenseWindowSql}
-        ${onlyPendingEvent ? `AND ${pendingEventMemberSql("a.defender_id", "a.war_id", `CAST(a.started / ${MEMBER_ACTIVITY_BUCKET_SECONDS} AS INTEGER) * ${MEMBER_ACTIVITY_BUCKET_SECONDS}`)}` : ""}
+        ${pendingQueue ? `AND ${pendingMemberSql(pendingQueue, "a.defender_id", "a.war_id", `CAST(a.started / ${MEMBER_ACTIVITY_BUCKET_SECONDS} AS INTEGER) * ${MEMBER_ACTIVITY_BUCKET_SECONDS}`)}` : ""}
       GROUP BY a.war_id, a.defender_id, bucket_start
       HAVING defends_lost > 0
         OR defends_won > 0
@@ -1253,16 +1266,16 @@ export function warMemberCombatBucketsCte(
 function warMemberCombatBucketsStatement(
   env: Env,
   warId: number,
-  onlyPendingEvent = false,
+  pendingQueue?: PendingStatsQueue,
 ): D1PreparedStatement {
   // A queued bucket that no longer has contributing attacks is replaced with
   // zeros, then removed in the same transaction. Only already stored buckets
   // need that placeholder; empty queue entries must not create new rows.
   // This avoids evaluating the historical averages/grouping again for cleanup.
-  const bucketRowsSql = onlyPendingEvent ? `
+  const bucketRowsSql = pendingQueue ? `
     SELECT d.war_id, d.member_id, d.bucket_start,
       ${COMBAT_BUCKET_STATS.map(column => `COALESCE(g.${column}, 0)`).join(", ")}
-    FROM event_stats_dirty d
+    FROM ${pendingQueue} d
     LEFT JOIN grouped_rows g ON g.war_id = d.war_id
       AND g.member_id = d.member_id AND g.bucket_start = d.bucket_start
     WHERE d.war_id = ? AND (g.war_id IS NOT NULL OR EXISTS (
@@ -1274,25 +1287,25 @@ function warMemberCombatBucketsStatement(
     WHERE true`;
   return env.DB.prepare(
     `
-    ${warMemberCombatBucketsCte(undefined, undefined, onlyPendingEvent)}
+    ${warMemberCombatBucketsCte(undefined, undefined, pendingQueue)}
     INSERT INTO war_member_combat_buckets (
       war_id, member_id, bucket_start, ${COMBAT_BUCKET_STATS.join(", ")}
     )
     ${bucketRowsSql}
     ON CONFLICT(war_id, member_id, bucket_start) DO UPDATE SET
-      ${COMBAT_BUCKET_STATS.map(column => `${column} = ${onlyPendingEvent ? "" : `war_member_combat_buckets.${column} + `}excluded.${column}`).join(",\n      ")}
-      ${onlyPendingEvent ? `WHERE ${COMBAT_BUCKET_STATS.map(column => `war_member_combat_buckets.${column} IS NOT excluded.${column}`).join(" OR ")}` : ""}
+      ${COMBAT_BUCKET_STATS.map(column => `${column} = ${pendingQueue ? "" : `war_member_combat_buckets.${column} + `}excluded.${column}`).join(",\n      ")}
+      ${pendingQueue ? `WHERE ${COMBAT_BUCKET_STATS.map(column => `war_member_combat_buckets.${column} IS NOT excluded.${column}`).join(" OR ")}` : ""}
     `,
-  ).bind(...combatBucketBindings(warId), ...(onlyPendingEvent ? [warId] : []));
+  ).bind(...combatBucketBindings(warId), ...(pendingQueue ? [warId] : []));
 }
 
-function deleteObsoleteEventBucketsStatement(env: Env, warId: number): D1PreparedStatement {
+function deleteObsoletePendingBucketsStatement(env: Env, warId: number, pendingQueue: PendingStatsQueue): D1PreparedStatement {
   // Nonempty grouped rows always have a positive action count. The upsert above
   // therefore leaves zeros only for obsolete buckets, without a second raw scan.
   return env.DB.prepare(`
     DELETE FROM war_member_combat_buckets
     WHERE (war_id, member_id, bucket_start) IN (
-      SELECT war_id, member_id, bucket_start FROM event_stats_dirty WHERE war_id = ?
+      SELECT war_id, member_id, bucket_start FROM ${pendingQueue} WHERE war_id = ?
     )
       AND ${COMBAT_BUCKET_STATS.map(column => `${column} = 0`).join(" AND ")}
   `).bind(warId);
@@ -1313,502 +1326,15 @@ function combatBucketBindings(warId: number): number[] {
   ];
 }
 
-function ingestedWarMemberCombatBucketsStatement(
-  env: Env,
-  warId: number,
-  ingestRunId: string,
-): D1PreparedStatement {
-  return env.DB.prepare(
-    `
-    WITH outgoing_member_averages AS (
-      ${memberRespectAveragesSql("outgoing", "member_id")}
-    ), outgoing_war_average AS (
-      ${respectAverageSql("outgoing")}
-    ), defend_member_averages AS (
-      ${memberRespectAveragesSql("incoming")}
-    ), defend_war_average AS (
-      ${respectAverageSql("incoming")}
-    ),
-    bucket_rows AS (
-      SELECT
-        a.war_id,
-        a.attacker_id AS member_id,
-        CAST((a.started / ?) AS INTEGER) * ? AS bucket_start,
-        SUM(CASE
-          WHEN (w.enemy_faction_id IS NULL OR a.defender_faction_id = w.enemy_faction_id)
-           AND a.result IN (${POSITIVE_RESULTS_SQL})
-          THEN 1
-          ELSE 0
-        END) AS attacks_successful,
-        SUM(CASE
-          WHEN (w.enemy_faction_id IS NULL OR a.defender_faction_id = w.enemy_faction_id)
-           AND a.result = 'Assist'
-          THEN 1
-          ELSE 0
-        END) AS assists_vs_enemy,
-        SUM(CASE
-          WHEN w.enemy_faction_id IS NOT NULL
-           AND (
-             a.defender_faction_id IS NULL
-             OR a.defender_faction_id != w.enemy_faction_id
-           )
-           AND NOT (
-             a.defender_faction_id = ${HOME_FACTION_ID}
-             AND a.result = 'Hospitalized'
-           )
-          THEN 1
-          ELSE 0
-        END) AS outside_hits,
-        0 AS defends_lost,
-        0 AS defends_won,
-        0 AS defends_other,
-        COALESCE(SUM(CASE
-          WHEN (w.enemy_faction_id IS NULL OR a.defender_faction_id = w.enemy_faction_id)
-           AND a.result IN (${POSITIVE_RESULTS_SQL})
-          THEN CASE
-            WHEN a.chain IN (${CHAIN_BONUS_HITS_SQL})
-            THEN COALESCE(oma.avg_respect, owa.avg_respect, 0)
-            ELSE a.respect_gain
-          END
-          ELSE 0
-        END), 0) AS respect_gained,
-        0 AS respect_lost
-      FROM tracker_attacks a
-      JOIN wars w ON w.id = a.war_id
-      LEFT JOIN outgoing_member_averages oma ON oma.member_id = a.attacker_id
-      LEFT JOIN outgoing_war_average owa ON 1 = 1
-      WHERE a.war_id = ?
-        AND a.ingest_run_id = ?
-        AND a.stats_pending = 1
-        AND a.started IS NOT NULL
-        AND a.attacker_faction_id = ${HOME_FACTION_ID}
-        AND a.attacker_id IS NOT NULL
-        AND ${OUTGOING_ACTION_WINDOW_SQL}
-      GROUP BY a.war_id, a.attacker_id, bucket_start
-      HAVING attacks_successful > 0
-        OR assists_vs_enemy > 0
-        OR outside_hits > 0
-        OR respect_gained > 0
-
-      UNION ALL
-
-      SELECT
-        a.war_id,
-        a.defender_id AS member_id,
-        CAST((a.started / ?) AS INTEGER) * ? AS bucket_start,
-        0 AS attacks_successful,
-        0 AS assists_vs_enemy,
-        0 AS outside_hits,
-        SUM(CASE
-          WHEN a.result IN (${POSITIVE_RESULTS_SQL})
-          THEN 1
-          ELSE 0
-        END) AS defends_lost,
-        SUM(CASE
-          WHEN a.result IN (${DEFEND_WON_RESULTS_SQL})
-          THEN 1
-          ELSE 0
-        END) AS defends_won,
-        SUM(CASE
-          WHEN a.result IS NULL
-            OR (
-              a.result NOT IN (${POSITIVE_RESULTS_SQL})
-              AND a.result NOT IN (${DEFEND_WON_RESULTS_SQL})
-            )
-          THEN 1
-          ELSE 0
-        END) AS defends_other,
-        0 AS respect_gained,
-        COALESCE(SUM(CASE
-          WHEN a.result IN (${POSITIVE_RESULTS_SQL})
-          THEN CASE
-            WHEN a.chain IN (${CHAIN_BONUS_HITS_SQL})
-            THEN COALESCE(dma.avg_respect, dwa.avg_respect, 0)
-            ELSE a.respect_gain
-          END
-          ELSE 0
-        END), 0) AS respect_lost
-      FROM tracker_attacks a
-      JOIN wars w ON w.id = a.war_id
-      LEFT JOIN defend_member_averages dma ON dma.attacker_id = a.attacker_id
-      LEFT JOIN defend_war_average dwa ON 1 = 1
-      WHERE a.war_id = ?
-        AND a.ingest_run_id = ?
-        AND a.stats_pending = 1
-        AND a.started IS NOT NULL
-        AND a.defender_faction_id = ${HOME_FACTION_ID}
-        AND a.defender_id IS NOT NULL
-        AND ${RELEVANT_DEFEND_SQL}
-        AND ${PRACTICAL_DEFENSE_ACTION_WINDOW_SQL}
-      GROUP BY a.war_id, a.defender_id, bucket_start
-      HAVING defends_lost > 0
-        OR defends_won > 0
-        OR defends_other > 0
-        OR respect_lost > 0
-    ),
-    grouped_rows AS (
-      SELECT
-        war_id,
-        member_id,
-        bucket_start,
-        SUM(attacks_successful) AS attacks_successful,
-        SUM(assists_vs_enemy) AS assists_vs_enemy,
-        SUM(outside_hits) AS outside_hits,
-        SUM(defends_lost) AS defends_lost,
-        SUM(defends_won) AS defends_won,
-        SUM(defends_other) AS defends_other,
-        SUM(respect_gained) AS respect_gained,
-        SUM(respect_lost) AS respect_lost
-      FROM bucket_rows
-      GROUP BY war_id, member_id, bucket_start
-    )
-    INSERT INTO war_member_combat_buckets (
-      war_id,
-      member_id,
-      bucket_start,
-      attacks_successful,
-      assists_vs_enemy,
-      outside_hits,
-      defends_lost,
-      defends_won,
-      defends_other,
-      respect_gained,
-      respect_lost
-    )
-    SELECT
-      war_id,
-      member_id,
-      bucket_start,
-      attacks_successful,
-      assists_vs_enemy,
-      outside_hits,
-      defends_lost,
-      defends_won,
-      defends_other,
-      respect_gained,
-      respect_lost
-    FROM grouped_rows
-    WHERE true
-    ON CONFLICT(war_id, member_id, bucket_start) DO UPDATE SET
-      attacks_successful = war_member_combat_buckets.attacks_successful + excluded.attacks_successful,
-      assists_vs_enemy = war_member_combat_buckets.assists_vs_enemy + excluded.assists_vs_enemy,
-      outside_hits = war_member_combat_buckets.outside_hits + excluded.outside_hits,
-      defends_lost = war_member_combat_buckets.defends_lost + excluded.defends_lost,
-      defends_won = war_member_combat_buckets.defends_won + excluded.defends_won,
-      defends_other = war_member_combat_buckets.defends_other + excluded.defends_other,
-      respect_gained = war_member_combat_buckets.respect_gained + excluded.respect_gained,
-      respect_lost = war_member_combat_buckets.respect_lost + excluded.respect_lost
-    `,
-  )
-    .bind(
-      warId,
-      warId,
-      warId,
-      warId,
-      MEMBER_ACTIVITY_BUCKET_SECONDS,
-      MEMBER_ACTIVITY_BUCKET_SECONDS,
-      warId,
-      ingestRunId,
-      MEMBER_ACTIVITY_BUCKET_SECONDS,
-      MEMBER_ACTIVITY_BUCKET_SECONDS,
-      warId,
-      ingestRunId,
-    );
-}
-
-function ingestedWarMemberAttackStatsStatement(
-  env: Env,
-  warId: number,
-  ingestRunId: string,
-): D1PreparedStatement {
-  return env.DB.prepare(
-    `
-    WITH member_averages AS (
-      ${memberRespectAveragesSql("outgoing", "member_id")}
-    ), war_average AS (
-      ${respectAverageSql("outgoing")}
-    )
-    INSERT INTO war_member_stats (
-      war_id,
-      member_id,
-      member_name,
-      attacks_vs_enemy_total,
-      attacks_vs_enemy_successful,
-      respect_gained,
-      respect_gained_raw,
-      chain_bonus_hits_vs_enemy,
-      chain_bonus_respect_removed,
-      chain_bonus_hit_values_vs_enemy,
-      chain_bonus_hit_details_vs_enemy,
-      assists_vs_enemy,
-      hospitalizations_vs_enemy,
-      mugs_vs_enemy,
-      retaliations_vs_enemy,
-      outside_hits,
-      friendly_hosps,
-      average_fair_fight,
-      first_action_at,
-      last_action_at
-    )
-    SELECT
-      a.war_id,
-      a.attacker_id,
-      MAX(a.attacker_name),
-      SUM(CASE
-        WHEN w.enemy_faction_id IS NULL OR a.defender_faction_id = w.enemy_faction_id THEN 1
-        ELSE 0
-      END) AS attacks_vs_enemy_total,
-      SUM(CASE
-        WHEN (w.enemy_faction_id IS NULL OR a.defender_faction_id = w.enemy_faction_id)
-         AND a.result IN (${POSITIVE_RESULTS_SQL})
-        THEN 1
-        ELSE 0
-      END) AS attacks_vs_enemy_successful,
-      COALESCE(SUM(CASE
-        WHEN w.enemy_faction_id IS NULL OR a.defender_faction_id = w.enemy_faction_id
-        THEN CASE
-          WHEN a.result IN (${POSITIVE_RESULTS_SQL})
-           AND a.chain IN (${CHAIN_BONUS_HITS_SQL})
-          THEN COALESCE(ma.avg_respect, wa.avg_respect, 0)
-          ELSE a.respect_gain
-        END
-        ELSE 0
-      END), 0) AS respect_gained,
-      COALESCE(SUM(CASE
-        WHEN (w.enemy_faction_id IS NULL OR a.defender_faction_id = w.enemy_faction_id)
-         AND a.result IN (${POSITIVE_RESULTS_SQL})
-        THEN a.respect_gain
-        ELSE 0
-      END), 0) AS respect_gained_raw,
-      SUM(CASE
-        WHEN (w.enemy_faction_id IS NULL OR a.defender_faction_id = w.enemy_faction_id)
-         AND a.result IN (${POSITIVE_RESULTS_SQL})
-         AND a.chain IN (${CHAIN_BONUS_HITS_SQL})
-        THEN 1
-        ELSE 0
-      END) AS chain_bonus_hits_vs_enemy,
-      COALESCE(SUM(CASE
-        WHEN (w.enemy_faction_id IS NULL OR a.defender_faction_id = w.enemy_faction_id)
-         AND a.result IN (${POSITIVE_RESULTS_SQL})
-         AND a.chain IN (${CHAIN_BONUS_HITS_SQL})
-        THEN a.respect_gain - COALESCE(ma.avg_respect, wa.avg_respect, 0)
-        ELSE 0
-      END), 0) AS chain_bonus_respect_removed,
-      COALESCE(GROUP_CONCAT(CASE
-        WHEN (w.enemy_faction_id IS NULL OR a.defender_faction_id = w.enemy_faction_id)
-         AND a.result IN (${POSITIVE_RESULTS_SQL})
-         AND a.chain IN (${CHAIN_BONUS_HITS_SQL})
-        THEN a.chain
-        ELSE NULL
-      END, ', '), '') AS chain_bonus_hit_values_vs_enemy,
-      COALESCE(GROUP_CONCAT(CASE
-        WHEN (w.enemy_faction_id IS NULL OR a.defender_faction_id = w.enemy_faction_id)
-         AND a.result IN (${POSITIVE_RESULTS_SQL})
-         AND a.chain IN (${CHAIN_BONUS_HITS_SQL})
-        THEN a.chain || ' - ' || printf('%g', ROUND(COALESCE(ma.avg_respect, wa.avg_respect, 0), 1)) || ' respect'
-        ELSE NULL
-      END, char(10)), '') AS chain_bonus_hit_details_vs_enemy,
-      SUM(CASE
-        WHEN (w.enemy_faction_id IS NULL OR a.defender_faction_id = w.enemy_faction_id)
-         AND a.result = 'Assist'
-        THEN 1
-        ELSE 0
-      END) AS assists_vs_enemy,
-      SUM(CASE
-        WHEN (w.enemy_faction_id IS NULL OR a.defender_faction_id = w.enemy_faction_id)
-         AND a.result = 'Hospitalized'
-        THEN 1
-        ELSE 0
-      END) AS hospitalizations_vs_enemy,
-      SUM(CASE
-        WHEN (w.enemy_faction_id IS NULL OR a.defender_faction_id = w.enemy_faction_id)
-         AND a.result = 'Mugged'
-        THEN 1
-        ELSE 0
-      END) AS mugs_vs_enemy,
-      SUM(CASE
-        WHEN (w.enemy_faction_id IS NULL OR a.defender_faction_id = w.enemy_faction_id)
-         AND a.result = 'Hospitalized'
-         AND COALESCE(a.m_retaliation, 1) > 1
-        THEN 1
-        ELSE 0
-      END) AS retaliations_vs_enemy,
-      SUM(CASE
-        WHEN w.enemy_faction_id IS NOT NULL
-         AND (
-           a.defender_faction_id IS NULL
-           OR a.defender_faction_id != w.enemy_faction_id
-         )
-         AND NOT (
-           a.defender_faction_id = ${HOME_FACTION_ID}
-           AND a.result = 'Hospitalized'
-         )
-        THEN 1
-        ELSE 0
-      END) AS outside_hits,
-      SUM(CASE
-        WHEN a.result = 'Hospitalized'
-         AND a.defender_faction_id = ${HOME_FACTION_ID}
-        THEN 1
-        ELSE 0
-      END) AS friendly_hosps,
-      AVG(CASE
-        WHEN w.enemy_faction_id IS NULL OR a.defender_faction_id = w.enemy_faction_id
-        THEN a.m_fair_fight
-        ELSE NULL
-      END) AS average_fair_fight,
-      MIN(a.started) AS first_action_at,
-      MAX(a.started) AS last_action_at
-    FROM tracker_attacks a
-    JOIN wars w ON w.id = a.war_id
-    LEFT JOIN member_averages ma ON ma.member_id = a.attacker_id
-    LEFT JOIN war_average wa ON 1 = 1
-    WHERE a.war_id = ?
-      AND a.ingest_run_id = ?
-      AND a.stats_pending = 1
-      AND a.attacker_faction_id = ${HOME_FACTION_ID}
-      AND a.attacker_id IS NOT NULL
-      AND ${OUTGOING_ACTION_WINDOW_SQL}
-    GROUP BY a.war_id, a.attacker_id
-    ON CONFLICT(war_id, member_id) DO UPDATE SET
-${ATTACK_MEMBER_STAT_MERGE_SQL}
-    `,
-  )
-    .bind(warId, warId, warId, ingestRunId);
-}
-
-function ingestedWarMemberDefendStatsStatement(
-  env: Env,
-  warId: number,
-  ingestRunId: string,
-): D1PreparedStatement {
-  return env.DB.prepare(
-    `
-    WITH member_averages AS (
-      ${memberRespectAveragesSql("incoming")}
-    ), war_average AS (
-      ${respectAverageSql("incoming")}
-    )
-    INSERT INTO war_member_stats (
-      war_id,
-      member_id,
-      member_name,
-      defends_total,
-      defends_won,
-      defends_other,
-      defends_lost_non_hospitalized,
-      respect_lost,
-      respect_lost_non_hospitalized,
-      respect_lost_raw,
-      enemy_chain_bonus_hits_received,
-      enemy_chain_bonus_respect_removed,
-      enemy_chain_bonus_hit_values_received,
-      enemy_chain_bonus_hit_details_received,
-      first_action_at,
-      last_action_at
-    )
-    SELECT
-      a.war_id,
-      a.defender_id,
-      MAX(a.defender_name),
-      COUNT(*) AS defends_total,
-      SUM(CASE
-        WHEN a.result IN (${DEFEND_WON_RESULTS_SQL}) THEN 1
-        ELSE 0
-      END) AS defends_won,
-      SUM(CASE
-        WHEN a.result IS NULL
-          OR (
-            a.result NOT IN (${POSITIVE_RESULTS_SQL})
-            AND a.result NOT IN (${DEFEND_WON_RESULTS_SQL})
-          )
-        THEN 1
-        ELSE 0
-      END) AS defends_other,
-      SUM(CASE
-        WHEN a.result IN (${POSITIVE_RESULTS_SQL})
-         AND a.result != 'Hospitalized'
-        THEN 1
-        ELSE 0
-      END) AS defends_lost_non_hospitalized,
-      COALESCE(SUM(CASE
-        WHEN a.result IN (${POSITIVE_RESULTS_SQL})
-        THEN CASE
-          WHEN a.chain IN (${CHAIN_BONUS_HITS_SQL})
-          THEN COALESCE(ma.avg_respect, wa.avg_respect, 0)
-          ELSE a.respect_gain
-        END
-        ELSE 0
-      END), 0) AS respect_lost,
-      COALESCE(SUM(CASE
-        WHEN a.result IN (${POSITIVE_RESULTS_SQL})
-         AND a.result != 'Hospitalized'
-        THEN CASE
-          WHEN a.chain IN (${CHAIN_BONUS_HITS_SQL})
-          THEN COALESCE(ma.avg_respect, wa.avg_respect, 0)
-          ELSE a.respect_gain
-        END
-        ELSE 0
-      END), 0) AS respect_lost_non_hospitalized,
-      COALESCE(SUM(CASE
-        WHEN a.result IN (${POSITIVE_RESULTS_SQL})
-        THEN a.respect_gain
-        ELSE 0
-      END), 0) AS respect_lost_raw,
-      SUM(CASE
-        WHEN a.result IN (${POSITIVE_RESULTS_SQL})
-         AND a.chain IN (${CHAIN_BONUS_HITS_SQL})
-        THEN 1
-        ELSE 0
-      END) AS enemy_chain_bonus_hits_received,
-      COALESCE(SUM(CASE
-        WHEN a.result IN (${POSITIVE_RESULTS_SQL})
-         AND a.chain IN (${CHAIN_BONUS_HITS_SQL})
-        THEN a.respect_gain - COALESCE(ma.avg_respect, wa.avg_respect, 0)
-        ELSE 0
-      END), 0) AS enemy_chain_bonus_respect_removed,
-      COALESCE(GROUP_CONCAT(CASE
-        WHEN a.result IN (${POSITIVE_RESULTS_SQL})
-         AND a.chain IN (${CHAIN_BONUS_HITS_SQL})
-        THEN a.chain
-        ELSE NULL
-      END, ', '), '') AS enemy_chain_bonus_hit_values_received,
-      COALESCE(GROUP_CONCAT(CASE
-        WHEN a.result IN (${POSITIVE_RESULTS_SQL})
-         AND a.chain IN (${CHAIN_BONUS_HITS_SQL})
-        THEN a.chain || ' - ' || printf('%g', ROUND(COALESCE(ma.avg_respect, wa.avg_respect, 0), 1)) || ' respect'
-        ELSE NULL
-      END, char(10)), '') AS enemy_chain_bonus_hit_details_received,
-      MIN(a.started) AS first_action_at,
-      MAX(a.started) AS last_action_at
-    FROM tracker_attacks a
-    JOIN wars w ON w.id = a.war_id
-    LEFT JOIN member_averages ma ON ma.attacker_id = a.attacker_id
-    LEFT JOIN war_average wa ON 1 = 1
-    WHERE a.war_id = ?
-      AND a.ingest_run_id = ?
-      AND a.stats_pending = 1
-      AND a.defender_faction_id = ${HOME_FACTION_ID}
-      AND a.defender_id IS NOT NULL
-      AND ${RELEVANT_DEFEND_SQL}
-      AND ${PRACTICAL_DEFENSE_ACTION_WINDOW_SQL}
-    GROUP BY a.war_id, a.defender_id
-    ON CONFLICT(war_id, member_id) DO UPDATE SET
-${DEFEND_MEMBER_STAT_MERGE_SQL}
-    `,
-  )
-    .bind(warId, warId, warId, ingestRunId);
-}
-
 function warMemberDefendStatsStatement(
   env: Env,
   warId: number,
-  onlyPendingEvent = false,
+  pendingQueue?: PendingStatsQueue,
 ): D1PreparedStatement {
   return env.DB.prepare(
     `
     WITH member_averages AS (
-      ${onlyPendingEvent ? memberRespectAveragesSql("incoming") : `
+      ${pendingQueue ? memberRespectAveragesSql("incoming") : `
       SELECT
         a.attacker_id,
         AVG(a.respect_gain) AS avg_respect
@@ -1825,7 +1351,7 @@ function warMemberDefendStatsStatement(
       `}
     ),
     war_average AS (
-      ${onlyPendingEvent ? respectAverageSql("incoming") : `
+      ${pendingQueue ? respectAverageSql("incoming") : `
       SELECT AVG(a.respect_gain) AS avg_respect
       FROM tracker_attacks a
       JOIN wars w ON w.id = a.war_id
@@ -1930,7 +1456,7 @@ function warMemberDefendStatsStatement(
       END, char(10)), '') AS enemy_chain_bonus_hit_details_received,
       MIN(a.started) AS first_action_at,
       MAX(a.started) AS last_action_at
-    FROM tracker_attacks a
+    ${pendingAttackSource(pendingQueue, "defender")}
     JOIN wars w ON w.id = a.war_id
     LEFT JOIN member_averages ma ON ma.attacker_id = a.attacker_id
     LEFT JOIN war_average wa ON 1 = 1
@@ -1939,7 +1465,7 @@ function warMemberDefendStatsStatement(
       AND a.defender_id IS NOT NULL
       AND ${RELEVANT_DEFEND_SQL}
       AND ${PRACTICAL_DEFENSE_ACTION_WINDOW_SQL}
-      ${onlyPendingEvent ? `AND ${pendingEventMemberSql("a.defender_id")}` : ""}
+      ${pendingQueue ? `AND ${pendingMemberSql(pendingQueue, "a.defender_id")}` : ""}
     GROUP BY a.war_id, a.defender_id
     ON CONFLICT(war_id, member_id) DO UPDATE SET
 ${DEFEND_MEMBER_STAT_MERGE_SQL}

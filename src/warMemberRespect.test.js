@@ -12,6 +12,7 @@ import {
   rebuildWarStatsFromRaw,
   refreshOpenWarChainBonusAdjustmentsFromRaw,
   refreshWarMemberRespect,
+  refreshPendingWarSummaries,
   WarStatsRebuildLeaseError,
 } from "./warStats";
 
@@ -631,12 +632,15 @@ function database() {
   const sqlite = new DatabaseSync(":memory:");
   sqlite.exec("PRAGMA foreign_keys = ON");
   const schema = readFileSync(new URL("../schema/current.sql", import.meta.url), "utf8").replaceAll("\r\n", "\n");
-  for (const table of ["wars", "war_practical_phases", "attacks", "sync_state", "war_member_stats", "war_summary", "war_member_combat_buckets", "event_stats_dirty", "war_respect_totals", "home_faction_members", "discord_member_links"]) {
+  for (const table of ["wars", "war_practical_phases", "attacks", "sync_state", "war_member_stats", "war_summary", "war_member_combat_buckets", "event_stats_dirty", "war_stats_dirty", "war_respect_totals", "home_faction_members", "discord_member_links"]) {
     sqlite.exec(schema.match(new RegExp(`CREATE TABLE ${table} \\([\\s\\S]*?\\n\\);`))[0]);
+  }
+  for (const index of ["idx_attacks_war_bonus", "idx_attacks_pending_stats"]) {
+    sqlite.exec(schema.match(new RegExp(`CREATE INDEX ${index} [\\s\\S]*?;`))[0]);
   }
   sqlite.exec(schema.match(/CREATE VIEW tracker_attacks AS[\s\S]*?;/)[0]);
   sqlite.exec(schema.match(/CREATE VIEW war_respect_contributions AS[\s\S]*?;/)[0]);
-  for (const [trigger] of schema.matchAll(/CREATE TRIGGER war_respect_[\s\S]*?\nEND;/g)) sqlite.exec(trigger);
+  for (const [trigger] of schema.matchAll(/CREATE TRIGGER (?:war_respect_|war_stats_)[\s\S]*?\nEND;/g)) sqlite.exec(trigger);
   sqlite.exec(`INSERT INTO wars (id, name, status, practical_start_time, practical_finish_time, enemy_faction_id, war_type, member_respect_limit)
     VALUES (7, 'Test War', 'active', 1000, 2000, 99, 'real', 100), (8, 'Other War', 'ended', 1000, 2000, 99, 'real', NULL)`);
 

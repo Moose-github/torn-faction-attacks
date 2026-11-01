@@ -19,7 +19,6 @@ vi.mock("./lifestyleStats/dailyPersonal", () => ({
   refreshDailyMemberLifestyleStats: vi.fn(),
 }));
 vi.mock("./maintenance", () => ({
-  markOpenWarMemberStatsRebuildComplete: vi.fn(),
   runHeatmapSamplingRetry: vi.fn(),
   runScheduledMaintenance: vi.fn(),
 }));
@@ -31,7 +30,7 @@ vi.mock("./retaliations", () => ({
 }));
 vi.mock("./warStats", () => ({
   rebuildWarStatsFromRaw: vi.fn(),
-  refreshOpenWarChainBonusAdjustmentsFromRaw: vi.fn(),
+  refreshPendingWarSummaries: vi.fn(),
 }));
 vi.mock("./xanaxCompetition", () => ({
   reconcileXanaxCompetitionRollover: vi.fn(),
@@ -46,10 +45,10 @@ import { runChainWatchCron } from "./chainWatch";
 import { runArmoryCron, runMedicalStockAlertsCron } from "./armory";
 import { runIngestion } from "./ingestion";
 import { refreshDailyMemberLifestyleStats } from "./lifestyleStats/dailyPersonal";
-import { markOpenWarMemberStatsRebuildComplete, runHeatmapSamplingRetry, runScheduledMaintenance } from "./maintenance";
+import { runHeatmapSamplingRetry, runScheduledMaintenance } from "./maintenance";
 import { syncRetaliationDiscordBoard } from "./retaliations";
 import type { Env } from "./types";
-import { rebuildWarStatsFromRaw, refreshOpenWarChainBonusAdjustmentsFromRaw } from "./warStats";
+import { rebuildWarStatsFromRaw, refreshPendingWarSummaries } from "./warStats";
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -76,12 +75,12 @@ function slotEnv(): Env {
 const SLOT_JOB_LABELS = [
   "Cron faction armory inventory",
   "Cron ingestion",
-  "Cron targeted chain bonus correction",
+  "Cron war corrections",
   "Cron scheduled maintenance",
   "Cron personal lifestyle stats",
 ];
 
-/** Runs only the slot-gated jobs (and ingestion, which owns the hourly rebuild). */
+/** Runs slot-gated jobs plus ingestion and the independent correction drain. */
 async function runMinutes(env: Env, minutes: number[], hour = 1): Promise<void> {
   for (const minute of minutes) {
     const jobs = buildCronPlan(env, Date.UTC(2026, 8, 27, hour, minute))
@@ -132,28 +131,21 @@ describe("heatmap sampling retry cron", () => {
 });
 
 describe("monthly Xanax competition cron", () => {
-  it("never schedules more than one full war-stat rebuild in the same tick", () => {
+  it("never schedules a periodic full war-stat rebuild", () => {
     for (let hour = 0; hour < 24; hour += 1) {
       for (let minute = 0; minute < 60; minute += 1) {
         const fullRebuildJobs = buildCronPlan({} as Env, Date.UTC(2026, 5, 1, hour, minute, 0))
           .filter((job) => job.fullWarStatsRebuild);
 
-        expect(fullRebuildJobs.length).toBeLessThanOrEqual(1);
+        expect(fullRebuildJobs).toEqual([]);
       }
     }
   });
 
-  it("refreshes the chain directly after ingestion, before the exact war rebuild", async () => {
+  it("refreshes the chain directly after ingestion without a periodic rebuild", async () => {
     const calls: string[] = [];
     vi.mocked(runIngestion).mockImplementation(async () => {
       calls.push("ingestion");
-    });
-    vi.mocked(rebuildWarStatsFromRaw).mockImplementation(async () => {
-      calls.push("exact-rebuild");
-      return { wars_rebuilt: 1, combat_bucket_rows: 3 };
-    });
-    vi.mocked(markOpenWarMemberStatsRebuildComplete).mockImplementation(async () => {
-      calls.push("latch");
     });
     vi.mocked(runChainWatchCron).mockImplementation(async () => {
       calls.push("chain-watch");
@@ -172,18 +164,9 @@ describe("monthly Xanax competition cron", () => {
     expect(calls).toEqual([
       "ingestion",
       "chain-watch",
-      "exact-rebuild",
-      "latch",
       "retaliation",
     ]);
-    expect(rebuildWarStatsFromRaw).toHaveBeenCalledWith(
-      expect.anything(),
-      { scope: "open-wars", reason: "cron" },
-    );
-    expect(markOpenWarMemberStatsRebuildComplete).toHaveBeenCalledWith(
-      expect.anything(),
-      Math.floor(scheduledTime / 1000),
-    );
+    expect(rebuildWarStatsFromRaw).not.toHaveBeenCalled();
   });
 
   it("still refreshes chain monitoring when ingestion fails", async () => {
@@ -252,7 +235,7 @@ describe("catch-up for skipped cron minutes", () => {
 
     expect(runArmoryCron).toHaveBeenCalledTimes(1);
     expect(runScheduledMaintenance).toHaveBeenCalledTimes(1);
-    expect(refreshOpenWarChainBonusAdjustmentsFromRaw).toHaveBeenCalledTimes(1);
+    expect(refreshPendingWarSummaries).toHaveBeenCalledTimes(2);
   });
 
   it("gives up on a slot after the catch-up window", async () => {
@@ -264,23 +247,24 @@ describe("catch-up for skipped cron minutes", () => {
     expect(runScheduledMaintenance).not.toHaveBeenCalled();
   });
 
-  it("never runs the chain bonus correction in the hourly rebuild window", async () => {
+  it("drains corrections every minute including the former hourly rebuild window", async () => {
     await runMinutes(slotEnv(), [0, 1, 2, 3, 4]);
 
-    expect(refreshOpenWarChainBonusAdjustmentsFromRaw).not.toHaveBeenCalled();
-    expect(rebuildWarStatsFromRaw).toHaveBeenCalledTimes(1);
+    expect(refreshPendingWarSummaries).toHaveBeenCalledTimes(5);
+    expect(rebuildWarStatsFromRaw).not.toHaveBeenCalled();
   });
 
-  it("retries the hourly rebuild on the next minute when ingestion fails", async () => {
+  it("runs correction retries independently when ingestion fails", async () => {
     const env = slotEnv();
-    vi.mocked(rebuildWarStatsFromRaw).mockResolvedValue({ wars_rebuilt: 1, combat_bucket_rows: 0 } as never);
     vi.mocked(runIngestion).mockRejectedValueOnce(new Error("Feed unavailable"));
 
     const failed = buildCronPlan(env, Date.UTC(2026, 8, 27, 1, 0)).find((job) => job.label === "Cron ingestion");
     await expect(failed!.run()).rejects.toThrow("Feed unavailable");
+    await buildCronPlan(env, Date.UTC(2026, 8, 27, 1, 0)).find((job) => job.label === "Cron war corrections")!.run();
     await runMinutes(env, [1, 2]);
 
-    expect(rebuildWarStatsFromRaw).toHaveBeenCalledTimes(1);
+    expect(refreshPendingWarSummaries).toHaveBeenCalledTimes(3);
+    expect(rebuildWarStatsFromRaw).not.toHaveBeenCalled();
   });
 
   it("catches up a skipped hourly lifestyle import and runs it once per hour", async () => {

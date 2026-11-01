@@ -11,7 +11,7 @@ import { reportAdjustmentTotals } from "../dashboard/src/components/ReportDiscre
 import type { ReportDiscrepanciesResponse } from "../dashboard/src/api";
 import type { Env } from "../src/types";
 import { runPracticalPhaseHooks } from "../src/war/lifecycleHooks";
-import { applyIncrementalWarSummaries, rebuildWarStatsFromRaw } from "../src/warStats";
+import { applyIncrementalWarSummaries, rebuildWarStatsFromRaw, refreshPendingWarSummaries } from "../src/warStats";
 import { updateOfficialWar } from "../src/wars";
 import { toPracticalWarEditPayload, warToForm } from "../dashboard/src/views/AdminControls";
 import type { WarSummary } from "../dashboard/src/api";
@@ -324,19 +324,15 @@ describe("practical phase database and lifecycle", () => {
     expect(db.prepare("SELECT COUNT(*) AS n FROM attacks WHERE stats_pending=1").get()!.n).toBe(0);
   });
 
-  it("rechecks pending attacks inside the transaction if a rebuild wins after the initial count", async () => {
+  it("keeps queued attacks when a full rebuild holds the lease", async () => {
     war(); attack(1, base + 9 * 3600, 500, "racing");
-    const batch = env.DB.batch.bind(env.DB);
-    let intercepted = false;
-    env.DB.batch = (async (items: Array<ReturnType<typeof statement>>) => {
-      if (!intercepted && items[0].sql.includes("a.ingest_run_id = ?")) {
-        intercepted = true;
-        await rebuildWarStatsFromRaw(env, { scope: "single-war", warId: 1 });
-      }
-      return batch(items as unknown as D1PreparedStatement[]);
-    }) as typeof env.DB.batch;
+    db.prepare("INSERT INTO sync_state (name, last_started, active_war_id) VALUES ('war_stats_rebuild:1', ?, 1)")
+      .run(Math.floor(Date.now() / 1000));
     await applyIncrementalWarSummaries(env, 1, "racing");
-    expect(intercepted).toBe(true);
+    expect(db.prepare("SELECT COUNT(*) AS n FROM war_stats_dirty WHERE war_id=1").get()!.n).toBeGreaterThan(0);
+    expect(db.prepare("SELECT COUNT(*) AS n FROM war_member_stats WHERE war_id=1").get()!.n).toBe(0);
+    db.exec("DELETE FROM sync_state WHERE name='war_stats_rebuild:1'");
+    await refreshPendingWarSummaries(env);
     expect(db.prepare("SELECT attacks_vs_enemy_total FROM war_member_stats WHERE war_id=1").get()!.attacks_vs_enemy_total).toBe(1);
   });
 
@@ -357,13 +353,13 @@ describe("practical phase database and lifecycle", () => {
     expect(db.prepare("SELECT attacks_vs_enemy_total FROM war_member_stats WHERE war_id=1").get()!.attacks_vs_enemy_total).toBe(2);
   });
 
-  it("recovers failed ingestion on the next phase tick without needing another attack", async () => {
+  it("recovers failed ingestion from the queue without another attack or full rebuild", async () => {
     war(); attack(1, base + 9 * 3600, 500, "failed-run");
     db.exec("CREATE TRIGGER fail_review_stats BEFORE INSERT ON war_summary BEGIN SELECT RAISE(ABORT, 'simulated failure'); END;");
     await expect(applyIncrementalWarSummaries(env, 1, "failed-run")).rejects.toThrow("simulated failure");
-    expect((await practicalPhaseSummary(env, 1)).practical_rebuild_pending).toBe(1);
+    expect(db.prepare("SELECT COUNT(*) AS n FROM war_stats_dirty WHERE war_id=1").get()!.n).toBeGreaterThan(0);
     db.exec("DROP TRIGGER fail_review_stats");
-    await processPracticalPhases(env, 1, 500, base + 25 * 3600);
+    await refreshPendingWarSummaries(env);
     expect((await practicalPhaseSummary(env, 1)).practical_rebuild_pending).toBe(0);
     expect(db.prepare("SELECT attacks_vs_enemy_total FROM war_member_stats WHERE war_id=1").get()!.attacks_vs_enemy_total).toBe(1);
     expect(db.prepare("SELECT stats_pending FROM attacks WHERE id=1").get()!.stats_pending).toBe(0);

@@ -18,24 +18,21 @@ import {
   refreshDailyMemberLifestyleStats,
 } from "../lifestyleStats/dailyPersonal";
 import {
-  markOpenWarMemberStatsRebuildComplete,
   runHeatmapSamplingRetry,
   runScheduledMaintenance,
 } from "../maintenance";
 import { refreshTornShoplifting } from "../miscellaneous";
 import { syncRetaliationDiscordBoard } from "../retaliations";
 import {
-  rebuildWarStatsFromRaw,
-  refreshOpenWarChainBonusAdjustmentsFromRaw,
+  refreshPendingWarSummaries,
 } from "../warStats";
 import { runMonthlyXanaxCompetitionDiscordReminder } from "../xanaxCompetition";
 import type { CronJobDefinition } from "./model";
-import { claimCronSlot, cronSlot, runOncePerSlot } from "./slots";
+import { cronSlot, runOncePerSlot } from "./slots";
 
 // Jobs pinned to a slot run in its first few minutes so a skipped cron minute
 // is caught up by the next run, and each slot is claimed so it runs only once.
 const QUARTER_HOUR_SLOT = cronSlot(15);
-const HOURLY_SLOT = cronSlot(60);
 // Hourly so personal stats Torn publishes late are picked up soon after; runs
 // only request members still missing, so a caught-up day costs little.
 const LIFESTYLE_SLOT = cronSlot(60, 10);
@@ -94,9 +91,8 @@ export const CRON_JOB_DEFINITIONS: CronJobDefinition[] = [
     label: "Cron ingestion",
     cadence: "1m",
     category: "attacks",
-    purpose: "Import recent attacks, incrementally refresh event summaries, check event lifecycles and refresh the shared faction Chain Watch every minute, then run the hourly exact war rebuild when due.",
+    purpose: "Import recent attacks, incrementally refresh event summaries, check event lifecycles and refresh the shared faction Chain Watch every minute.",
     shouldRun: () => true,
-    fullWarStatsRebuild: HOURLY_SLOT.isDue,
     run: async (env, scheduledTime) => {
       try {
         await runIngestion(env, "cron", { scheduledTime });
@@ -105,28 +101,16 @@ export const CRON_JOB_DEFINITIONS: CronJobDefinition[] = [
         // It can use stored hits and the existing live-confirmation fallback.
         await runChainWatchCron(env, scheduledTime);
       }
-      // Claimed after ingestion so a failed feed leaves the slot for the next run.
-      if (
-        HOURLY_SLOT.isDue(new Date(scheduledTime)) &&
-        await claimCronSlot(env, "hourly_war_summaries", HOURLY_SLOT.slotStart(scheduledTime))
-      ) {
-        const result = await rebuildWarStatsFromRaw(env, { scope: "open-wars", reason: "cron" });
-        if (!result.wars_skipped) {
-          await markOpenWarMemberStatsRebuildComplete(env, Math.floor(scheduledTime / 1000));
-        }
-      }
       await syncRetaliationDiscordBoard(env, Math.floor(scheduledTime / 1000));
     },
   },
   {
-    label: "Cron targeted chain bonus correction",
-    cadence: "15m active, excluding hourly rebuild, catching up within 5m",
+    label: "Cron war corrections",
+    cadence: "1m, only queued changes",
     category: "attacks",
-    purpose: "Refresh chain-bonus adjusted respect for only members with chain bonuses between hourly exact summary rebuilds.",
-    shouldRun: (date) => QUARTER_HOUR_SLOT.isDue(date) && !HOURLY_SLOT.isDue(date),
-    run: (env, scheduledTime) =>
-      runOncePerSlot(env, "chain_bonus_correction", QUARTER_HOUR_SLOT, scheduledTime, () =>
-        refreshOpenWarChainBonusAdjustmentsFromRaw(env)),
+    purpose: "Apply queued attack corrections and update affected chain bonuses, members and combat buckets, including ended wars.",
+    shouldRun: () => true,
+    run: (env) => refreshPendingWarSummaries(env),
   },
   {
     label: "Cron scheduled maintenance",
