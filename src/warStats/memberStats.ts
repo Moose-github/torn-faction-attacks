@@ -383,7 +383,10 @@ function requeueBonusBucketsStatement(env: Env, warId: number, queue: PendingSta
   // A bonus hit is valued at its attacker's ordinary-hit average, or the war-wide
   // average when the attacker has none. Revisit it only if that average may have
   // moved: the attacker's totals changed, or it has none and any total did.
-  const bonusAttacks = queue === "war_stats_dirty" ? "attacks a INDEXED BY idx_attacks_war_bonus" : "tracker_attacks a";
+  const bonusAttacks = queue === "war_stats_dirty" ? "attacks a INDEXED BY idx_attacks_war_bonus" : `${eventAttacksSql(
+    "wars ew", "idx_attacks_bonus_started",
+    `x.result IN (${POSITIVE_RESULTS_SQL}) AND x.chain IN (${CHAIN_BONUS_HITS_SQL})`,
+  )} a`;
   return env.DB.prepare(`INSERT INTO ${queue} (war_id, member_id, bucket_start)
     SELECT a.war_id, a.attacker_id, ${PENDING_BUCKET_SQL}
     FROM ${bonusAttacks} WHERE a.war_id = ? AND a.attacker_faction_id = ${HOME_FACTION_ID}
@@ -414,12 +417,43 @@ function queueAttackTable(queue: PendingStatsQueue): string {
 }
 
 function pendingAttackSource(queue: PendingStatsQueue | undefined, member: "attacker" | "defender", buckets = false): string {
-  if (queue !== "war_stats_dirty") return "FROM tracker_attacks a";
-  // CROSS JOIN fixes the queue as the driving input. The existing war/member/time
-  // indexes then read only affected member histories or individual bucket ranges.
-  return `FROM (${buckets ? "SELECT *" : "SELECT DISTINCT war_id, member_id"} FROM war_stats_dirty) d
-    CROSS JOIN attacks a ON a.war_id = d.war_id AND a.${member}_id = d.member_id
-      ${buckets ? `AND a.started >= d.bucket_start AND a.started < d.bucket_start + ${MEMBER_ACTIVITY_BUCKET_SECONDS}` : ""}`;
+  if (!queue) return "FROM tracker_attacks a";
+  // CROSS JOIN fixes the queue as the driving input. The war/member/time and
+  // member/time indexes then read only affected member histories or bucket ranges.
+  const pending = `(${buckets ? "SELECT *" : "SELECT DISTINCT war_id, member_id"} FROM ${queue}) d`;
+  const bucketRange = (alias: string) => buckets
+    ? `AND ${alias}.started >= d.bucket_start AND ${alias}.started < d.bucket_start + ${MEMBER_ACTIVITY_BUCKET_SECONDS}` : "";
+  if (queue === "war_stats_dirty") {
+    return `FROM ${pending}
+    CROSS JOIN attacks a ON a.war_id = d.war_id AND a.${member}_id = d.member_id ${bucketRange("a")}`;
+  }
+  return `FROM ${eventAttacksSql(`${pending} CROSS JOIN wars ew ON ew.id = d.war_id`,
+    `idx_attacks_${member}_started`, `x.${member}_id = d.member_id ${bucketRange("x")}`)} a`;
+}
+
+const EVENT_ATTACK_COLUMNS = [
+  "id", "code", "started", "ended",
+  "attacker_id", "attacker_name", "attacker_level", "attacker_faction_id", "attacker_faction_name",
+  "defender_id", "defender_name", "defender_level", "defender_faction_id", "defender_faction_name",
+  "result", "respect_gain", "respect_loss", "chain", "is_interrupted",
+  "is_stealthed", "is_raid", "is_ranked_war", "m_fair_fight", "m_war",
+  "m_retaliation", "m_group", "m_overseas", "m_chain", "m_warlord",
+  "fetched_at", "ingest_run_id", "stats_pending",
+];
+
+/**
+ * Event attacks as tracker_attacks reports them: home faction attacks inside the
+ * event window, under the event's id. `from` supplies the event as `ew`, and the
+ * attacks are found through `index` rather than by scanning the whole window.
+ */
+function eventAttacksSql(from: string, index: string, on: string): string {
+  return `(SELECT ew.id AS war_id, ${EVENT_ATTACK_COLUMNS.map(column => `x.${column}`).join(", ")}
+    FROM ${from}
+    CROSS JOIN attacks x INDEXED BY ${index} ON ${on}
+      AND x.started >= ew.practical_start_time
+      AND (ew.practical_finish_time IS NULL OR COALESCE(x.ended, x.started) <= ew.practical_finish_time)
+      AND (x.attacker_faction_id = ${HOME_FACTION_ID} OR x.defender_faction_id = ${HOME_FACTION_ID})
+    WHERE ew.war_type = 'event')`;
 }
 
 function pendingMemberSql(queue: PendingStatsQueue, member: string, war = "a.war_id", bucket?: string): string {
