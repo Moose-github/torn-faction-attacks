@@ -10,6 +10,7 @@ import { exportWarAttacksCsv } from "../src/warExports";
 import { relinkWarAttacks } from "../src/warRelink";
 import { readChainWatchDemand } from "../src/chainWatchDemand";
 import type { Env } from "../src/types";
+import { memberRespectAveragesSql, respectAverageSql } from "../src/warStats/respectCounters";
 
 // External collection is covered separately; these tests exercise the real SQL,
 // lifecycle, summaries, and API readers using overlapping attack windows.
@@ -22,11 +23,19 @@ let env: Env;
 function statement(sql: string, values: SQLInputValue[] = []) {
   const runSync = () => ({ success: true, meta: { changes: Number(db.prepare(sql).run(...values).changes) } });
   return {
+    sql,
     bind: (...args: SQLInputValue[]) => statement(sql, args),
     first: async () => db.prepare(sql).get(...values) ?? null,
     all: async () => ({ results: db.prepare(sql).all(...values) }),
     run: async () => runSync(),
     runSync,
+    accessedTables: () => {
+      const tablesByPage = new Map(db.prepare("SELECT rootpage, tbl_name FROM sqlite_schema WHERE rootpage > 0")
+        .all().map(row => [row.rootpage, row.tbl_name]));
+      return [...new Set(db.prepare(`EXPLAIN ${sql}`).all(...values)
+        .filter(row => ["OpenRead", "OpenWrite", "ReopenIdx"].includes(String(row.opcode)) && row.p3 === 0)
+        .map(row => tablesByPage.get(row.p2)).filter(Boolean))].sort();
+    },
   };
 }
 function request(body: unknown) {
@@ -47,6 +56,33 @@ async function expectMatchesFullRebuild(warId: number) {
   const incremental = eventStats(warId);
   await rebuildWarStatsFromRaw(env, { scope: "single-war", warId, reason: "admin" });
   expect(incremental).toEqual(eventStats(warId));
+}
+function expectRespectCountersMatchRaw() {
+  const projection = `SELECT a.war_id, 'outgoing' AS direction, COALESCE(a.attacker_id, 0) AS attacker_id, a.respect_gain
+    FROM tracker_attacks a JOIN wars w ON w.id = a.war_id
+    WHERE w.war_type = 'event' AND a.attacker_faction_id = 8803
+      AND (w.enemy_faction_id IS NULL OR a.defender_faction_id = w.enemy_faction_id)
+      AND a.result IN ('Hospitalized','Mugged','Attacked','Arrested')
+      AND (a.chain IS NULL OR a.chain NOT IN (10,25,50,100,250,500,1000,2500,5000,10000,25000,50000,100000))
+    UNION ALL
+    SELECT a.war_id, 'incoming', COALESCE(a.attacker_id, 0), a.respect_gain
+    FROM tracker_attacks a JOIN wars w ON w.id = a.war_id
+    WHERE w.war_type = 'event' AND a.defender_faction_id = 8803 AND a.defender_id IS NOT NULL
+      AND a.result IN ('Hospitalized','Mugged','Attacked','Arrested')
+      AND (a.chain IS NULL OR a.chain NOT IN (10,25,50,100,250,500,1000,2500,5000,10000,25000,50000,100000))`;
+  const expected = db.prepare(`SELECT war_id, direction, attacker_id, SUM(respect_gain) AS respect_sum,
+    COUNT(respect_gain) AS hit_count FROM (${projection})
+    GROUP BY war_id, direction, attacker_id HAVING COUNT(respect_gain) > 0
+    ORDER BY war_id, direction, attacker_id`).all();
+  const actual = db.prepare(`SELECT * FROM war_respect_totals WHERE hit_count > 0
+    AND war_id IN (SELECT id FROM wars WHERE war_type = 'event')
+    ORDER BY war_id, direction, attacker_id`).all();
+  expect(actual).toHaveLength(expected.length);
+  actual.forEach((row, i) => {
+    expect(row).toMatchObject({ ...expected[i], respect_sum: expect.any(Number) });
+    expect(Number(row.respect_sum)).toBeCloseTo(Number(expected[i].respect_sum), 10);
+  });
+  expect(db.prepare("SELECT COUNT(*) AS count FROM war_respect_totals WHERE hit_count < 0 OR (hit_count = 0 AND respect_sum != 0)").get()?.count).toBe(0);
 }
 function attack(id: number, at: number, owner: number | null = 1) {
   db.prepare(`INSERT INTO attacks (id, war_id, started, ended, attacker_id, attacker_name,
@@ -251,6 +287,25 @@ describe("independent event tracking", () => {
     await expectMatchesFullRebuild(eventId);
   });
 
+  it("keeps zero-respect successes, assists and defenses when pruning corrected buckets", async () => {
+    const eventId = await create({ practical_finish_time: START + 7200 });
+    attack(4, START + 1000);
+    db.exec("UPDATE attacks SET attacker_id = 11, result = 'Assist', respect_gain = 0 WHERE id = 4");
+    attack(5, START + 1900);
+    db.exec("UPDATE attacks SET attacker_id = 12, respect_gain = 0 WHERE id = 5");
+    for (const [id, result] of [[6, null], [7, 'Lost'], [8, 'Hospitalized']] as const) {
+      attack(id, START + (id - 3) * 900 + 100);
+      db.prepare(`UPDATE attacks SET attacker_faction_id = 99, defender_faction_id = 8803,
+        defender_id = ?, result = ?, respect_gain = 0 WHERE id = ?`).run(id + 7, result, id);
+    }
+    await refreshEventTracking(env);
+    db.exec("UPDATE attacks SET result = 'Lost', respect_gain = 0 WHERE id IN (2, 3)");
+    await refreshEventTracking(env);
+    expect(db.prepare(`SELECT member_id FROM war_member_combat_buckets WHERE war_id = ? ORDER BY member_id`)
+      .all(eventId)).toEqual([11, 12, 13, 14, 15].map(member_id => ({ member_id })));
+    await expectMatchesFullRebuild(eventId);
+  });
+
   it("ignores duplicate feeds and bookkeeping updates without writing event summaries", async () => {
     const eventId = await create();
     db.exec("UPDATE attacks SET stats_pending = 0, ingest_run_id = 'another-run', war_id = NULL WHERE id = 2;");
@@ -301,6 +356,105 @@ describe("independent event tracking", () => {
     await expectMatchesFullRebuild(eventId);
   });
 
+  it("maintains respect counters through corrections, deleted hits and unknown attackers", async () => {
+    const eventId = await create();
+    expectRespectCountersMatchRaw();
+    for (const [id, respect] of [[4, 0], [5, null], [6, 0.1], [7, 0.2]] as const) {
+      attack(id, START + id * 100);
+      db.prepare("UPDATE attacks SET respect_gain = ? WHERE id = ?").run(respect, id);
+      expectRespectCountersMatchRaw();
+    }
+    db.exec("UPDATE attacks SET attacker_id = NULL WHERE id = 6");
+    expectRespectCountersMatchRaw();
+    db.exec("UPDATE attacks SET attacker_faction_id = 99, defender_faction_id = 8803, defender_id = 12 WHERE id IN (6, 7)");
+    expectRespectCountersMatchRaw();
+    db.exec("UPDATE attacks SET chain = 10 WHERE id = 7");
+    expectRespectCountersMatchRaw();
+    db.exec("UPDATE attacks SET chain = NULL, result = 'Lost' WHERE id = 7");
+    expectRespectCountersMatchRaw();
+    db.exec("UPDATE attacks SET result = 'Hospitalized', defender_id = NULL WHERE id = 7");
+    expectRespectCountersMatchRaw();
+    db.prepare("UPDATE attacks SET ended = ? WHERE id = 4").run(START + 3601);
+    expectRespectCountersMatchRaw();
+    db.prepare("UPDATE attacks SET ended = NULL, started = ? WHERE id = 4").run(START + 200);
+    expectRespectCountersMatchRaw();
+    db.exec("DELETE FROM attacks WHERE id IN (2, 3, 4, 5, 6, 7)");
+    expectRespectCountersMatchRaw();
+    await refreshEventTracking(env);
+    await expectMatchesFullRebuild(eventId);
+  });
+
+  it("reads averages from counters without accessing raw attacks", async () => {
+    const eventId = await create();
+    attack(4, START + 300);
+    db.exec("UPDATE attacks SET attacker_id = NULL, respect_gain = 20 WHERE id = 4");
+    attack(5, START + 400);
+    db.exec("UPDATE attacks SET respect_gain = NULL WHERE id = 5");
+    const memberSql = memberRespectAveragesSql("outgoing");
+    const eventSql = respectAverageSql("outgoing");
+    expect(statement(memberSql, [eventId]).accessedTables()).toEqual(["war_respect_totals"]);
+    expect(statement(eventSql, [eventId]).accessedTables()).toEqual(["war_respect_totals"]);
+    expect(db.prepare(memberSql).all(eventId)).toEqual([
+      { war_id: eventId, attacker_id: null, avg_respect: 20 },
+      { war_id: eventId, attacker_id: 10, avg_respect: 5 },
+    ]);
+    // Unknown attackers contribute to the fallback; NULL respect does not count.
+    expect(db.prepare(eventSql).get(eventId)?.avg_respect).toBe(10);
+    const prepared = vi.spyOn(env.DB, "prepare");
+    await refreshEventTracking(env);
+    expect(prepared.mock.calls.some(([sql]) => /AVG\(a\.respect_gain\)/.test(sql))).toBe(false);
+    await expectMatchesFullRebuild(eventId);
+  });
+
+  it("does not rewrite counters for duplicate feeds, bookkeeping or nonqualifying changes", async () => {
+    await create();
+    db.exec(`CREATE TABLE respect_write_audit (operation TEXT);
+      CREATE TRIGGER respect_audit_insert AFTER INSERT ON war_respect_totals BEGIN INSERT INTO respect_write_audit VALUES ('insert'); END;
+      CREATE TRIGGER respect_audit_update AFTER UPDATE ON war_respect_totals BEGIN INSERT INTO respect_write_audit VALUES ('update'); END;`);
+    db.exec("UPDATE attacks SET respect_gain = respect_gain, result = result WHERE id = 2");
+    db.exec("UPDATE attacks SET stats_pending = 0, ingest_run_id = 'retry', war_id = NULL, attacker_name = 'New name' WHERE id = 3");
+    db.prepare("UPDATE attacks SET ended = ? WHERE id = 2").run(START + 102);
+    expect(db.prepare("SELECT COUNT(*) AS count FROM respect_write_audit").get()?.count).toBe(0);
+    expectRespectCountersMatchRaw();
+  });
+
+  it("rolls back respect counters with the attack transaction", async () => {
+    await create();
+    const before = db.prepare("SELECT * FROM war_respect_totals ORDER BY war_id, direction, attacker_id").all();
+    db.exec("BEGIN");
+    db.exec("UPDATE attacks SET respect_gain = 25 WHERE id = 2; DELETE FROM attacks WHERE id = 3;");
+    attack(4, START + 300);
+    expectRespectCountersMatchRaw();
+    db.exec("ROLLBACK");
+    expect(db.prepare("SELECT * FROM war_respect_totals ORDER BY war_id, direction, attacker_id").all()).toEqual(before);
+    expectRespectCountersMatchRaw();
+  });
+
+  it("initializes counters for existing events and rebuilds them when event windows change", async () => {
+    const eventId = await create();
+    for (const name of ["attack_insert", "attack_update", "attack_delete", "war_insert", "war_update", "phase_insert", "phase_update", "phase_delete"]) {
+      db.exec(`DROP TRIGGER war_respect_${name}`);
+    }
+    db.exec("DROP VIEW war_respect_contributions");
+    db.exec("DROP TABLE war_respect_totals");
+    attack(4, START + 1100);
+    db.exec(readFileSync(new URL("../migrations/0191_war_respect_totals.sql", import.meta.url), "utf8"));
+    expectRespectCountersMatchRaw();
+    db.prepare("UPDATE wars SET practical_start_time = ?, practical_finish_time = ? WHERE id = ?")
+      .run(START + 1000, START + 1800, eventId);
+    expectRespectCountersMatchRaw();
+    expect(db.prepare("SELECT respect_sum, hit_count FROM war_respect_totals WHERE war_id = ?").get(eventId))
+      .toEqual({ respect_sum: 5, hit_count: 1 });
+    db.prepare("UPDATE wars SET practical_start_time = ?, practical_finish_time = NULL WHERE id = ?").run(START, eventId);
+    expectRespectCountersMatchRaw();
+    db.prepare("UPDATE wars SET enemy_faction_id = 100 WHERE id = ?").run(eventId);
+    expectRespectCountersMatchRaw();
+    db.prepare("UPDATE wars SET war_type = 'real' WHERE id = ?").run(eventId);
+    expectRespectCountersMatchRaw();
+    db.prepare("UPDATE wars SET war_type = 'event', enemy_faction_id = NULL WHERE id = ?").run(eventId);
+    expectRespectCountersMatchRaw();
+  });
+
   it("adds one bucket without rewriting 2,000 historical buckets", async () => {
     const eventId = await create({ practical_finish_time: START + 3 * 86400 });
     db.exec("BEGIN");
@@ -314,11 +468,33 @@ describe("independent event tracking", () => {
       CREATE TRIGGER audit_insert AFTER INSERT ON war_member_combat_buckets BEGIN INSERT INTO bucket_write_audit VALUES ('insert'); END;
       CREATE TRIGGER audit_update AFTER UPDATE ON war_member_combat_buckets BEGIN INSERT INTO bucket_write_audit VALUES ('update'); END;
       CREATE TRIGGER audit_delete AFTER DELETE ON war_member_combat_buckets BEGIN INSERT INTO bucket_write_audit VALUES ('delete'); END;`);
+    const cleanupTables: unknown[] = [];
+    const batch = env.DB.batch.bind(env.DB);
+    env.DB.batch = (async (items: ReturnType<typeof statement>[]) => {
+      for (const item of items) {
+        if (item.sql.includes("DELETE FROM war_member_combat_buckets")) cleanupTables.push(item.accessedTables());
+      }
+      return batch(items as unknown as D1PreparedStatement[]);
+    }) as typeof env.DB.batch;
     attack(3000, START + 200 * 900 + 10);
     await refreshEventTracking(env);
     expect(db.prepare("SELECT operation, COUNT(*) AS count FROM bucket_write_audit GROUP BY operation").all()).toEqual([{ operation: "insert", count: 1 }]);
+    // Inspect SQLite's actual table/index accesses, including trigger programs:
+    // cleanup must not reread raw attacks to calculate the same buckets again.
+    expect(cleanupTables).toHaveLength(1);
+    expect(cleanupTables[0]).not.toContain("attacks");
     await refreshEventTracking(env);
     expect(db.prepare("SELECT COUNT(*) AS count FROM bucket_write_audit").get()?.count).toBe(1);
+    // Removing the last contribution clears and deletes its stored bucket.
+    db.exec("UPDATE attacks SET result = 'Lost', respect_gain = 0 WHERE id = 3000");
+    await refreshEventTracking(env);
+    expect(db.prepare("SELECT operation, COUNT(*) AS count FROM bucket_write_audit GROUP BY operation ORDER BY operation").all())
+      .toEqual([{ operation: "delete", count: 1 }, { operation: "insert", count: 1 }, { operation: "update", count: 1 }]);
+    // A new noncontributing attack must not insert a temporary empty bucket.
+    attack(3001, START + 201 * 900 + 10);
+    db.exec("UPDATE attacks SET result = 'Lost', respect_gain = 0 WHERE id = 3001");
+    await refreshEventTracking(env);
+    expect(db.prepare("SELECT COUNT(*) AS count FROM bucket_write_audit").get()?.count).toBe(3);
   });
 
   it("uses shared event membership for detail, member attacks, CSV and relinking without duplicate export rows", async () => {

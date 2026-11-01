@@ -5,7 +5,9 @@ import { readAuthenticatedUserId, requireAdmin } from "./auth";
 import { routeWarCommands } from "./http/warRoutes";
 import { handleDiscordInteractions, handleVerifiedDiscordInteraction } from "./discordInteractions";
 import { completeDeferredWarMeInteraction } from "./discordWarStats";
+import { OUTGOING_ACTION_WINDOW_SQL, RELEVANT_DEFEND_SQL } from "./sql";
 import {
+  applyIncrementalWarSummaries,
   recalculateWarMemberRespectFromRaw,
   rebuildWarStatsFromRaw,
   refreshOpenWarChainBonusAdjustmentsFromRaw,
@@ -165,6 +167,169 @@ describe("individual member respect recalculation", () => {
     expect(result).toMatchObject({ wars_updated: 1, stat_rows_updated: 2 });
     expect(db.member(7, 10)).toEqual(expected);
     expect(db.member(7, 11).respect_gained).toBe(999);
+  });
+});
+
+describe("running respect counters for normal and termed wars", () => {
+  it("uses ordinary-hit averages for new outgoing and incoming chain bonuses", async () => {
+    const db = database();
+    const batch = { ingest_run_id: "counter-batch", stats_pending: 1 };
+    for (const respect_gain of [2, 4]) db.attack({ ...batch, respect_gain });
+    db.attack({ ...batch, respect_gain: 100, chain: 10 });
+    const incoming = { ...batch, attacker_faction_id: 99, defender_id: 10, defender_faction_id: 8803 };
+    db.attack({ ...incoming, attacker_id: 20, respect_gain: 4 });
+    db.attack({ ...incoming, attacker_id: 21, respect_gain: 20 });
+    db.attack({ ...incoming, attacker_id: 20, respect_gain: 100, chain: 10 });
+    db.attack({ ...incoming, attacker_id: null, attacker_faction_id: null, is_ranked_war: 1, respect_gain: 6 });
+    db.attack({ ...incoming, attacker_id: null, attacker_faction_id: null, is_ranked_war: 1, respect_gain: 100, chain: 25 });
+    await applyIncrementalWarSummaries(db.env, 7, "counter-batch");
+    expect(db.member(7, 10)).toMatchObject({ respect_gained: 9, respect_lost: 44 });
+    const incremental = warStatsSnapshot(db);
+    await applyIncrementalWarSummaries(db.env, 7, "counter-batch");
+    expect(warStatsSnapshot(db)).toEqual(incremental);
+    await rebuildWarStatsFromRaw(db.env, { scope: "single-war", warId: 7 });
+    expect(warStatsSnapshot(db)).toEqual(incremental);
+    expectCountersMatchRaw(db);
+  });
+
+  it("uses zero for a bonus-only war instead of counting the bonus as an ordinary hit", async () => {
+    const db = database();
+    db.attack({ respect_gain: 100, chain: 10, ingest_run_id: "bonus", stats_pending: 1 });
+    await applyIncrementalWarSummaries(db.env, 7, "bonus");
+    expect(db.member(7, 10)).toMatchObject({ respect_gained: 0, respect_gained_raw: 100 });
+    const incremental = warStatsSnapshot(db);
+    await rebuildWarStatsFromRaw(db.env, { scope: "single-war", warId: 7 });
+    expect(warStatsSnapshot(db)).toEqual(incremental);
+  });
+
+  it("uses counters for quarter-hour corrections while preserving the raw repair check", async () => {
+    const db = database();
+    db.sqlite.exec("UPDATE wars SET practical_finish_time = NULL WHERE id = 7");
+    seedAttacks(db);
+    await rebuildWarStatsFromRaw(db.env, { scope: "single-war", warId: 7 });
+    db.attack({ respect_gain: 12 });
+    const prepare = vi.spyOn(db.env.DB, "prepare");
+    await refreshOpenWarChainBonusAdjustmentsFromRaw(db.env);
+    expect(prepare.mock.calls.some(([sql]) => /AVG\(a\.respect_gain\)/.test(sql))).toBe(false);
+    const corrected = db.member(7, 10);
+    expect(corrected.respect_gained).toBe(30);
+    expect(await recalculateWarMemberRespectFromRaw(db.env, 7, 10)).toEqual(corrected);
+    expectCountersMatchRaw(db);
+  });
+
+  it("moves contributions between assigned wars without changing the overlapping event", () => {
+    const db = database();
+    db.attack({ respect_gain: 4 });
+    db.attack({ war_id: 8, respect_gain: 8 });
+    db.sqlite.exec(`INSERT INTO wars (id, name, status, war_type, practical_start_time, practical_finish_time)
+      VALUES (9, 'Event', 'active', 'event', 1000, 2000)`);
+    const event = db.sqlite.prepare("SELECT * FROM war_respect_totals WHERE war_id = 9").all();
+    db.sqlite.exec("UPDATE attacks SET war_id = 8 WHERE id = 1");
+    expectCountersMatchRaw(db);
+    expect(db.sqlite.prepare("SELECT respect_sum, hit_count FROM war_respect_totals WHERE war_id = 8").get())
+      .toEqual({ respect_sum: 12, hit_count: 2 });
+    db.sqlite.exec("UPDATE attacks SET war_id = NULL WHERE id = 1");
+    expectCountersMatchRaw(db);
+    expect(db.sqlite.prepare("SELECT * FROM war_respect_totals WHERE war_id = 9").all()).toEqual(event);
+    db.sqlite.exec("UPDATE attacks SET war_id = 7, attacker_id = 11 WHERE id = 1");
+    expectCountersMatchRaw(db);
+    db.sqlite.exec("UPDATE attacks SET result = 'Lost' WHERE id = 1");
+    expectCountersMatchRaw(db);
+    db.sqlite.exec("UPDATE attacks SET result = 'Attacked', started = NULL, ended = NULL WHERE id = 1");
+    expectCountersMatchRaw(db);
+    db.sqlite.exec("UPDATE wars SET enemy_faction_id = 123 WHERE id = 7");
+    expectCountersMatchRaw(db);
+    db.sqlite.exec("DELETE FROM attacks WHERE id = 1");
+    expectCountersMatchRaw(db);
+  });
+
+  it("rebuilds termed counters for phase edits, overlap, soft removal and official end changes", () => {
+    const db = database();
+    for (const [started, respect_gain] of [[1000, 1], [1100, 2], [1200, 3], [1500, 4], [1800, 8], [null, 16]]) {
+      db.attack({ started, ended: started === null ? null : started + 1, respect_gain });
+    }
+    db.sqlite.exec("UPDATE wars SET war_type = 'termed', official_end_time = 2000 WHERE id = 7");
+    expectCountersMatchRaw(db);
+    db.sqlite.exec(`INSERT INTO war_practical_phases (id, war_id, scheduled_start, start_time, finish_time, status)
+      VALUES ('p1', 7, 1000, 1000, 1200, 'completed'), ('p2', 7, 1500, 1500, 1900, 'completed')`);
+    expectCountersMatchRaw(db);
+    expect(db.sqlite.prepare("SELECT respect_sum, hit_count FROM war_respect_totals WHERE war_id = 7").get())
+      .toEqual({ respect_sum: 15, hit_count: 4 });
+    db.sqlite.exec("UPDATE wars SET official_end_time = 1600 WHERE id = 7");
+    expectCountersMatchRaw(db);
+    db.sqlite.exec(`INSERT INTO war_practical_phases (id, war_id, scheduled_start, start_time, finish_time, status)
+      VALUES ('p3', 7, 1050, 1050, 1550, 'completed')`);
+    expectCountersMatchRaw(db);
+    expect(db.sqlite.prepare("SELECT respect_sum, hit_count FROM war_respect_totals WHERE war_id = 7").get())
+      .toEqual({ respect_sum: 10, hit_count: 4 });
+    db.sqlite.exec("UPDATE war_practical_phases SET removed_at = 1800 WHERE id = 'p3'");
+    expectCountersMatchRaw(db);
+    db.sqlite.exec("DELETE FROM war_practical_phases WHERE id = 'p1'");
+    expectCountersMatchRaw(db);
+    db.sqlite.exec("UPDATE war_practical_phases SET reason = 'legacy' WHERE id = 'p2'");
+    expectCountersMatchRaw(db);
+    expect(db.sqlite.prepare("SELECT respect_sum, hit_count FROM war_respect_totals WHERE war_id = 7").get())
+      .toEqual({ respect_sum: 20, hit_count: 2 });
+    db.sqlite.exec("UPDATE war_practical_phases SET status = 'cancelled' WHERE id = 'p2'");
+    expectCountersMatchRaw(db);
+    db.sqlite.exec("UPDATE war_practical_phases SET status = 'active', finish_time = NULL WHERE id = 'p2'");
+    expectCountersMatchRaw(db);
+    db.attack({ war_id: 8, respect_gain: 7 });
+    db.sqlite.exec("UPDATE wars SET war_type = 'termed' WHERE id = 8; UPDATE war_practical_phases SET war_id = 8 WHERE id = 'p2'");
+    expectCountersMatchRaw(db);
+    expect(db.sqlite.prepare("SELECT respect_sum, hit_count FROM war_respect_totals WHERE war_id = 8").get())
+      .toEqual({ respect_sum: 7, hit_count: 1 });
+  });
+
+  it("ignores phase bookkeeping and counter-neutral attack corrections", () => {
+    const db = database();
+    db.sqlite.exec(`UPDATE wars SET war_type = 'termed' WHERE id = 7;
+      INSERT INTO war_practical_phases (id, war_id, scheduled_start, start_time, status)
+      VALUES ('p', 7, 1000, 1000, 'active');`);
+    db.attack();
+    db.sqlite.exec(`CREATE TABLE counter_writes (operation TEXT);
+      CREATE TRIGGER audit_counter_update AFTER UPDATE ON war_respect_totals BEGIN INSERT INTO counter_writes VALUES ('update'); END;
+      CREATE TRIGGER audit_counter_insert AFTER INSERT ON war_respect_totals BEGIN INSERT INTO counter_writes VALUES ('insert'); END;
+      CREATE TRIGGER audit_counter_delete AFTER DELETE ON war_respect_totals BEGIN INSERT INTO counter_writes VALUES ('delete'); END;`);
+    db.sqlite.exec("UPDATE war_practical_phases SET effects_pending = 1, target = 100 WHERE id = 'p'");
+    db.sqlite.exec("UPDATE attacks SET ended = 1502, stats_pending = 0, ingest_run_id = 'retry' WHERE id = 1");
+    db.sqlite.exec("UPDATE wars SET practical_start_time = 1100, practical_finish_time = 1700 WHERE id = 7");
+    expect(db.sqlite.prepare("SELECT COUNT(*) AS count FROM counter_writes").get().count).toBe(0);
+    expectCountersMatchRaw(db);
+  });
+
+  it("handles changes to stealthed incoming attacks and missing respect", () => {
+    const db = database();
+    db.attack({ attacker_id: null, attacker_faction_id: null, defender_id: 10, defender_faction_id: 8803, is_ranked_war: 0 });
+    expectCountersMatchRaw(db);
+    expect(db.sqlite.prepare("SELECT COUNT(*) AS count FROM war_respect_totals").get().count).toBe(0);
+    db.sqlite.exec("UPDATE attacks SET is_ranked_war = 1 WHERE id = 1");
+    expectCountersMatchRaw(db);
+    expect(db.sqlite.prepare("SELECT attacker_id, respect_sum, hit_count FROM war_respect_totals").get())
+      .toEqual({ attacker_id: 0, respect_sum: 2, hit_count: 1 });
+    for (const change of ["respect_gain = NULL", "respect_gain = 0", "attacker_id = 20", "defender_id = NULL", "defender_id = 10", "is_ranked_war = 0", "attacker_faction_id = 99"]) {
+      db.sqlite.exec(`UPDATE attacks SET ${change} WHERE id = 1`);
+      expectCountersMatchRaw(db);
+    }
+  });
+
+  it("initializes existing normal and termed wars and rolls back failed mutations", () => {
+    const db = database();
+    seedAttacks(db);
+    db.sqlite.exec(`UPDATE wars SET war_type = 'termed' WHERE id = 8;
+      INSERT INTO war_practical_phases (id, war_id, scheduled_start, start_time, finish_time, status)
+      VALUES ('existing', 8, 1400, 1400, 1800, 'completed')`);
+    for (const { name } of db.sqlite.prepare("SELECT name FROM sqlite_schema WHERE type = 'trigger' AND name LIKE 'war_respect_%'").all()) {
+      db.sqlite.exec(`DROP TRIGGER ${name}`);
+    }
+    db.sqlite.exec("DROP VIEW war_respect_contributions; DROP TABLE war_respect_totals");
+    db.sqlite.exec(readFileSync(new URL("../migrations/0191_war_respect_totals.sql", import.meta.url), "utf8"));
+    expectCountersMatchRaw(db);
+    const before = db.sqlite.prepare("SELECT * FROM war_respect_totals ORDER BY war_id, direction, attacker_id").all();
+    db.sqlite.exec("BEGIN; UPDATE attacks SET war_id = 8 WHERE id = 1; DELETE FROM war_practical_phases WHERE id = 'existing';");
+    expectCountersMatchRaw(db);
+    db.sqlite.exec("ROLLBACK");
+    expect(db.sqlite.prepare("SELECT * FROM war_respect_totals ORDER BY war_id, direction, attacker_id").all()).toEqual(before);
   });
 });
 
@@ -466,10 +631,12 @@ function database() {
   const sqlite = new DatabaseSync(":memory:");
   sqlite.exec("PRAGMA foreign_keys = ON");
   const schema = readFileSync(new URL("../schema/current.sql", import.meta.url), "utf8").replaceAll("\r\n", "\n");
-  for (const table of ["wars", "war_practical_phases", "attacks", "sync_state", "war_member_stats", "war_summary", "war_member_combat_buckets", "event_stats_dirty", "home_faction_members", "discord_member_links"]) {
+  for (const table of ["wars", "war_practical_phases", "attacks", "sync_state", "war_member_stats", "war_summary", "war_member_combat_buckets", "event_stats_dirty", "war_respect_totals", "home_faction_members", "discord_member_links"]) {
     sqlite.exec(schema.match(new RegExp(`CREATE TABLE ${table} \\([\\s\\S]*?\\n\\);`))[0]);
   }
   sqlite.exec(schema.match(/CREATE VIEW tracker_attacks AS[\s\S]*?;/)[0]);
+  sqlite.exec(schema.match(/CREATE VIEW war_respect_contributions AS[\s\S]*?;/)[0]);
+  for (const [trigger] of schema.matchAll(/CREATE TRIGGER war_respect_[\s\S]*?\nEND;/g)) sqlite.exec(trigger);
   sqlite.exec(`INSERT INTO wars (id, name, status, practical_start_time, practical_finish_time, enemy_faction_id, war_type, member_respect_limit)
     VALUES (7, 'Test War', 'active', 1000, 2000, 99, 'real', 100), (8, 'Other War', 'ended', 1000, 2000, 99, 'real', NULL)`);
 
@@ -511,4 +678,33 @@ function database() {
   };
   databases.push(db);
   return db;
+}
+
+function warStatsSnapshot(db) {
+  return {
+    members: db.sqlite.prepare("SELECT * FROM war_member_stats WHERE war_id = 7 ORDER BY member_id").all(),
+    buckets: db.sqlite.prepare("SELECT * FROM war_member_combat_buckets WHERE war_id = 7 ORDER BY member_id, bucket_start").all(),
+  };
+}
+
+function expectCountersMatchRaw(db) {
+  const expected = db.sqlite.prepare(`WITH contributions AS (
+    SELECT a.war_id, 'outgoing' AS direction, COALESCE(a.attacker_id, 0) AS attacker_id, a.respect_gain
+    FROM tracker_attacks a JOIN wars w ON w.id = a.war_id
+    WHERE a.attacker_faction_id = 8803 AND ${OUTGOING_ACTION_WINDOW_SQL}
+      AND (w.enemy_faction_id IS NULL OR a.defender_faction_id = w.enemy_faction_id)
+      AND a.result IN ('Hospitalized','Mugged','Attacked','Arrested')
+      AND (a.chain IS NULL OR a.chain NOT IN (10,25,50,100,250,500,1000,2500,5000,10000,25000,50000,100000))
+    UNION ALL
+    SELECT a.war_id, 'incoming', COALESCE(a.attacker_id, 0), a.respect_gain
+    FROM tracker_attacks a JOIN wars w ON w.id = a.war_id
+    WHERE a.defender_faction_id = 8803 AND a.defender_id IS NOT NULL
+      AND ${OUTGOING_ACTION_WINDOW_SQL} AND ${RELEVANT_DEFEND_SQL}
+      AND a.result IN ('Hospitalized','Mugged','Attacked','Arrested')
+      AND (a.chain IS NULL OR a.chain NOT IN (10,25,50,100,250,500,1000,2500,5000,10000,25000,50000,100000))
+  ) SELECT war_id, direction, attacker_id, SUM(respect_gain) AS respect_sum, COUNT(respect_gain) AS hit_count
+    FROM contributions GROUP BY war_id, direction, attacker_id HAVING COUNT(respect_gain) > 0
+    ORDER BY war_id, direction, attacker_id`).all();
+  expect(db.sqlite.prepare("SELECT * FROM war_respect_totals WHERE hit_count > 0 ORDER BY war_id, direction, attacker_id").all()).toEqual(expected);
+  expect(db.sqlite.prepare("SELECT COUNT(*) AS count FROM war_respect_totals WHERE hit_count < 0 OR (hit_count = 0 AND respect_sum != 0)").get().count).toBe(0);
 }
