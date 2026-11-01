@@ -3052,9 +3052,6 @@ CREATE INDEX idx_attacks_war_bonus ON attacks (war_id, started)
 WHERE result IN ('Hospitalized','Mugged','Attacked','Arrested')
   AND chain IN (10,25,50,100,250,500,1000,2500,5000,10000,25000,50000,100000);
 
--- Acknowledge only outstanding ingestion flags, without scanning war history.
-CREATE INDEX idx_attacks_pending_stats ON attacks (war_id) WHERE stats_pending = 1;
-
 -- Respect totals changed since the war's queue was last applied. Bonus hits
 -- are revisited only when their own or fallback average may have moved.
 CREATE TABLE war_respect_changes (
