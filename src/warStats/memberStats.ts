@@ -90,7 +90,7 @@ export async function rebuildWarStatsFromRaw(
   }
 
   if (options.scope === "open-wars") {
-    return rebuildOpenWarStatsFromRaw(env, throwOnLeaseConflict);
+    return rebuildOpenWarStatsFromRaw(env, throwOnLeaseConflict, options.reason === "cron");
   }
 
   return rebuildAllWarStatsFromRaw(env, throwOnLeaseConflict);
@@ -110,7 +110,9 @@ export async function rebuildOpenWarMemberStatsFromRaw(env: Env): Promise<{ wars
 async function rebuildOpenWarStatsFromRaw(
   env: Env,
   throwOnLeaseConflict: boolean,
+  excludeEvents: boolean,
 ): Promise<WarStatsRebuildResult> {
+  // Event cron rebuilds have their own hourly claim in refreshEventTracking.
   const rows = await env.DB.prepare(
     `
     SELECT id
@@ -118,9 +120,10 @@ async function rebuildOpenWarStatsFromRaw(
     WHERE status = 'active'
       AND finalized_at IS NULL
       AND practical_finish_time IS NULL
+      AND (? = 0 OR COALESCE(war_type, 'real') != 'event')
     ORDER BY practical_start_time ASC, id ASC
     `,
-  ).all();
+  ).bind(excludeEvents ? 1 : 0).all();
 
   const wars = (rows.results ?? []) as { id: number }[];
   let warsRebuilt = 0;

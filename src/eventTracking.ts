@@ -1,9 +1,12 @@
 import { bumpWarCacheVersionById } from "./cacheVersions";
+import { claimCronSlot, cronSlot } from "./cronJobs/slots";
 import { ensureEventCompetitionStarted } from "./eventCompetition";
 import { finishEventTracking } from "./warLifecycle";
 import { rebuildWarStatsFromRaw } from "./warStats";
 import type { Env } from "./types";
 import { nowSeconds } from "./utils";
+
+const EVENT_REBUILD_SLOT = cronSlot(60);
 
 /** Run after deploying the new worker, never while applying the additive schema. */
 export async function initializeIndependentEvents(env: Env): Promise<void> {
@@ -33,7 +36,22 @@ export async function refreshEventTracking(env: Env, now = nowSeconds()): Promis
     await env.DB.prepare("UPDATE wars SET status = 'active' WHERE id = ? AND status = 'scheduled'")
       .bind(event.id).run();
     await ensureEventCompetitionStarted(env, event.id, now);
-    await rebuildWarStatsFromRaw(env, { scope: "single-war", warId: event.id, reason: "cron" });
-    await bumpWarCacheVersionById(env, event.id);
+    // Keep lifecycle checks every minute, but rebuild the growing event history
+    // once per hour. Any minute can claim the hour if earlier ticks were missed.
+    const jobName = `event_stats_rebuild:${event.id}`;
+    const slotStart = EVENT_REBUILD_SLOT.slotStart(now * 1000);
+    if (!await claimCronSlot(env, jobName, slotStart)) continue;
+    let rebuilt = false;
+    try {
+      const result = await rebuildWarStatsFromRaw(env, { scope: "single-war", warId: event.id, reason: "cron" });
+      rebuilt = result.wars_rebuilt > 0;
+    } finally {
+      // A failure or an existing rebuild lease must not consume the whole hour.
+      if (!rebuilt) {
+        await env.DB.prepare("DELETE FROM sync_state WHERE name = ? AND last_started = ?")
+          .bind(`cron_slot:${jobName}`, slotStart).run();
+      }
+    }
+    if (rebuilt) await bumpWarCacheVersionById(env, event.id);
   }
 }

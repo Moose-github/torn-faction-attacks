@@ -94,7 +94,7 @@ export const CRON_JOB_DEFINITIONS: CronJobDefinition[] = [
     label: "Cron ingestion",
     cadence: "1m",
     category: "attacks",
-    purpose: "Import recent attacks every minute, refresh the shared faction Chain Watch, then run the hourly exact rebuild when due.",
+    purpose: "Import recent attacks and check event lifecycles every minute, refresh event summaries once per hour, refresh the shared faction Chain Watch, then run the hourly exact war rebuild when due.",
     shouldRun: () => true,
     fullWarStatsRebuild: HOURLY_SLOT.isDue,
     run: async (env, scheduledTime) => {
