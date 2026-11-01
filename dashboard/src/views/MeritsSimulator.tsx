@@ -8,6 +8,7 @@ import "./MeritsSimulator.css";
 
 type Preview = { index: number; level: number } | null;
 const LEVELS = Array.from({ length: 10 }, (_, index) => index + 1);
+const TORN_KEY_STORAGE_KEY = "meritsSimulatorTornKey";
 const GROUP_ORDER = ["General", "Combat", "Weapons"];
 const groupOrder = (group: string) => {
   const order = GROUP_ORDER.indexOf(group);
@@ -19,13 +20,22 @@ export function MeritsSimulator() {
   const rows = React.useMemo(() => plan.definitions.map((definition, index) => ({ definition, index }))
     .sort((a, b) => groupOrder(a.definition.group) - groupOrder(b.definition.group)), [plan.definitions]);
   const [preview, setPreview] = React.useState<Preview>(null);
-  const [apiKey, setApiKey] = React.useState("");
+  const [apiKey, setApiKey] = React.useState(() => {
+    try { return window.localStorage.getItem(TORN_KEY_STORAGE_KEY) ?? ""; }
+    catch { return ""; }
+  });
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [message, setMessage] = React.useState("");
   const [importExpanded, setImportExpanded] = React.useState(true);
   const importToggle = React.useRef<HTMLButtonElement>(null);
   const controller = React.useRef<AbortController | null>(null);
+  React.useEffect(() => {
+    try {
+      if (apiKey.trim()) window.localStorage.setItem(TORN_KEY_STORAGE_KEY, apiKey);
+      else window.localStorage.removeItem(TORN_KEY_STORAGE_KEY);
+    } catch { /* Import still works when browser storage is unavailable. */ }
+  }, [apiKey]);
   React.useEffect(() => () => { controller.current?.abort(); controller.current = null; }, []);
   React.useEffect(() => {
     if (!importExpanded && !loading) importToggle.current?.focus();
@@ -49,7 +59,6 @@ export function MeritsSimulator() {
     if (!key || controller.current) return;
     const request = new AbortController();
     controller.current = request;
-    setApiKey("");
     setLoading(true);
     setPreview(null);
     setError(null);
@@ -58,7 +67,7 @@ export function MeritsSimulator() {
       const snapshot = await importMerits(key, request.signal);
       if (request.signal.aborted || controller.current !== request) return;
       dispatch({ type: "import", snapshot });
-      setMessage(`Imported ${snapshot.budget} merits: ${snapshot.used} allocated and ${snapshot.budget - snapshot.used} available. Your key has been discarded.`);
+      setMessage(`Imported ${snapshot.budget} merits: ${snapshot.used} allocated and ${snapshot.budget - snapshot.used} available.`);
       setImportExpanded(false);
     } catch (reason) {
       if (!request.signal.aborted && controller.current === request) setError(reason instanceof Error ? reason.message : "Unable to import merits. Please try again.");
@@ -92,7 +101,7 @@ export function MeritsSimulator() {
         <button className="panel-action-button" type="submit" disabled={loading || !apiKey.trim()}><Download size={15} />{loading ? "Fetching merits…" : "Fetch my merits"}</button>
         {loading ? <button type="button" className="panel-action-button secondary" onClick={cancelImport}>Cancel</button> : null}
       </form>
-      <p className="merit-help" id="merit-import-disclosure">Uses your key once to read your merits and the merit catalog directly from Torn. The key is cleared after submission, never saved, and never sent to this dashboard’s server. A custom key needs user → merits and torn → merits access.</p>
+      <p className="merit-help" id="merit-import-disclosure">Your key is saved in this browser’s local storage and used to read your merits and the merit catalog directly from Torn. It is never sent to this dashboard’s server. Clear the key field to remove the saved key. A custom key needs user → merits and torn → merits access.</p>
       {error ? <p className="form-error" role="alert">{error}</p> : null}
       </div>
       <p className={importExpanded ? "merit-import-message" : "merit-sr-only"} role="status">{loading ? "Fetching your allocation…" : message}</p>
