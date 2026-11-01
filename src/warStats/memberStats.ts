@@ -323,6 +323,7 @@ export async function rebuildWarMemberStatsFromRaw(env: Env, warId: number): Pro
     env.DB.prepare("UPDATE attacks INDEXED BY idx_attacks_pending_stats SET stats_pending = 0 WHERE war_id = ? AND stats_pending = 1").bind(warId),
     env.DB.prepare("DELETE FROM event_stats_dirty WHERE war_id = ?").bind(warId),
     env.DB.prepare("DELETE FROM war_stats_dirty WHERE war_id = ?").bind(warId),
+    env.DB.prepare("DELETE FROM war_respect_changes WHERE war_id = ?").bind(warId),
   ]);
 }
 
@@ -350,6 +351,7 @@ async function applyPendingSummaries(env: Env, warId: number, queue: PendingStat
       ...(queue === "war_stats_dirty" ? [env.DB.prepare(
         "UPDATE attacks INDEXED BY idx_attacks_pending_stats SET stats_pending = 0 WHERE war_id = ? AND stats_pending = 1",
       ).bind(warId)] : []),
+      env.DB.prepare("DELETE FROM war_respect_changes WHERE war_id = ?").bind(warId),
       env.DB.prepare(`DELETE FROM ${queue} WHERE war_id = ?`).bind(warId),
     ]);
     return d1Changes(results[results.length - 1]) > 0;
@@ -378,22 +380,32 @@ function expandPendingWindowStatement(env: Env, warId: number, queue: PendingSta
 }
 
 function requeueBonusBucketsStatement(env: Env, warId: number, queue: PendingStatsQueue): D1PreparedStatement {
-  // Ordinary hits change earlier bonus valuations, including other members
-  // using the war-wide fallback. Revisit those members and historical buckets.
+  // A bonus hit is valued at its attacker's ordinary-hit average, or the war-wide
+  // average when the attacker has none. Revisit it only if that average may have
+  // moved: the attacker's totals changed, or it has none and any total did.
   const bonusAttacks = queue === "war_stats_dirty" ? "attacks a INDEXED BY idx_attacks_war_bonus" : "tracker_attacks a";
   return env.DB.prepare(`INSERT INTO ${queue} (war_id, member_id, bucket_start)
     SELECT a.war_id, a.attacker_id, ${PENDING_BUCKET_SQL}
     FROM ${bonusAttacks} WHERE a.war_id = ? AND a.attacker_faction_id = ${HOME_FACTION_ID}
       AND a.attacker_id IS NOT NULL
       AND a.result IN (${POSITIVE_RESULTS_SQL}) AND a.chain IN (${CHAIN_BONUS_HITS_SQL})
-      AND EXISTS (SELECT 1 FROM ${queue} WHERE war_id = a.war_id)
+      AND ${bonusAverageMayHaveChangedSql("outgoing")}
     UNION
     SELECT a.war_id, a.defender_id, ${PENDING_BUCKET_SQL}
     FROM ${bonusAttacks} WHERE a.war_id = ? AND a.defender_faction_id = ${HOME_FACTION_ID}
       AND a.defender_id IS NOT NULL
       AND a.result IN (${POSITIVE_RESULTS_SQL}) AND a.chain IN (${CHAIN_BONUS_HITS_SQL})
-      AND EXISTS (SELECT 1 FROM ${queue} WHERE war_id = a.war_id)
+      AND ${bonusAverageMayHaveChangedSql("incoming")}
     ON CONFLICT(war_id, member_id, bucket_start) DO NOTHING`).bind(warId, warId);
+}
+
+/** Unknown attackers never match a total, so they always use the war-wide average. */
+function bonusAverageMayHaveChangedSql(direction: "outgoing" | "incoming"): string {
+  return `(EXISTS (SELECT 1 FROM war_respect_changes c WHERE c.war_id = a.war_id
+      AND c.direction = '${direction}' AND c.attacker_id = a.attacker_id)
+    OR (EXISTS (SELECT 1 FROM war_respect_changes c WHERE c.war_id = a.war_id AND c.direction = '${direction}')
+      AND NOT EXISTS (SELECT 1 FROM war_respect_totals t WHERE t.war_id = a.war_id
+        AND t.direction = '${direction}' AND t.attacker_id = a.attacker_id AND t.hit_count > 0)))`;
 }
 
 /** War attacks are owned by war_id; event membership comes from the tracker view. */

@@ -204,6 +204,49 @@ describe("running respect counters for normal and termed wars", () => {
     expectCountersMatchRaw(db);
   });
 
+  it("revisits only outgoing bonus hits whose own or fallback average changed", async () => {
+    const db = database();
+    db.attack({ respect_gain: 2 });
+    db.attack({ respect_gain: 50, chain: 10 });
+    db.attack({ attacker_id: 11, respect_gain: 8, started: 1900 });
+    db.attack({ attacker_id: 11, respect_gain: 100, chain: 25, started: 1900 });
+    db.attack({ attacker_id: 12, respect_gain: 100, chain: 50, started: 1100 });
+    await rebuildWarStatsFromRaw(db.env, { scope: "single-war", warId: 7 });
+    const revisited = trackRevisitedMembers(db);
+
+    // Member 10's and the war-wide averages move; 11 keeps its own average.
+    db.attack({ respect_gain: 10 });
+    await applyIncrementalWarSummaries(db.env, 7);
+    expect(revisited()).toEqual([10, 12]);
+    await expectMatchesFullRebuild(db);
+
+    // A failed hit changes no average, so no bonus hit is revisited.
+    db.attack({ attacker_id: 11, result: "Lost", respect_gain: 0, started: 1100 });
+    await applyIncrementalWarSummaries(db.env, 7);
+    expect(revisited()).toEqual([11]);
+    await expectMatchesFullRebuild(db);
+    expect(db.sqlite.prepare("SELECT COUNT(*) AS count FROM war_respect_changes").get().count).toBe(0);
+  });
+
+  it("revisits only incoming bonus hits from enemies whose own or fallback average changed", async () => {
+    const db = database();
+    const enemy = { attacker_faction_id: 99, defender_faction_id: 8803 };
+    db.attack({ ...enemy, attacker_id: 20, defender_id: 10, respect_gain: 4 });
+    db.attack({ ...enemy, attacker_id: 20, defender_id: 10, respect_gain: 100, chain: 10 });
+    db.attack({ ...enemy, attacker_id: 21, defender_id: 11, respect_gain: 6 });
+    db.attack({ ...enemy, attacker_id: 21, defender_id: 11, respect_gain: 100, chain: 10 });
+    db.attack({ ...enemy, attacker_id: null, attacker_faction_id: null, is_ranked_war: 1,
+      defender_id: 14, respect_gain: 100, chain: 25 });
+    await rebuildWarStatsFromRaw(db.env, { scope: "single-war", warId: 7 });
+    const revisited = trackRevisitedMembers(db);
+
+    db.attack({ ...enemy, attacker_id: 20, defender_id: 13, respect_gain: 12 });
+    await applyIncrementalWarSummaries(db.env, 7);
+    // 13 was hit; 10 holds enemy 20's bonus; 14's unknown attacker uses the war average.
+    expect(revisited()).toEqual([10, 13, 14]);
+    await expectMatchesFullRebuild(db);
+  });
+
   it("moves contributions between assigned wars without changing the overlapping event", () => {
     const db = database();
     db.attack({ respect_gain: 4 });
@@ -618,7 +661,7 @@ function database() {
   const sqlite = new DatabaseSync(":memory:");
   sqlite.exec("PRAGMA foreign_keys = ON");
   const schema = readFileSync(new URL("../schema/current.sql", import.meta.url), "utf8").replaceAll("\r\n", "\n");
-  for (const table of ["wars", "war_practical_phases", "attacks", "sync_state", "war_member_stats", "war_summary", "war_member_combat_buckets", "event_stats_dirty", "war_stats_dirty", "war_respect_totals", "home_faction_members", "discord_member_links"]) {
+  for (const table of ["wars", "war_practical_phases", "attacks", "sync_state", "war_member_stats", "war_summary", "war_member_combat_buckets", "event_stats_dirty", "war_stats_dirty", "war_respect_totals", "war_respect_changes", "home_faction_members", "discord_member_links"]) {
     sqlite.exec(schema.match(new RegExp(`CREATE TABLE ${table} \\([\\s\\S]*?\\n\\);`))[0]);
   }
   for (const index of ["idx_attacks_war_bonus", "idx_attacks_pending_stats"]) {
@@ -675,6 +718,29 @@ function warStatsSnapshot(db) {
     members: db.sqlite.prepare("SELECT * FROM war_member_stats WHERE war_id = 7 ORDER BY member_id").all(),
     buckets: db.sqlite.prepare("SELECT * FROM war_member_combat_buckets WHERE war_id = 7 ORDER BY member_id, bucket_start").all(),
   };
+}
+
+/** Members whose stats rows a run replaced or created, collected since the previous call. */
+function trackRevisitedMembers(db) {
+  db.sqlite.exec(`CREATE TEMP TABLE revisited_members (member_id INTEGER);
+    CREATE TEMP TRIGGER audit_replaced_members AFTER DELETE ON war_member_stats
+    BEGIN INSERT INTO revisited_members VALUES (OLD.member_id); END;
+    CREATE TEMP TRIGGER audit_created_members AFTER INSERT ON war_member_stats
+    BEGIN INSERT INTO revisited_members VALUES (NEW.member_id); END;`);
+  return () => {
+    const ids = db.sqlite.prepare("SELECT DISTINCT member_id FROM revisited_members ORDER BY member_id").all()
+      .map(row => row.member_id);
+    db.sqlite.exec("DELETE FROM revisited_members");
+    return ids;
+  };
+}
+
+/** The rebuild replaces every member, so its rows are cleared from the audit. */
+async function expectMatchesFullRebuild(db) {
+  const incremental = warStatsSnapshot(db);
+  await rebuildWarStatsFromRaw(db.env, { scope: "single-war", warId: 7 });
+  expect(warStatsSnapshot(db)).toEqual(incremental);
+  db.sqlite.exec("DELETE FROM revisited_members");
 }
 
 function expectCountersMatchRaw(db) {
