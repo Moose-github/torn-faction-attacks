@@ -61,6 +61,20 @@ import type {
 
 export { rankStockPaperSignals, rankWhaleFlowSignals } from "./strategies";
 
+function createDecisionMarketReader(env: Env): (observedAt: number) => Promise<MarketStock[]> {
+  // Keep pending reads too, so concurrent bots share one query per timestamp.
+  // This cache belongs to one request or tick; later requests get fresh data.
+  const reads = new Map<number, Promise<MarketStock[]>>();
+  return (observedAt) => {
+    let market = reads.get(observedAt);
+    if (!market) {
+      market = readMarketStocksForDecision(env, observedAt);
+      reads.set(observedAt, market);
+    }
+    return market;
+  };
+}
+
 export async function runLiveStockPaperBotTick(
   env: Env,
   scheduledTime: number,
@@ -81,21 +95,10 @@ export async function runLiveStockPaperBotTick(
     };
   }
 
-  const market = await readMarketStocksForDecision(env, eligibleSnapshotAt);
-  if (market.length === 0) {
-    return {
-      ok: true,
-      results: PAPER_BOTS.map((bot) => ({
-        bot_id: bot.id,
-        skipped: true,
-        reason: "No market history available",
-      })),
-    };
-  }
-
+  const readDecisionMarket = createDecisionMarketReader(env);
   const results: Array<{ bot_id: string; skipped: boolean; reason?: string; account?: PaperAccount; snapshot?: EquitySnapshot; trades?: PaperTrade[] }> = [];
   for (const bot of PAPER_BOTS) {
-    results.push(await runLiveStockPaperBotForDefinition(env, bot, eligibleSnapshotAt, market));
+    results.push(await runLiveStockPaperBotForDefinition(env, bot, eligibleSnapshotAt, readDecisionMarket));
   }
   return { ok: true, results };
 }
@@ -104,11 +107,16 @@ async function runLiveStockPaperBotForDefinition(
   env: Env,
   bot: PaperBotDefinition,
   eligibleSnapshotAt: number,
-  market: MarketStock[],
+  readDecisionMarket: (observedAt: number) => Promise<MarketStock[]>,
 ): Promise<{ bot_id: string; skipped: boolean; reason?: string; account?: PaperAccount; snapshot?: EquitySnapshot; trades?: PaperTrade[] }> {
   const account = await ensureLivePaperAccount(env, bot, nowSeconds());
   if (account.last_decision_at !== null && account.last_decision_at >= eligibleSnapshotAt) {
     return { bot_id: bot.id, skipped: true, reason: "Latest snapshot already evaluated", account };
+  }
+
+  const market = await readDecisionMarket(eligibleSnapshotAt);
+  if (market.length === 0) {
+    return { bot_id: bot.id, skipped: true, reason: "No market history available" };
   }
 
   const positions = await readAccountPositions(env, account.id);
@@ -244,7 +252,8 @@ export async function simulateStockPaperBotFromRequest(request: Request, env: En
 }
 
 export async function getStockPaperStatus(env: Env): Promise<Response> {
-  const bots = await Promise.all(PAPER_BOTS.map((bot) => readPaperBotStatus(env, bot)));
+  const readDecisionMarket = createDecisionMarketReader(env);
+  const bots = await Promise.all(PAPER_BOTS.map((bot) => readPaperBotStatus(env, bot, readDecisionMarket)));
   const momentum = bots.find((bot) => bot.bot.id === MOMENTUM_ACCOUNT_ID) ?? bots[0] ?? null;
   const latestSimulation = await readLatestSimulationRun(env);
   const simulationTrades = latestSimulation ? await readRecentPaperTrades(env, null, latestSimulation.id, 20) : [];
@@ -263,14 +272,18 @@ export async function getStockPaperStatus(env: Env): Promise<Response> {
   });
 }
 
-async function readPaperBotStatus(env: Env, bot: PaperBotDefinition): Promise<PaperBotStatus> {
+async function readPaperBotStatus(
+  env: Env,
+  bot: PaperBotDefinition,
+  readDecisionMarket: (observedAt: number) => Promise<MarketStock[]>,
+): Promise<PaperBotStatus> {
   const account = await readLivePaperAccount(env, bot.id);
   const positions = account ? await readAccountPositionsWithMarket(env, account.id) : [];
   const latestEquity = account ? await readLatestAccountEquity(env, account.id) : null;
   const recentTrades = account ? await readRecentPaperTrades(env, account.id, null, 20) : [];
   const latestSignals = account?.last_decision_at
     ? rankSignalsForStrategy(
-      await readMarketStocksForDecision(env, account.last_decision_at),
+      await readDecisionMarket(account.last_decision_at),
       account.last_decision_at,
       account,
       bot.strategy,
