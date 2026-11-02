@@ -1707,9 +1707,6 @@ CREATE INDEX idx_stock_price_snapshots_observed_stock
 CREATE INDEX idx_stock_profiles_updated
   ON stock_profiles(updated_at DESC);
 
-CREATE INDEX idx_torn_api_call_log_feature_requested_at
-  ON torn_api_call_log(feature, requested_at DESC);
-
 CREATE INDEX idx_torn_api_call_log_requested_at
   ON torn_api_call_log(requested_at DESC);
 
