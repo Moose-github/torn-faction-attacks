@@ -385,7 +385,16 @@ async function saveInventory(env: Env, token: string, payload: unknown, previous
             THEN COALESCE(faction_armory_inventory.loan_first_seen_at, excluded.loan_first_seen_at)
           ELSE excluded.loan_first_seen_at END,
         category = excluded.category, model_id = excluded.model_id, name = excluded.name, slot_type = excluded.slot_type,
-        borrower_id = excluded.borrower_id, borrower_name = excluded.borrower_name`)
+        borrower_id = excluded.borrower_id, borrower_name = excluded.borrower_name
+      -- Every refresh resends the whole armory; skip copies that did not change. With the same
+      -- copy and borrower, the loan time changes only when it is missing for a loan or set without one.
+      WHERE faction_armory_inventory.category IS NOT excluded.category
+        OR faction_armory_inventory.model_id IS NOT excluded.model_id
+        OR faction_armory_inventory.name IS NOT excluded.name
+        OR faction_armory_inventory.slot_type IS NOT excluded.slot_type
+        OR faction_armory_inventory.borrower_id IS NOT excluded.borrower_id
+        OR faction_armory_inventory.borrower_name IS NOT excluded.borrower_name
+        OR (excluded.borrower_id IS NULL) != (faction_armory_inventory.loan_first_seen_at IS NULL)`)
       .bind(HOME_FACTION_ID, category, now(), copyJson, HOME_FACTION_ID, category, token),
     env.DB.prepare(`DELETE FROM faction_armory_inventory WHERE faction_id = ? AND category = ? AND ${OWNED}
       AND uid NOT IN (SELECT json_extract(value, '$.uid') FROM json_each(?))`)

@@ -851,6 +851,23 @@ describe("current loan observations", () => {
       expect(items.every(item => item.loaned?.id === 2332935 && item.loan_first_seen_at === clock)).toBe(true);
     }
   });
+  it("rewrites only the copies whose holder or details changed", async () => {
+    db.sqlite.exec(`CREATE TABLE inventory_writes (uid TEXT);
+      CREATE TRIGGER count_inventory_writes AFTER UPDATE ON faction_armory_inventory
+      BEGIN INSERT INTO inventory_writes VALUES (NEW.uid); END;`);
+    const writes = () => db.sqlite.prepare("SELECT uid FROM inventory_writes ORDER BY rowid").all().map(row => row.uid);
+    const copies = (first: { id: number; name: string } | null, second: { id: number; name: string } | null) => ({ ...stock(),
+      inventory: [{ ...stock([7443497174]).inventory[0], loaned: first }, { ...stock([10727704270]).inventory[0], loaned: second }] });
+    await observe(copies({ id: 2332935, name: "Daz69" }, null), 0);
+    await observe(copies({ id: 2332935, name: "Daz69" }, null), 3601);
+    expect(writes()).toEqual([]);
+    await observe(copies({ id: 2332935, name: "Renamed" }, null), 7202);
+    expect(writes()).toEqual(["7443497174"]);
+    await observe(copies(null, { id: 2, name: "Other" }), 10803);
+    expect(writes()).toEqual(["7443497174", "7443497174", "10727704270"]);
+    expect((await readArmory(env)).items.map(item => [item.uid, item.loan_first_seen_at]).sort())
+      .toEqual([["10727704270", clock + 10803], ["7443497174", null]]);
+  });
   it("initializes legacy loans only on a successful inventory observation", async () => {
     await observe(loan(), 0);
     db.sqlite.exec("UPDATE faction_armory_inventory SET loan_first_seen_at = NULL");
