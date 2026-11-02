@@ -54,17 +54,54 @@ type DiscordMessageContent = {
   components?: Array<DiscordCardComponent | DiscordActionRow>;
 };
 
+export type DiscordBotMessageOptions = Pick<DiscordPayloadOptions, "embedColor" | "embeds" | "cardColor"> & {
+  nonce?: string;
+  timeoutMs?: number;
+  /** Appended after a card's components; only used with `cardColor`. */
+  actionRows?: DiscordActionRow[];
+};
+
+/** Send an alert to a caller-selected Discord user. Throws if delivery is unconfirmed. */
+export async function sendDiscordDirectMessage(
+  env: Env,
+  userId: string,
+  message: string,
+  options: DiscordBotMessageOptions = {},
+): Promise<string> {
+  const recipient = userId.trim();
+  if (!/^\d{17,20}$/.test(recipient)) throw new Error("Invalid Discord user ID");
+  if (!message.trim() || message.length > MAX_DISCORD_MESSAGE_LENGTH) {
+    throw new Error(`Discord direct message must contain 1 to ${MAX_DISCORD_MESSAGE_LENGTH} characters`);
+  }
+  const token = readDiscordBotToken(env);
+  const timeoutMs = options.timeoutMs ?? 8000;
+  // Scope retry identifiers to the recipient so one event can notify several users.
+  let nonce: string | undefined;
+  if (options.nonce) {
+    const digest = new Uint8Array(await crypto.subtle.digest(
+      "SHA-256", new TextEncoder().encode(JSON.stringify([recipient, options.nonce])),
+    ));
+    nonce = `d${Array.from(digest.slice(0, 12), byte => byte.toString(16).padStart(2, "0")).join("")}`;
+  }
+  const channel = await postDiscordBotJsonAndRead<{ id?: unknown } | null>(
+    token, "/users/@me/channels", { recipient_id: recipient }, { timeoutMs },
+  );
+  if (!channel || typeof channel.id !== "string" || !/^\d{17,20}$/.test(channel.id)) {
+    throw new Error("Discord did not return a DM channel");
+  }
+  const messageId = await createDiscordBotMessage(env, channel.id, message, undefined, {
+    ...options, nonce, timeoutMs,
+  });
+  if (!messageId) throw new Error("Discord did not confirm delivery");
+  return messageId;
+}
+
 export async function createDiscordBotMessage(
   env: Env,
   channelId: string,
   message: string,
   allowedMentions?: DiscordAllowedMentions,
-  options?: Pick<DiscordPayloadOptions, "embedColor" | "embeds" | "cardColor"> & {
-    nonce?: string;
-    timeoutMs?: number;
-    /** Appended after a card's components; only used with `cardColor`. */
-    actionRows?: DiscordActionRow[];
-  },
+  options?: DiscordBotMessageOptions,
 ): Promise<string | null> {
   const botToken = readDiscordBotToken(env);
   const payload = discordPayload(message, allowedMentions, options);

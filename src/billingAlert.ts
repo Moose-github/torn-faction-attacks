@@ -1,6 +1,5 @@
 import { isRecord } from "./backend/request";
-import { createDiscordBotMessage } from "./discord";
-import { postDiscordBotJsonAndRead } from "./external/discord";
+import { sendDiscordDirectMessage } from "./discord";
 import type { Env } from "./types";
 
 const MAX_BODY_BYTES = 64 * 1024;
@@ -38,18 +37,11 @@ export async function handleBillingAlert(request: Request, env: Env): Promise<Re
   const message = `Cloudflare usage alert\n\n${payload.text.trim()}`;
   const content = message.length > 1900 ? `${message.slice(0, 1899)}…` : message;
   try {
-    const channel = await postDiscordBotJsonAndRead<{ id?: unknown }>(
-      token, "/users/@me/channels", { recipient_id: recipient }, { timeoutMs: 8000 },
-    );
-    if (!channel || typeof channel.id !== "string" || !DISCORD_ID.test(channel.id)) {
-      throw new Error("Discord did not return a DM channel");
-    }
     // Discord enforces matching nonces for a short window, limiting duplicate
     // DMs if Cloudflare retries after an uncertain response. No D1 writes needed.
     const digest = await hash(JSON.stringify(payload));
     const nonce = `b${Array.from(digest.slice(0, 12), byte => byte.toString(16).padStart(2, "0")).join("")}`;
-    const messageId = await createDiscordBotMessage(env, channel.id, content, undefined, { nonce, timeoutMs: 8000 });
-    if (!messageId) throw new Error("Discord did not confirm delivery");
+    await sendDiscordDirectMessage(env, recipient, content, { nonce, timeoutMs: 8000 });
     return Response.json({ ok: true });
   } catch {
     // Do not acknowledge until Discord confirms receipt, or expose upstream data.

@@ -9,6 +9,10 @@ https://torn-faction-attacks.moose-3065754.workers.dev/billing-alert
 No custom domain or dashboard Route is required. The path is handled in
 `src/index.ts`. It reuses the existing `DISCORD_BOT_TOKEN`.
 
+Delivery uses the shared `sendDiscordDirectMessage` function. Other Worker features
+can use it with their own recipient IDs; see [Discord private-message alerts](discord-direct-messages.md).
+Billing alerts remain restricted to `BILLING_ALERT_DISCORD_USER_ID`.
+
 ## Configure and deploy
 
 1. Set `BILLING_ALERT_WEBHOOK_SECRET` as a Worker secret with a randomly generated
