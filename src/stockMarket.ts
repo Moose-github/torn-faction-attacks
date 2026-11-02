@@ -1917,7 +1917,8 @@ async function maintainHourlyStockRollups(
   let progressAfter = progressBefore > 0 ? progressBefore : null;
   if (backfillStart !== null && backfillStart < completeEnd) {
     backfillEnd = Math.min(backfillStart + STOCK_HOURLY_ROLLUP_BACKFILL_SECONDS, completeEnd);
-    changedRows += await upsertHourlyStockRollups(env, backfillStart, backfillEnd);
+    // The rolling refresh already covered the recent part of this range.
+    changedRows += await upsertHourlyStockRollups(env, backfillStart, Math.min(backfillEnd, rollingStart));
     await upsertSyncTimestamp(env, STOCK_HOURLY_ROLLUP_STATE, backfillEnd, null);
     progressAfter = backfillEnd;
   }
@@ -1956,7 +1957,7 @@ async function maintainDailyStockRollups(
   let progressAfter = progressBefore > 0 ? progressBefore : null;
   if (backfillStart !== null && backfillStart < progressLimit) {
     backfillEnd = Math.min(backfillStart + STOCK_DAILY_ROLLUP_BACKFILL_SECONDS, progressLimit);
-    changedRows += await upsertDailyStockRollups(env, backfillStart, backfillEnd);
+    changedRows += await upsertDailyStockRollups(env, backfillStart, Math.min(backfillEnd, rollingStart));
     await upsertSyncTimestamp(env, STOCK_DAILY_ROLLUP_STATE, backfillEnd, null);
     progressAfter = backfillEnd;
   }
@@ -1993,7 +1994,7 @@ async function maintainStockIngestionRunDailyStats(
   let progressAfter = progressBefore > 0 ? progressBefore : null;
   if (backfillStart !== null && backfillStart < completeEnd) {
     backfillEnd = Math.min(backfillStart + STOCK_DAILY_ROLLUP_BACKFILL_SECONDS, completeEnd);
-    changedRows += await upsertStockIngestionRunDailyStats(env, backfillStart, backfillEnd);
+    changedRows += await upsertStockIngestionRunDailyStats(env, backfillStart, Math.min(backfillEnd, rollingStart));
     await upsertSyncTimestamp(env, STOCK_INGESTION_RUN_DAILY_ROLLUP_STATE, backfillEnd, null);
     progressAfter = backfillEnd;
   }
@@ -2074,6 +2075,13 @@ async function upsertHourlyStockRollups(env: Env, startAt: number, endAt: number
       first_observed_at = excluded.first_observed_at,
       last_observed_at = excluded.last_observed_at,
       updated_at = excluded.updated_at
+    -- Keep the correction window, but only write aggregates that changed.
+    WHERE (stock_price_rollups_hourly.open_price, stock_price_rollups_hourly.high_price,
+      stock_price_rollups_hourly.low_price, stock_price_rollups_hourly.close_price,
+      stock_price_rollups_hourly.avg_price, stock_price_rollups_hourly.sample_count,
+      stock_price_rollups_hourly.first_observed_at, stock_price_rollups_hourly.last_observed_at)
+      IS NOT (excluded.open_price, excluded.high_price, excluded.low_price, excluded.close_price,
+        excluded.avg_price, excluded.sample_count, excluded.first_observed_at, excluded.last_observed_at)
     `,
   )
     .bind(HOUR_SECONDS, HOUR_SECONDS, startAt, endAt)
@@ -2150,6 +2158,12 @@ async function upsertDailyStockRollups(env: Env, startAt: number, endAt: number)
       first_observed_at = excluded.first_observed_at,
       last_observed_at = excluded.last_observed_at,
       updated_at = excluded.updated_at
+    WHERE (stock_price_rollups_daily.open_price, stock_price_rollups_daily.high_price,
+      stock_price_rollups_daily.low_price, stock_price_rollups_daily.close_price,
+      stock_price_rollups_daily.avg_price, stock_price_rollups_daily.sample_count,
+      stock_price_rollups_daily.first_observed_at, stock_price_rollups_daily.last_observed_at)
+      IS NOT (excluded.open_price, excluded.high_price, excluded.low_price, excluded.close_price,
+        excluded.avg_price, excluded.sample_count, excluded.first_observed_at, excluded.last_observed_at)
     `,
   )
     .bind(DAY_SECONDS, DAY_SECONDS, startAt, endAt)
@@ -2240,6 +2254,17 @@ async function upsertStockIngestionRunDailyStats(env: Env, startAt: number, endA
       first_started_at = excluded.first_started_at,
       last_started_at = excluded.last_started_at,
       updated_at = excluded.updated_at
+    WHERE (stock_ingestion_run_daily_stats.total_runs, stock_ingestion_run_daily_stats.ok_runs,
+      stock_ingestion_run_daily_stats.partial_runs, stock_ingestion_run_daily_stats.error_runs,
+      stock_ingestion_run_daily_stats.running_runs, stock_ingestion_run_daily_stats.stocks_attempted,
+      stock_ingestion_run_daily_stats.stocks_succeeded, stock_ingestion_run_daily_stats.stocks_failed,
+      stock_ingestion_run_daily_stats.points_seen, stock_ingestion_run_daily_stats.points_written,
+      stock_ingestion_run_daily_stats.recoverable_gap_count, stock_ingestion_run_daily_stats.unrecoverable_gap_count,
+      stock_ingestion_run_daily_stats.first_started_at, stock_ingestion_run_daily_stats.last_started_at)
+      IS NOT (excluded.total_runs, excluded.ok_runs, excluded.partial_runs, excluded.error_runs,
+        excluded.running_runs, excluded.stocks_attempted, excluded.stocks_succeeded, excluded.stocks_failed,
+        excluded.points_seen, excluded.points_written, excluded.recoverable_gap_count,
+        excluded.unrecoverable_gap_count, excluded.first_started_at, excluded.last_started_at)
     `,
   )
     .bind(DAY_SECONDS, DAY_SECONDS, startAt, endAt)
