@@ -715,7 +715,8 @@ describe("attack event ids", () => {
     db.prepare("UPDATE attacks SET war_id = ? WHERE id = 3").run(eventId);
     const error = await auditFailure();
     expect(error.message).toBe("Event link audit cleared war_id on 1 attacks owned by an event (3)");
-    expect(error.metrics).toMatchObject({ writeStatements: 2, changedRows: 2, details: { eventOwned: 1 } });
+    // Queue, ownership repair, and the checkpoint of the event's own clean link check.
+    expect(error.metrics).toMatchObject({ writeStatements: 3, changedRows: 3, details: { eventOwned: 1 } });
     expect(ownership()).toEqual([{ id: 1, war_id: 1 }, { id: 2, war_id: 1 }, { id: 3, war_id: null }]);
   });
 
@@ -739,8 +740,24 @@ describe("attack event ids", () => {
     expect(total()).toBe(2);
     expect(version()).toBeGreaterThan(beforeVersion);
     await expectMatchesFullRebuild(eventId);
-    await expect(auditEventAttackLinks(env)).resolves.toMatchObject({ writeStatements: 1, changedRows: 1 });
+    // The event's links were checked clean during the repair run, so it is not due again today.
     await expect(auditEventAttackLinks(env)).resolves.toMatchObject({ writeStatements: 0, changedRows: 0 });
+  });
+
+  it("keeps rotating older events while another scope needs repairs every run", async () => {
+    const first = await create();
+    const second = await create({ name: "Later", practical_start_time: START + 7200, practical_finish_time: START + 10800 });
+    const checked: Array<Array<number | null>> = [];
+    for (let run = 0; run < 3; run++) {
+      const now = START + 30 * 24 * 60 * 60 + run * 900;
+      // A fresh stray link in the recent window makes every run repair something.
+      db.prepare(`INSERT INTO attacks (id, started, attacker_id, attacker_faction_id, defender_faction_id)
+        VALUES (?, ?, 10, 8803, 99)`).run(1000 + run, now - 60);
+      db.prepare("UPDATE attacks SET event_id = ? WHERE id = ?").run(first, 1000 + run);
+      checked.push(((await auditFailure(now)).metrics.details.scopes as Array<{ eventId: number | null }>)
+        .map(scope => scope.eventId));
+    }
+    expect(checked).toEqual([[null, first], [null, second], [null]]);
   });
 
   it("rolls back queued reconciliation when the ownership repair fails", async () => {

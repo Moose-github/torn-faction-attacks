@@ -13,6 +13,8 @@ const EVENT_LINK_AUDIT_SECONDS = 6 * 60 * 60;
 // net for older corruption, so revisit each event at most once a day.
 const EVENT_LINK_FULL_AUDIT_SECONDS = 24 * 60 * 60;
 const EVENT_LINK_AUDIT_STATE_PREFIX = "event_link_audit:v1:";
+// Every due event open or finished this recently is checked; older due events
+// are checked one per run, least recently checked first.
 const EVENT_LINK_AUDIT_RECENT_EVENT_SECONDS = 7 * 24 * 60 * 60;
 const EVENT_LINK_AUDIT_SAMPLE_LIMIT = 10;
 const EXPECTED_EVENT_ID_SQL = `(SELECT w.id FROM wars w WHERE ${EVENT_ATTACK_MATCH_SQL} ORDER BY w.id LIMIT 1)`;
@@ -138,6 +140,21 @@ export async function auditEventAttackLinks(env: Env, now = nowSeconds()): Promi
     changedRows += d1Changes(queued) + eventOwned;
   }
 
+  // Acknowledge each event whose own full check found nothing to repair, even when
+  // another scope did, so recurring problems elsewhere cannot stall the rotation.
+  // An event that was repaired stays due and is verified on the next run.
+  const cleanEventIds = results.filter(result => result.eventId !== null && result.mismatched === 0)
+    .map(result => result.eventId as number);
+  if (cleanEventIds.length > 0) {
+    const checkpoints = await env.DB.batch(cleanEventIds.map(eventId => env.DB.prepare(`
+      INSERT INTO sync_state (name, last_started, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)
+      ON CONFLICT(name) DO UPDATE SET last_started = excluded.last_started, updated_at = CURRENT_TIMESTAMP
+      WHERE sync_state.last_started < excluded.last_started`)
+      .bind(`${EVENT_LINK_AUDIT_STATE_PREFIX}${eventId}`, now)));
+    writeStatements += checkpoints.length;
+    changedRows += checkpoints.reduce((total, result) => total + d1Changes(result), 0);
+  }
+
   const details = { scopes: results, relinked, samples, eventOwned, eventOwnedSamples };
   const problems = [];
   if (relinked > 0) {
@@ -149,17 +166,6 @@ export async function auditEventAttackLinks(env: Env, now = nowSeconds()): Promi
   }
   if (problems.length > 0) {
     throw new EventLinkAuditError(`Event link audit ${problems.join("; ")}`, { writeStatements, changedRows, details });
-  }
-  // Only acknowledge clean, completed audits. Repairs and interrupted runs are
-  // checked again next time, rather than being deferred for another day.
-  if (auditedEvents.length > 0) {
-    const checkpoints = await env.DB.batch(auditedEvents.map(event => env.DB.prepare(`
-      INSERT INTO sync_state (name, last_started, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)
-      ON CONFLICT(name) DO UPDATE SET last_started = excluded.last_started, updated_at = CURRENT_TIMESTAMP
-      WHERE sync_state.last_started < excluded.last_started`)
-      .bind(`${EVENT_LINK_AUDIT_STATE_PREFIX}${event.id}`, now)));
-    writeStatements += checkpoints.length;
-    changedRows += checkpoints.reduce((total, result) => total + d1Changes(result), 0);
   }
   return { writeStatements, changedRows, details };
 }
