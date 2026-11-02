@@ -1713,9 +1713,6 @@ CREATE INDEX idx_torn_api_call_log_feature_requested_at
 CREATE INDEX idx_torn_api_call_log_requested_at
   ON torn_api_call_log(requested_at DESC);
 
-CREATE INDEX idx_torn_api_call_log_status_requested_at
-  ON torn_api_call_log(status, requested_at DESC);
-
 CREATE INDEX idx_torn_api_usage_rollup_type_bucket
   ON torn_api_usage_rollup_15m(group_type, bucket_start DESC);
 
