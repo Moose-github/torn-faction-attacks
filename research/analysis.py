@@ -62,7 +62,7 @@ def whole_war_rows(rows):
 
 
 def dyadic_meat(score_vectors, pairs):
-    """Sum score cross-products for wars sharing either faction, counted once.
+    """Sum score cross-products for observations sharing either faction, counted once.
 
     Shared-faction sandwich estimator (Aronow, Samii & Assenova, 2015).
     Subtract the unordered-pair aggregate to correct double counting, including
@@ -113,8 +113,10 @@ def fit_model(rows, whole_war=False):
         columns.append((values-np.mean(values))/scale)
         names.append(field)
         transforms[field] = (values, scale, raw)
+    categories = []
     for field in (('division', 'opponent_division', 'month') if whole_war else ('won', 'division', 'opponent_division', 'month')):
         levels = sorted(set(r[field] for r in rows))
+        categories.append(list(range(len(columns), len(columns) + len(levels) - 1)))
         for level in levels[1:]:
             columns.append(np.array([float(r[field] == level) for r in rows]))
             names.append(f'{field}={level}')
@@ -130,21 +132,9 @@ def fit_model(rows, whole_war=False):
     bread = np.linalg.inv(X.T@X)
     score_vectors = X*residual[:, None]
 
-    def clustered_meat(groups):
-        sums = {}
-        for group, score in zip(groups, score_vectors):
-            if group not in sums:
-                sums[group] = np.zeros(p)
-            sums[group] += score
-        g = len(sums)
-        matrix = np.stack(list(sums.values()))
-        return matrix.T@matrix * (g/(g-1))*((n-1)/(n-p))
-
-    if whole_war:
-        meat = dyadic_meat(score_vectors, [(r['faction_id'], r['opponent_id']) for r in rows]) * n / (n-p)
-    else:
-        # Two-way clustered covariance: shared wars + repeated factions - intersections.
-        meat = clustered_meat([r['war_id'] for r in rows]) + clustered_meat([r['faction_id'] for r in rows]) - clustered_meat([(r['war_id'], r['faction_id']) for r in rows])
+    # Faction rows also depend on shared opponents, which war and faction
+    # clusters miss; both views use the shared-faction estimator.
+    meat = dyadic_meat(score_vectors, [(r['faction_id'], r['opponent_id']) for r in rows]) * n / (n-p)
     cov = bread@meat@bread
     starts = {r['war_id']: r['start'] for r in rows}
     time_wars = sorted(wars, key=lambda wid: (starts[wid], wid))
@@ -154,6 +144,12 @@ def fit_model(rows, whole_war=False):
         ix = np.array([r['war_id'] in half for r in rows])
         # Calendar categories can be absent in one half; use a reduced, full-rank matrix.
         keep = [j for j in range(p) if j == 0 or np.std(X[ix, j]) > 1e-10]
+        # A later half lacks the earliest month (or other baseline level), so its
+        # remaining indicators sum to the intercept. Use its first level instead.
+        for group in categories:
+            present = [j for j in group if j in keep]
+            if present and np.all(X[ix][:, present].sum(axis=1) == 1):
+                keep.remove(present[0])
         hX = X[ix][:, keep]
         if len(hX) < 5*len(keep) or np.linalg.matrix_rank(hX) < len(keep):
             half_betas.append(None)
@@ -199,7 +195,7 @@ def fit_model(rows, whole_war=False):
         if vif >= 10:
             cautions.append('Strong overlap with other factors; the separate contribution is hard to isolate even when the estimated direction is consistent.')
         if interval is None:
-            cautions.append('The clustered uncertainty estimate was unstable.')
+            cautions.append('The shared-faction uncertainty estimate was unstable.')
         elif not separated:
             cautions.append('The uncertainty interval includes no association.')
         if stable is not True:
@@ -220,7 +216,7 @@ def fit_model(rows, whole_war=False):
                         'effect_m': effect, 'interval_m': interval, 'vif': vif, 'status': status,
                         'stable_halves': stable, 'sensitive_to_top_faction': sensitive, 'cautions': cautions, 'bins': bins})
     method = ('Ordinary least squares of combined gross cache value in $m, with one observation per war. Controls: winner and loser starting divisions, combined listed roster size, roster balance, calendar month and the other displayed factors. Approximate 95% intervals allow dependence between wars sharing either faction, including repeated pairings and winner/loser role changes (dyadic sandwich, n/(n-p) correction).'
-              if whole_war else 'Ordinary least squares of faction gross cache value in $m. Controls: outcome, both starting divisions, both listed roster sizes, calendar month and the other displayed factors. Approximate 95% intervals use two-way clustering by war and faction.')
+              if whole_war else 'Ordinary least squares of faction gross cache value in $m. Controls: outcome, both starting divisions, both listed roster sizes, calendar month and the other displayed factors. Approximate 95% intervals allow dependence between observations sharing either faction, including both sides of a war, repeated factions and shared opponents (dyadic sandwich, n/(n-p) correction).')
     return {'available': True, 'effects': effects, 'observations': n, 'wars': len(wars), 'factions': len(factions),
             'omitted': omitted, 'method': method + ' Attack totals, score, duration and roster counts use log(1+x). Effects compare the 25th and 75th percentiles. These are exploratory associations, not causal estimates; intervals are not adjusted for multiple comparisons.'}
 

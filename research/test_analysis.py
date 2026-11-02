@@ -129,6 +129,18 @@ class WholeWarTests(unittest.TestCase):
         result = fit_model(rows)
         self.assertTrue(result['available'], result)
         self.assertIn('faction gross cache value', result['method'])
+        self.assertIn('shared opponents', result['method'])
+
+    def test_chronological_halves_work_when_the_later_half_lacks_the_first_month(self):
+        months = ['2026-09', '2026-10', '2026-11', '2026-12']
+        for count in (3, 4):
+            rows = synthetic_wars()
+            for r in rows:
+                r['month'] = months[r['war_id'] * count // len(rows)]
+                r['date'] = r['month'] + '-05'
+            effects = {e['field']: e for e in fit_model(rows, whole_war=True)['effects']}
+            self.assertTrue(effects['participation_rate']['stable_halves'], count)
+            self.assertEqual(effects['participation_rate']['status'], 'Tentative association', count)
 
     def test_report_shows_combined_value_without_split_calculator(self):
         rows, audit = extract(report(), {'Melee Cache': 100e6})
