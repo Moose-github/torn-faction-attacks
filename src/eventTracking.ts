@@ -9,11 +9,11 @@ import { d1Changes, nowSeconds } from "./utils";
 // Links change when attacks are inserted or completed; event edits are handled by
 // the wars triggers. Rechecking recent attacks tolerates late inserts and skipped runs.
 const EVENT_LINK_AUDIT_SECONDS = 6 * 60 * 60;
-// Window edits and historical imports relink attacks older than the recent window,
-// so events still open or finished this recently are checked in full on every run.
+// Triggers handle window edits and imports immediately. Full audits are a safety
+// net for older corruption, so revisit each event at most once a day.
+const EVENT_LINK_FULL_AUDIT_SECONDS = 24 * 60 * 60;
+const EVENT_LINK_AUDIT_STATE_PREFIX = "event_link_audit:v1:";
 const EVENT_LINK_AUDIT_RECENT_EVENT_SECONDS = 7 * 24 * 60 * 60;
-// Each maintenance slot also checks one older event in turn, revisiting all of them.
-const EVENT_LINK_AUDIT_SLOT_SECONDS = 15 * 60;
 const EVENT_LINK_AUDIT_SAMPLE_LIMIT = 10;
 const EXPECTED_EVENT_ID_SQL = `(SELECT w.id FROM wars w WHERE ${EVENT_ATTACK_MATCH_SQL} ORDER BY w.id LIMIT 1)`;
 
@@ -78,7 +78,8 @@ export async function auditEventAttackLinks(env: Env, now = nowSeconds()): Promi
     where: "a.started >= ?",
     binds: [now - EVENT_LINK_AUDIT_SECONDS],
   }];
-  for (const event of await readAuditedEvents(env, now)) {
+  const auditedEvents = await readAuditedEvents(env, now);
+  for (const event of auditedEvents) {
     // The window finds missing links; event_id finds stray links outside it.
     scopes.push({
       eventId: event.id,
@@ -121,11 +122,20 @@ export async function auditEventAttackLinks(env: Env, now = nowSeconds()): Promi
   const eventOwnedSamples = (owned.results ?? []).map(row => Number(row.id));
   let eventOwned = 0;
   if (eventOwnedSamples.length > 0) {
-    const repair = await env.DB.prepare(`UPDATE attacks SET war_id = NULL
-      WHERE war_id IN (SELECT id FROM wars WHERE war_type = 'event')`).run();
-    writeStatements += 1;
+    // Clearing an event-owned war_id does not trigger its stats queue. Capture
+    // every affected event before clearing ownership, in the same transaction,
+    // so the normal queue runner repairs duplicate totals and bumps the cache.
+    const [queued, repair] = await env.DB.batch([
+      env.DB.prepare(`INSERT INTO war_stats_dirty (war_id, member_id, bucket_start)
+        SELECT id, -1, -1 FROM wars
+        WHERE war_type = 'event' AND EXISTS (SELECT 1 FROM attacks WHERE war_id = wars.id)
+        ON CONFLICT(war_id, member_id, bucket_start) DO NOTHING`),
+      env.DB.prepare(`UPDATE attacks SET war_id = NULL
+        WHERE war_id IN (SELECT id FROM wars WHERE war_type = 'event')`),
+    ]);
+    writeStatements += 2;
     eventOwned = d1Changes(repair);
-    changedRows += eventOwned;
+    changedRows += d1Changes(queued) + eventOwned;
   }
 
   const details = { scopes: results, relinked, samples, eventOwned, eventOwnedSamples };
@@ -140,21 +150,34 @@ export async function auditEventAttackLinks(env: Env, now = nowSeconds()): Promi
   if (problems.length > 0) {
     throw new EventLinkAuditError(`Event link audit ${problems.join("; ")}`, { writeStatements, changedRows, details });
   }
+  // Only acknowledge clean, completed audits. Repairs and interrupted runs are
+  // checked again next time, rather than being deferred for another day.
+  if (auditedEvents.length > 0) {
+    const checkpoints = await env.DB.batch(auditedEvents.map(event => env.DB.prepare(`
+      INSERT INTO sync_state (name, last_started, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)
+      ON CONFLICT(name) DO UPDATE SET last_started = excluded.last_started, updated_at = CURRENT_TIMESTAMP
+      WHERE sync_state.last_started < excluded.last_started`)
+      .bind(`${EVENT_LINK_AUDIT_STATE_PREFIX}${event.id}`, now)));
+    writeStatements += checkpoints.length;
+    changedRows += checkpoints.reduce((total, result) => total + d1Changes(result), 0);
+  }
   return { writeStatements, changedRows, details };
 }
 
-/** Every event that is open or finished recently, plus one older event in turn per slot. */
+/** Due recent events plus the least recently checked older event, without clock-slot starvation. */
 async function readAuditedEvents(env: Env, now: number) {
-  const events = await env.DB.prepare(`SELECT id, start, finish FROM (
-      SELECT id, start, finish, older,
-        ROW_NUMBER() OVER (PARTITION BY older ORDER BY id) - 1 AS turn,
-        COUNT(*) OVER (PARTITION BY older) AS turns
-      FROM (SELECT id, practical_start_time AS start, practical_finish_time AS finish,
-          COALESCE(practical_finish_time < ?, 0) AS older
-        FROM wars WHERE war_type = 'event' AND practical_start_time <= ?))
-    WHERE NOT older OR turn = ? % turns
-    ORDER BY id`)
-    .bind(now - EVENT_LINK_AUDIT_RECENT_EVENT_SECONDS, now, Math.floor(now / EVENT_LINK_AUDIT_SLOT_SECONDS))
+  const events = await env.DB.prepare(`SELECT w.id, w.practical_start_time AS start, w.practical_finish_time AS finish
+    FROM wars w LEFT JOIN sync_state s ON s.name = ? || w.id
+    WHERE w.war_type = 'event' AND w.practical_start_time <= ?
+      AND (s.name IS NULL OR s.last_started <= ?)
+    ORDER BY COALESCE(s.last_started, 0), w.id`)
+    .bind(EVENT_LINK_AUDIT_STATE_PREFIX, now, now - EVENT_LINK_FULL_AUDIT_SECONDS)
     .all<{ id: number; start: number; finish: number | null }>();
-  return events.results ?? [];
+  let includedOlder = false;
+  return (events.results ?? []).filter(event => {
+    if (event.finish === null || event.finish >= now - EVENT_LINK_AUDIT_RECENT_EVENT_SECONDS) return true;
+    if (includedOlder) return false;
+    includedOlder = true;
+    return true;
+  });
 }

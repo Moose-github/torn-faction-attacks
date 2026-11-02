@@ -15,6 +15,7 @@ import { buildHistoricalImportStatement, buildLiveInsertStatement } from "../src
 import { auditEventAttackLinks, EventLinkAuditError } from "../src/eventTracking";
 import { EVENT_ATTACK_MATCH_SQL } from "../src/sql";
 import type { TornAttack } from "../src/types";
+import { warCacheVersionName } from "../src/cacheVersions";
 
 // External collection is covered separately; these tests exercise the real SQL,
 // lifecycle, summaries, and API readers using overlapping attack windows.
@@ -697,7 +698,7 @@ describe("attack event ids", () => {
 
   it("audits recent links and repairs any that disagree with the event windows", async () => {
     const eventId = await create();
-    await expect(auditEventAttackLinks(env)).resolves.toMatchObject({ writeStatements: 0, changedRows: 0,
+    await expect(auditEventAttackLinks(env)).resolves.toMatchObject({ writeStatements: 1, changedRows: 1,
       details: { scopes: [{ eventId: null, checked: 3, mismatched: 0 }, { eventId, checked: 2, mismatched: 0 }],
         relinked: 0, eventOwned: 0 } });
     db.exec("UPDATE attacks SET event_id = NULL WHERE id = 2");
@@ -714,8 +715,46 @@ describe("attack event ids", () => {
     db.prepare("UPDATE attacks SET war_id = ? WHERE id = 3").run(eventId);
     const error = await auditFailure();
     expect(error.message).toBe("Event link audit cleared war_id on 1 attacks owned by an event (3)");
-    expect(error.metrics).toMatchObject({ writeStatements: 1, changedRows: 1, details: { eventOwned: 1 } });
+    expect(error.metrics).toMatchObject({ writeStatements: 2, changedRows: 2, details: { eventOwned: 1 } });
     expect(ownership()).toEqual([{ id: 1, war_id: 1 }, { id: 2, war_id: 1 }, { id: 3, war_id: null }]);
+  });
+
+  it("refreshes duplicate event summaries and their cache after repairing ownership", async () => {
+    const eventId = await create();
+    db.prepare("UPDATE attacks SET war_id = ? WHERE id = 3").run(eventId);
+    db.prepare("UPDATE wars SET status = 'ended' WHERE id = ?").run(eventId);
+    await rebuildWarStatsFromRaw(env, { scope: "single-war", warId: eventId, reason: "admin" });
+    const total = () => db.prepare("SELECT attacks_vs_enemy_total FROM war_summary WHERE war_id = ?")
+      .get(eventId)?.attacks_vs_enemy_total;
+    const version = () => Number(db.prepare("SELECT last_started FROM sync_state WHERE name = ?")
+      .get(warCacheVersionName("Halloween"))?.last_started ?? 0);
+    expect(total()).toBe(3);
+    const beforeVersion = version();
+    vi.setSystemTime((START + 7200) * 1000);
+
+    await auditFailure();
+    expect(db.prepare("SELECT member_id, bucket_start FROM war_stats_dirty WHERE war_id = ?").all(eventId))
+      .toEqual([{ member_id: -1, bucket_start: -1 }]);
+    await refreshPendingWarSummaries(env);
+    expect(total()).toBe(2);
+    expect(version()).toBeGreaterThan(beforeVersion);
+    await expectMatchesFullRebuild(eventId);
+    await expect(auditEventAttackLinks(env)).resolves.toMatchObject({ writeStatements: 1, changedRows: 1 });
+    await expect(auditEventAttackLinks(env)).resolves.toMatchObject({ writeStatements: 0, changedRows: 0 });
+  });
+
+  it("rolls back queued reconciliation when the ownership repair fails", async () => {
+    const eventId = await create();
+    db.prepare("UPDATE attacks SET war_id = ? WHERE id = 3").run(eventId);
+    db.exec(`CREATE TRIGGER reject_event_ownership_repair BEFORE UPDATE OF war_id ON attacks
+      WHEN OLD.id = 3 AND NEW.war_id IS NULL
+      BEGIN SELECT RAISE(ABORT, 'fixture repair failure'); END;`);
+    await expect(auditEventAttackLinks(env)).rejects.toThrow("fixture repair failure");
+    expect(db.prepare("SELECT war_id FROM attacks WHERE id = 3").get()?.war_id).toBe(eventId);
+    expect(db.prepare("SELECT * FROM war_stats_dirty WHERE war_id = ?").all(eventId)).toEqual([]);
+    expect(db.prepare("SELECT * FROM sync_state WHERE name = ?").get(`event_link_audit:v1:${eventId}`)).toBeUndefined();
+    db.exec("DROP TRIGGER reject_event_ownership_repair");
+    await auditFailure();
   });
 
   it("repairs missing and stray links of a recent event older than the recent window", async () => {
@@ -729,7 +768,7 @@ describe("attack event ids", () => {
     expect([1, 2, 3].map(eventIdOf)).toEqual([null, eventId, eventId]);
   });
 
-  it("checks one older event per maintenance slot in turn", async () => {
+  it("checks due older events in order even after skipped slots", async () => {
     const first = await create();
     const second = await create({ name: "Later", practical_start_time: START + 7200, practical_finish_time: START + 10800 });
     const slot = 15 * 60;
@@ -737,9 +776,55 @@ describe("attack event ids", () => {
     const audited = async (now: number) => ((await auditEventAttackLinks(env, now)).details.scopes as Array<{ eventId: number | null }>)
       .map(scope => scope.eventId);
     expect(await audited(later)).toEqual([null, first]);
-    expect(await audited(later + slot)).toEqual([null, second]);
-    expect(await audited(later + 2 * slot)).toEqual([null, first]);
-    // Recent events are checked in full on every run alongside the older one.
-    expect(await audited(START + 10800 + 60)).toEqual([null, first, second]);
+    // Skipping a slot must not select the first event again by wall-clock modulo.
+    expect(await audited(later + 2 * slot)).toEqual([null, second]);
+    expect(await audited(later + 3 * slot)).toEqual([null]);
+    expect(await audited(later + 24 * 60 * 60)).toEqual([null, first]);
+  });
+
+  it("scans a recent event's full history once across 96 maintenance runs", async () => {
+    const day = 24 * 60 * 60;
+    const eventId = await create({ practical_start_time: START - 5 * day });
+    for (let id = 4; id < 204; id++) attack(id, START - 2 * day + id, null);
+    let fullChecks = 0;
+    let fullRows = 0;
+    let writes = 0;
+    for (let slot = 0; slot < 96; slot++) {
+      const result = await auditEventAttackLinks(env, START + 600 + slot * 900);
+      writes += result.changedRows;
+      const scopes = result.details.scopes as Array<{ eventId: number | null; checked: number }>;
+      expect(scopes[0].eventId).toBeNull();
+      for (const scope of scopes.filter(scope => scope.eventId === eventId)) {
+        fullChecks++;
+        fullRows += scope.checked;
+      }
+    }
+    expect(fullChecks).toBe(1);
+    expect(fullRows).toBe(203);
+    expect(writes).toBe(1); // One checkpoint, no per-attack audit writes.
+    const next = await auditEventAttackLinks(env, START + 600 + day);
+    expect(next.details.scopes).toEqual([
+      { eventId: null, checked: 0, mismatched: 0 }, { eventId, checked: 203, mismatched: 0 },
+    ]);
+  });
+
+  it("rechecks repaired historical links before advancing the daily checkpoint", async () => {
+    const eventId = await create();
+    const now = START + 2 * 24 * 60 * 60;
+    const checkpoint = () => db.prepare("SELECT last_started FROM sync_state WHERE name = ?")
+      .get(`event_link_audit:v1:${eventId}`)?.last_started;
+    db.exec("UPDATE attacks SET event_id = NULL WHERE id = 2");
+    await auditFailure(now);
+    expect(checkpoint()).toBeUndefined();
+    const verified = await auditEventAttackLinks(env, now + 900);
+    expect(verified.details.scopes).toMatchObject([{ eventId: null }, { eventId, mismatched: 0 }]);
+    expect(checkpoint()).toBe(now + 900);
+    const skipped = await auditEventAttackLinks(env, now + 1800);
+    expect(skipped.details.scopes).toEqual([{ eventId: null, checked: 0, mismatched: 0 }]);
+    // A late historical import with a broken link remains covered by the next full sweep.
+    attack(4, START + 300, null);
+    db.exec("UPDATE attacks SET event_id = NULL WHERE id = 4");
+    await auditFailure(now + 900 + 24 * 60 * 60);
+    expect(eventIdOf(4)).toBe(eventId);
   });
 });
