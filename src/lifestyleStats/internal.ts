@@ -319,6 +319,61 @@ export async function writeLifestyleSnapshotForDate(
         ELSE 0
       END,
       captured_at = excluded.captured_at
+    -- Compare the merged data, not the refresh time: incomplete fetches must not
+    -- overwrite ready data, and unchanged batches must not rewrite every member.
+    WHERE member_lifestyle_stat_snapshots.member_name IS NOT excluded.member_name
+      OR (excluded.personal_ready = 1 AND (
+        member_lifestyle_stat_snapshots.xantaken,
+        member_lifestyle_stat_snapshots.overdosed,
+        member_lifestyle_stat_snapshots.refills,
+        member_lifestyle_stat_snapshots.useractivity,
+        member_lifestyle_stat_snapshots.networth,
+        member_lifestyle_stat_snapshots.daysbeendonator,
+        member_lifestyle_stat_snapshots.xantaken_timestamp,
+        member_lifestyle_stat_snapshots.overdosed_timestamp,
+        member_lifestyle_stat_snapshots.refills_timestamp,
+        member_lifestyle_stat_snapshots.useractivity_timestamp,
+        member_lifestyle_stat_snapshots.networth_timestamp,
+        member_lifestyle_stat_snapshots.daysbeendonator_timestamp,
+        member_lifestyle_stat_snapshots.personalstats_bucket_date,
+        member_lifestyle_stat_snapshots.personalstats_requested_at,
+        member_lifestyle_stat_snapshots.personalstats_key_source,
+        member_lifestyle_stat_snapshots.personal_captured_at,
+        member_lifestyle_stat_snapshots.personal_ready
+      ) IS NOT (
+        excluded.xantaken, excluded.overdosed, excluded.refills, excluded.useractivity,
+        excluded.networth, excluded.daysbeendonator, excluded.xantaken_timestamp,
+        excluded.overdosed_timestamp, excluded.refills_timestamp, excluded.useractivity_timestamp,
+        excluded.networth_timestamp, excluded.daysbeendonator_timestamp,
+        excluded.personalstats_bucket_date, excluded.personalstats_requested_at,
+        excluded.personalstats_key_source, excluded.personal_captured_at, 1
+      ))
+      OR (excluded.gym_ready = 1 AND (
+        member_lifestyle_stat_snapshots.gymenergy,
+        member_lifestyle_stat_snapshots.gymstrength,
+        member_lifestyle_stat_snapshots.gymspeed,
+        member_lifestyle_stat_snapshots.gymdefense,
+        member_lifestyle_stat_snapshots.gymdexterity,
+        member_lifestyle_stat_snapshots.gym_captured_at,
+        member_lifestyle_stat_snapshots.gym_error,
+        member_lifestyle_stat_snapshots.gym_ready
+      ) IS NOT (
+        excluded.gymenergy, excluded.gymstrength, excluded.gymspeed, excluded.gymdefense,
+        excluded.gymdexterity, excluded.gym_captured_at, excluded.gym_error, 1
+      ))
+      OR member_lifestyle_stat_snapshots.validation_error IS NOT (CASE
+        WHEN excluded.personal_ready = 1 THEN NULL
+        WHEN excluded.validation_error IS NOT NULL THEN excluded.validation_error
+        WHEN member_lifestyle_stat_snapshots.personal_ready = 1 THEN member_lifestyle_stat_snapshots.validation_error
+        ELSE NULL
+      END)
+      OR member_lifestyle_stat_snapshots.fully_ready IS NOT (CASE
+        WHEN (excluded.personal_ready = 1 OR member_lifestyle_stat_snapshots.personal_ready = 1)
+          AND (excluded.gym_ready = 1 OR member_lifestyle_stat_snapshots.gym_ready = 1)
+          AND (CASE WHEN excluded.gym_ready = 1 THEN excluded.gym_error ELSE member_lifestyle_stat_snapshots.gym_error END) IS NULL
+        THEN 1
+        ELSE 0
+      END)
     `,
   )
     .bind(snapshotDate, freshAfter, freshAfter, snapshotDate, freshAfter, freshAfter, allowPartialGym, snapshotDate, HOME_FACTION_ID)
