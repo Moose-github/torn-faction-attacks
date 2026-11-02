@@ -112,6 +112,11 @@ export function warDataTtlSeconds(
   };
 }
 
+/** A finished event changes only through writes that bump its cache version. */
+export function eventCompetitionTtlSeconds(data: any): number {
+  return data?.competition?.ended === true ? OFFICIAL_END_CACHE_TTL_SECONDS : 55;
+}
+
 export function scoutingComparisonTtlSeconds(data: any): number {
   const war = data?.war ?? data;
   if (isWarRoomMemberTrackingActive(war, nowSeconds())) {

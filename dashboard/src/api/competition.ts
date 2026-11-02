@@ -18,6 +18,7 @@ export type CompetitionMember = {
 
 export type EventCompetition = {
   event_type: "elimination" | "halloween";
+  ended?: boolean;
   eliminated_teams: string[];
   refresh_hours: 6 | 12;
   initialized_at: number | null;

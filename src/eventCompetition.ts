@@ -299,7 +299,7 @@ export async function readEventCompetition(env: Env, war: WarRow) {
     };
   });
   return {
-    event_type: war.event_type, refresh_hours: war.competition_refresh_hours ?? 6,
+    event_type: war.event_type, ended: war.status === "ended", refresh_hours: war.competition_refresh_hours ?? 6,
     eliminated_teams: (eliminatedTeams.results ?? []).map(row => row.team_name),
     initialized_at: state?.initialized_at ?? null, final_requested_at: state?.final_requested_at ?? null,
     members, total_treats_gained: projection.members.size ? projection.total : null, history: projection.history,

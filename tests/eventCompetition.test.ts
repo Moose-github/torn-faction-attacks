@@ -13,6 +13,7 @@ import { createManualEvent, updateEvent } from "../src/wars";
 import { captureEventChainHistory, eventChainSampleTimes, readEventChainHistory } from "../src/eventChainHistory";
 import { HOME_FACTION_ID } from "../src/constants";
 import { readEventSuccessfulAttackHistory, SUCCESSFUL_ATTACK_HISTORY_START } from "../src/eventSuccessfulAttackHistory";
+import { eventCompetitionTtlSeconds, OFFICIAL_END_CACHE_TTL_SECONDS } from "../src/responseCache";
 
 vi.mock("../src/external/torn", () => ({ fetchTrackedTornJson: vi.fn() }));
 vi.mock("../src/cacheVersions", () => ({ bumpWarCacheVersionById: vi.fn(), bumpWarCacheVersion: vi.fn() }));
@@ -172,6 +173,26 @@ describe("hourly Halloween chain history", () => {
     expect(await readEventChainHistory(env, edited, START + 3 * hour)).toEqual([
       { observed_at: START + 30, chain: null }, { observed_at: START + hour, chain: null },
     ]);
+  });
+
+  it("clears the cache only when a sample changes, and stops a day after the event finishes", async () => {
+    war("halloween", "ended");
+    db.prepare("UPDATE wars SET practical_finish_time = ?").run(START + hour);
+    hit(1, START, 100);
+    await captureEventChainHistory(env, START + hour + 60);
+    expect(points()).toEqual([{ sampled_at: START, chain_count: 100 }, { sampled_at: START + hour, chain_count: null }]);
+    expect(bumpWarCacheVersionById).toHaveBeenCalledTimes(1);
+    await captureEventChainHistory(env, START + 2 * hour + 120); // Retries the gap; nothing changes.
+    expect(bumpWarCacheVersionById).toHaveBeenCalledTimes(1);
+    hit(2, START + hour - 10, 101);
+    await captureEventChainHistory(env, START + 3 * hour + 180);
+    expect(points()[1].chain_count).toBe(101);
+    expect(bumpWarCacheVersionById).toHaveBeenCalledTimes(2);
+    db.exec("UPDATE event_chain_history SET chain_count = NULL");
+    hit(3, START - 10, 102);
+    await captureEventChainHistory(env, START + 25 * hour + 60);
+    expect(points().map(point => point.chain_count)).toEqual([null, null]);
+    expect(bumpWarCacheVersionById).toHaveBeenCalledTimes(2);
   });
 
   it("migrates existing events and removes their chain samples when the event is deleted", () => {
@@ -719,5 +740,15 @@ describe("event competition collection", () => {
       upgrade.exec("DELETE FROM wars WHERE id = 1");
       expect(upgrade.prepare("SELECT * FROM event_competition_eliminated_teams").all()).toEqual([]);
     } finally { upgrade.close(); }
+  });
+});
+
+describe("competition cache lifetime", () => {
+  it("keeps a finished event cached until its data changes, and a live one briefly", async () => {
+    war();
+    expect(eventCompetitionTtlSeconds({ ok: true, competition: await view() })).toBe(55);
+    db.exec("UPDATE wars SET status = 'ended'");
+    expect(eventCompetitionTtlSeconds({ ok: true, competition: await view() })).toBe(OFFICIAL_END_CACHE_TTL_SECONDS);
+    expect(eventCompetitionTtlSeconds({ ok: true, competition: null })).toBe(55);
   });
 });

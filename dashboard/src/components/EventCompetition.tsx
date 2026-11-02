@@ -31,11 +31,13 @@ export function useEventCompetition(war: WarSummary) {
       try {
         const response = await getEventCompetition(war.name, signal);
         if (isCurrent() && !cancelled && revision.current === startedRevision) setResult({ name: war.name, data: response.competition, error: null });
+        // A finished event no longer changes once its final readings are in.
+        if (war.status === "ended" && !response.competition?.members.some(member => member.status === "finishing")) return false;
       } catch {
         if (isCurrent() && !cancelled && revision.current === startedRevision) setResult(previous => ({ name: war.name, data: previous.name === war.name ? previous.data : null, error: "Competition data could not be loaded" }));
       }
     }
-    const poll = startPolling(refresh, { intervalMs: 60_000 });
+    const poll = startPolling(refresh, { intervalMs: 60_000, pauseWhenHidden: true, refreshOnVisible: true });
     return () => { cancelled = true; poll.stop(); };
   }, [enabled, war.name, war.event_type, war.status, war.practical_start_time, war.practical_finish_time, war.competition_refresh_hours]);
   return { enabled, data: enabled && result.name === war.name ? result.data : null, error: enabled && result.name === war.name ? result.error : null, applyUpdate };

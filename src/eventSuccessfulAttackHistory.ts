@@ -20,16 +20,16 @@ export async function readEventSuccessfulAttackHistory(
   if (first > last) return [];
   // Collapse all earlier event hits into the first displayed point. Later hits
   // belong to the next clock-hour boundary, including hits exactly on that hour.
-  const rows = await env.DB.prepare(`SELECT
-      CASE WHEN COALESCE(ended, started) <= ? THEN ?
-        ELSE CAST((COALESCE(ended, started) + 3599) / 3600 AS INTEGER) * 3600 END AS observed_at,
-      COUNT(*) AS hits
-    FROM attacks
-    WHERE attacker_faction_id = ? AND (defender_faction_id IS NULL OR defender_faction_id != ?)
-      AND result IN (${POSITIVE_RESULTS_SQL})
-      AND COALESCE(ended, started) >= ? AND COALESCE(ended, started) <= ?
-    GROUP BY observed_at ORDER BY observed_at`)
-    .bind(first, first, HOME_FACTION_ID, HOME_FACTION_ID, war.practical_start_time, last)
+  // Each hour is its own index range: grouping by hour adds a sort D1 bills as reads.
+  const rows = await env.DB.prepare(`WITH RECURSIVE hours(observed_at) AS (
+      SELECT ? UNION ALL SELECT observed_at + 3600 FROM hours WHERE observed_at < ?)
+    SELECT observed_at, (SELECT COUNT(*) FROM attacks
+      WHERE attacker_faction_id = ? AND (defender_faction_id IS NULL OR defender_faction_id != ?)
+        AND result IN (${POSITIVE_RESULTS_SQL})
+        AND COALESCE(ended, started) >= CASE WHEN observed_at = ? THEN ? ELSE observed_at - 3599 END
+        AND COALESCE(ended, started) <= observed_at) AS hits
+    FROM hours`)
+    .bind(first, last, HOME_FACTION_ID, HOME_FACTION_ID, first, war.practical_start_time)
     .all<{ observed_at: number; hits: number }>();
   const hits = new Map((rows.results ?? []).map(row => [row.observed_at, row.hits]));
   const history: EventSuccessfulAttackPoint[] = [];

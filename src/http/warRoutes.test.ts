@@ -83,6 +83,7 @@ vi.mock("../responseCache", () => ({
   cachedGetJson: vi.fn((_request, _ctx, _ttl, load) => load()),
   cachedVersionedGetJson: vi.fn((_env, _request, _ctx, _ttl, _versions, load) => load()),
   OFFICIAL_END_CACHE_TTL_SECONDS: 24 * 60 * 60,
+  eventCompetitionTtlSeconds: vi.fn(() => 55),
   scoutingComparisonTtlSeconds: vi.fn(() => 55),
   warDataTtlSeconds: vi.fn((ttl: number) => ttl),
 }));

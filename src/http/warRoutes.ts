@@ -20,6 +20,7 @@ import {
 import { getEnemyMemberActivityHeatmap, getWarActivityHeatmap } from "../heatmap";
 import { fetchRankedWarReport, getWarReportDiscrepancies } from "../reports";
 import {
+  eventCompetitionTtlSeconds,
   OFFICIAL_END_CACHE_TTL_SECONDS,
   scoutingComparisonTtlSeconds,
   warDataTtlSeconds,
@@ -195,7 +196,7 @@ export async function routeWarReads(routeContext: RouteContext): Promise<RouteRe
     return cachedMemberGet(routeContext, 55, () => getWarProgress(url, env), warVersionNames);
   }
   if (isWarSubroute(url, request, "/competition", "GET")) {
-    return cachedMemberGet(routeContext, 55, () => getEventCompetition(url, env), warVersionNames);
+    return cachedMemberGet(routeContext, eventCompetitionTtlSeconds, () => getEventCompetition(url, env), warVersionNames);
   }
 
   if (isWarSubroute(url, request, "/report-discrepancies", "GET")) {

@@ -6,8 +6,10 @@ import { nowSeconds } from "./utils";
 const HOUR = 3600;
 const CHAIN_TIMEOUT = 300;
 const MAX_SAMPLES_PER_RUN = 48;
+// Delayed attacks can still fill gaps soon after an event; later, its chart is final.
+const RECONCILE_AFTER_FINISH_SECONDS = 24 * HOUR;
 type EventWindow = { id: number; practical_start_time: number; practical_finish_time: number | null };
-type SavedSample = { sampled_at: number; chain_count: number | null; recorded_at: number };
+type SavedSample = { sampled_at: number; chain_count: number | null; attack_id: number | null; recorded_at: number };
 export type EventChainPoint = { observed_at: number; chain: number | null };
 
 /** Include event start, then clock-hour boundaries, never future or post-event points. */
@@ -29,15 +31,17 @@ export async function readEventChainHistory(env: Env, war: EventWindow, now = no
 }
 
 /** Backfill and sample the persisted attack feed; no additional Torn requests.
- * Recent slots are reconciled for delayed ingestion. Older gaps are retried hourly.
+ * Recent slots are reconciled for delayed ingestion. Older gaps are retried hourly,
+ * until a day after the event finishes. The cache is cleared only when a sample changes.
  * An expired/missing hit is unknown, not evidence that a chain dropped to zero.
  */
 export async function captureEventChainHistory(env: Env, now = nowSeconds()): Promise<void> {
   const wars = await env.DB.prepare(`SELECT id, practical_start_time, practical_finish_time FROM wars
     WHERE war_type = 'event' AND event_type = 'halloween' AND status IN ('active', 'ended')
-      AND practical_start_time <= ?`).bind(now).all<EventWindow>();
+      AND practical_start_time <= ? AND (practical_finish_time IS NULL OR practical_finish_time > ?)`)
+    .bind(now, now - RECONCILE_AFTER_FINISH_SECONDS).all<EventWindow>();
   for (const war of wars.results ?? []) {
-    const saved = await env.DB.prepare(`SELECT sampled_at, chain_count, recorded_at FROM event_chain_history
+    const saved = await env.DB.prepare(`SELECT sampled_at, chain_count, attack_id, recorded_at FROM event_chain_history
       WHERE war_id = ?`).bind(war.id).all<SavedSample>();
     const byTime = new Map((saved.results ?? []).map(row => [row.sampled_at, row]));
     const times = eventChainSampleTimes(war.practical_start_time, war.practical_finish_time, now);
@@ -64,6 +68,12 @@ export async function captureEventChainHistory(env: Env, now = nowSeconds()): Pr
         attack_id = excluded.attack_id, recorded_at = excluded.recorded_at
       WHERE event_chain_history.recorded_at <= excluded.recorded_at`)
       .bind(war.id, time, now, HOME_FACTION_ID, HOME_FACTION_ID, time - CHAIN_TIMEOUT, time)));
-    await bumpWarCacheVersionById(env, war.id);
+    const recorded = await env.DB.prepare(`SELECT sampled_at, chain_count, attack_id FROM event_chain_history
+      WHERE war_id = ? AND sampled_at IN (${due.map(() => "?").join(", ")})`)
+      .bind(war.id, ...due).all<Omit<SavedSample, "recorded_at">>();
+    if ((recorded.results ?? []).some(row => {
+      const previous = byTime.get(row.sampled_at);
+      return !previous || previous.chain_count !== row.chain_count || previous.attack_id !== row.attack_id;
+    })) await bumpWarCacheVersionById(env, war.id);
   }
 }
