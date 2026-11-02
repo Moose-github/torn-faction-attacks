@@ -1,4 +1,4 @@
-import { auditRecentEventAttackLinks } from "./eventTracking";
+import { auditEventAttackLinks, EventLinkAuditError } from "./eventTracking";
 import { HeatmapSamplingError, sampleFactionActivityHeatmaps } from "./heatmap";
 import { syncHomeFactionMembershipAndSessions } from "./homeFactionMembers";
 import { syncMissingRankedWarReports } from "./ingestion";
@@ -136,7 +136,7 @@ function buildScheduledMaintenanceTasks(
     },
     {
       name: "event attack links",
-      run: () => auditRecentEventAttackLinks(env),
+      run: () => auditEventAttackLinks(env),
     },
   ];
 }
@@ -199,7 +199,11 @@ async function runMaintenanceTask(task: MaintenanceTask): Promise<MaintenanceTas
       details: result.details,
     };
   } catch (err: any) {
-    const heatmapMetrics = err instanceof HeatmapSamplingError ? err.metrics : undefined;
+    // These failures report the writes they made before failing.
+    const partialMetrics: MaintenanceTaskMetrics | undefined =
+      err instanceof HeatmapSamplingError ? { ...err.metrics, details: err.metrics }
+      : err instanceof EventLinkAuditError ? err.metrics
+      : undefined;
     return {
       id: crypto.randomUUID(),
       name: task.name,
@@ -207,9 +211,9 @@ async function runMaintenanceTask(task: MaintenanceTask): Promise<MaintenanceTas
       finishedAt: nowSeconds(),
       status: "error",
       error: err?.message || String(err),
-      writeStatements: heatmapMetrics?.writeStatements ?? 0,
-      changedRows: heatmapMetrics?.changedRows ?? 0,
-      details: heatmapMetrics,
+      writeStatements: partialMetrics?.writeStatements ?? 0,
+      changedRows: partialMetrics?.changedRows ?? 0,
+      details: partialMetrics?.details,
     };
   }
 }

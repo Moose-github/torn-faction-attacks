@@ -4,11 +4,30 @@ import { finishEventTracking } from "./warLifecycle";
 import { applyIncrementalEventSummaries } from "./warStats";
 import { EVENT_ATTACK_MATCH_SQL } from "./sql";
 import type { Env } from "./types";
-import { nowSeconds } from "./utils";
+import { d1Changes, nowSeconds } from "./utils";
 
 // Links change when attacks are inserted or completed; event edits are handled by
-// the wars triggers. Checking recent attacks keeps each maintenance run small.
+// the wars triggers. Rechecking recent attacks tolerates late inserts and skipped runs.
 const EVENT_LINK_AUDIT_SECONDS = 6 * 60 * 60;
+// Window edits and historical imports relink attacks older than the recent window,
+// so events still open or finished this recently are checked in full on every run.
+const EVENT_LINK_AUDIT_RECENT_EVENT_SECONDS = 7 * 24 * 60 * 60;
+// Each maintenance slot also checks one older event in turn, revisiting all of them.
+const EVENT_LINK_AUDIT_SLOT_SECONDS = 15 * 60;
+const EVENT_LINK_AUDIT_SAMPLE_LIMIT = 10;
+const EXPECTED_EVENT_ID_SQL = `(SELECT w.id FROM wars w WHERE ${EVENT_ATTACK_MATCH_SQL} ORDER BY w.id LIMIT 1)`;
+
+type EventLinkAuditMetrics = { writeStatements: number; changedRows: number; details: Record<string, unknown> };
+
+/** Carries the repairs an audit made, so maintenance health records them with the failure. */
+export class EventLinkAuditError extends Error {
+  constructor(message: string, readonly metrics: EventLinkAuditMetrics) {
+    super(message);
+  }
+}
+
+type EventLinkScope = { eventId: number | null; from: string; where: string; binds: number[] };
+type EventLinkSample = { attackId: number; eventId: number | null; expectedEventId: number | null };
 
 /** Run after deploying the new worker, never while applying the additive schema. */
 export async function initializeIndependentEvents(env: Env): Promise<void> {
@@ -47,22 +66,95 @@ export async function refreshEventTracking(env: Env, now = nowSeconds()): Promis
 }
 
 /**
- * Fails, surfacing in maintenance health, when a recent attack's event_id disagrees
- * with the event windows, or when any attack is owned by an event through war_id,
- * which tracker_attacks would then list twice.
+ * Checks event_id against the event windows for recent attacks and for every attack
+ * of the audited events, and checks that no attack is owned by an event through
+ * war_id, which tracker_attacks would then list twice. Repairs what disagrees, then
+ * fails so the repair surfaces in maintenance health with sample attacks.
  */
-export async function auditRecentEventAttackLinks(env: Env, now = nowSeconds()) {
-  const row = await env.DB.prepare(`SELECT COUNT(*) AS checked,
-      COALESCE(SUM(a.event_id IS NOT (SELECT w.id FROM wars w WHERE ${EVENT_ATTACK_MATCH_SQL}
-        ORDER BY w.id LIMIT 1)), 0) AS mismatched,
-      (SELECT COUNT(*) FROM attacks WHERE war_id IN (SELECT id FROM wars WHERE war_type = 'event')) AS event_owned
-    FROM attacks a INDEXED BY idx_attacks_started
-    WHERE a.started >= ?`).bind(now - EVENT_LINK_AUDIT_SECONDS)
-    .first<{ checked: number; mismatched: number; event_owned: number }>();
-  const checked = Number(row?.checked ?? 0);
-  const mismatched = Number(row?.mismatched ?? 0);
-  const eventOwned = Number(row?.event_owned ?? 0);
-  if (mismatched > 0) throw new Error(`${mismatched} of ${checked} recent attacks have the wrong event_id`);
-  if (eventOwned > 0) throw new Error(`${eventOwned} attacks are owned by an event through war_id`);
-  return { writeStatements: 0, changedRows: 0, details: { checked, mismatched, eventOwned } };
+export async function auditEventAttackLinks(env: Env, now = nowSeconds()): Promise<EventLinkAuditMetrics> {
+  const scopes: EventLinkScope[] = [{
+    eventId: null,
+    from: "attacks AS a INDEXED BY idx_attacks_started",
+    where: "a.started >= ?",
+    binds: [now - EVENT_LINK_AUDIT_SECONDS],
+  }];
+  for (const event of await readAuditedEvents(env, now)) {
+    // The window finds missing links; event_id finds stray links outside it.
+    scopes.push({
+      eventId: event.id,
+      from: "attacks AS a",
+      where: "(a.started BETWEEN ? AND ? OR a.event_id = ?)",
+      binds: [event.start, event.finish ?? now, event.id],
+    });
+  }
+
+  let writeStatements = 0;
+  let changedRows = 0;
+  const samples: EventLinkSample[] = [];
+  const results = [];
+  for (const scope of scopes) {
+    const row = await env.DB.prepare(`SELECT COUNT(*) AS checked,
+        COALESCE(SUM(a.event_id IS NOT ${EXPECTED_EVENT_ID_SQL}), 0) AS mismatched
+      FROM ${scope.from} WHERE ${scope.where}`).bind(...scope.binds)
+      .first<{ checked: number; mismatched: number }>();
+    const checked = Number(row?.checked ?? 0);
+    const mismatched = Number(row?.mismatched ?? 0);
+    results.push({ eventId: scope.eventId, checked, mismatched });
+    if (mismatched === 0) continue;
+
+    const found = await env.DB.prepare(`SELECT a.id AS attackId, a.event_id AS eventId,
+        ${EXPECTED_EVENT_ID_SQL} AS expectedEventId
+      FROM ${scope.from} WHERE ${scope.where} AND a.event_id IS NOT ${EXPECTED_EVENT_ID_SQL}
+      ORDER BY a.id LIMIT ?`).bind(...scope.binds, EVENT_LINK_AUDIT_SAMPLE_LIMIT - samples.length)
+      .all<EventLinkSample>();
+    samples.push(...(found.results ?? []));
+    const repair = await env.DB.prepare(`UPDATE ${scope.from} SET event_id = ${EXPECTED_EVENT_ID_SQL}
+      WHERE ${scope.where} AND a.event_id IS NOT ${EXPECTED_EVENT_ID_SQL}`).bind(...scope.binds).run();
+    writeStatements += 1;
+    changedRows += d1Changes(repair);
+  }
+  const relinked = changedRows;
+
+  const owned = await env.DB.prepare(`SELECT id FROM attacks
+    WHERE war_id IN (SELECT id FROM wars WHERE war_type = 'event') ORDER BY id LIMIT ?`)
+    .bind(EVENT_LINK_AUDIT_SAMPLE_LIMIT).all<{ id: number }>();
+  const eventOwnedSamples = (owned.results ?? []).map(row => Number(row.id));
+  let eventOwned = 0;
+  if (eventOwnedSamples.length > 0) {
+    const repair = await env.DB.prepare(`UPDATE attacks SET war_id = NULL
+      WHERE war_id IN (SELECT id FROM wars WHERE war_type = 'event')`).run();
+    writeStatements += 1;
+    eventOwned = d1Changes(repair);
+    changedRows += eventOwned;
+  }
+
+  const details = { scopes: results, relinked, samples, eventOwned, eventOwnedSamples };
+  const problems = [];
+  if (relinked > 0) {
+    const shown = samples.map(s => `attack ${s.attackId} ${s.eventId ?? "none"}→${s.expectedEventId ?? "none"}`);
+    problems.push(`relinked ${relinked} attacks to their event (${shown.join(", ")})`);
+  }
+  if (eventOwned > 0) {
+    problems.push(`cleared war_id on ${eventOwned} attacks owned by an event (${eventOwnedSamples.join(", ")})`);
+  }
+  if (problems.length > 0) {
+    throw new EventLinkAuditError(`Event link audit ${problems.join("; ")}`, { writeStatements, changedRows, details });
+  }
+  return { writeStatements, changedRows, details };
+}
+
+/** Every event that is open or finished recently, plus one older event in turn per slot. */
+async function readAuditedEvents(env: Env, now: number) {
+  const events = await env.DB.prepare(`SELECT id, start, finish FROM (
+      SELECT id, start, finish, older,
+        ROW_NUMBER() OVER (PARTITION BY older ORDER BY id) - 1 AS turn,
+        COUNT(*) OVER (PARTITION BY older) AS turns
+      FROM (SELECT id, practical_start_time AS start, practical_finish_time AS finish,
+          COALESCE(practical_finish_time < ?, 0) AS older
+        FROM wars WHERE war_type = 'event' AND practical_start_time <= ?))
+    WHERE NOT older OR turn = ? % turns
+    ORDER BY id`)
+    .bind(now - EVENT_LINK_AUDIT_RECENT_EVENT_SECONDS, now, Math.floor(now / EVENT_LINK_AUDIT_SLOT_SECONDS))
+    .all<{ id: number; start: number; finish: number | null }>();
+  return events.results ?? [];
 }

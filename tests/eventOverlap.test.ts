@@ -12,7 +12,7 @@ import { readChainWatchDemand } from "../src/chainWatchDemand";
 import type { Env } from "../src/types";
 import { memberRespectAveragesSql, respectAverageSql } from "../src/warStats/respectCounters";
 import { buildHistoricalImportStatement, buildLiveInsertStatement } from "../src/ingestion";
-import { auditRecentEventAttackLinks } from "../src/eventTracking";
+import { auditEventAttackLinks, EventLinkAuditError } from "../src/eventTracking";
 import { EVENT_ATTACK_MATCH_SQL } from "../src/sql";
 import type { TornAttack } from "../src/types";
 
@@ -689,14 +689,57 @@ describe("attack event ids", () => {
     expect(db.prepare("SELECT id, event_id FROM attacks ORDER BY id").all()).toEqual(linked);
   });
 
-  it("audits recent links and reports any that disagree with the event windows", async () => {
-    await create();
-    await expect(auditRecentEventAttackLinks(env)).resolves.toMatchObject({ details: { checked: 3, mismatched: 0, eventOwned: 0 } });
+  async function auditFailure(now?: number) {
+    const error = await auditEventAttackLinks(env, now).then(() => null, (err: unknown) => err);
+    expect(error).toBeInstanceOf(EventLinkAuditError);
+    return error as EventLinkAuditError;
+  }
+
+  it("audits recent links and repairs any that disagree with the event windows", async () => {
+    const eventId = await create();
+    await expect(auditEventAttackLinks(env)).resolves.toMatchObject({ writeStatements: 0, changedRows: 0,
+      details: { scopes: [{ eventId: null, checked: 3, mismatched: 0 }, { eventId, checked: 2, mismatched: 0 }],
+        relinked: 0, eventOwned: 0 } });
     db.exec("UPDATE attacks SET event_id = NULL WHERE id = 2");
-    await expect(auditRecentEventAttackLinks(env)).rejects.toThrow("1 of 3 recent attacks have the wrong event_id");
-    db.exec("UPDATE attacks SET event_id = (SELECT id FROM wars WHERE war_type = 'event') WHERE id = 2");
-    db.exec("UPDATE attacks SET war_id = (SELECT id FROM wars WHERE war_type = 'event') WHERE id = 3");
-    await expect(auditRecentEventAttackLinks(env)).rejects.toThrow("1 attacks are owned by an event through war_id");
-    db.exec("UPDATE attacks SET war_id = NULL WHERE id = 3");
+    const error = await auditFailure();
+    expect(error.message).toBe(`Event link audit relinked 1 attacks to their event (attack 2 none→${eventId})`);
+    expect(error.metrics).toMatchObject({ writeStatements: 1, changedRows: 1,
+      details: { relinked: 1, samples: [{ attackId: 2, eventId: null, expectedEventId: eventId }] } });
+    expect(eventIdOf(2)).toBe(eventId);
+    await expect(auditEventAttackLinks(env)).resolves.toMatchObject({ changedRows: 0 });
+  });
+
+  it("clears war_id on attacks owned by an event", async () => {
+    const eventId = await create();
+    db.prepare("UPDATE attacks SET war_id = ? WHERE id = 3").run(eventId);
+    const error = await auditFailure();
+    expect(error.message).toBe("Event link audit cleared war_id on 1 attacks owned by an event (3)");
+    expect(error.metrics).toMatchObject({ writeStatements: 1, changedRows: 1, details: { eventOwned: 1 } });
+    expect(ownership()).toEqual([{ id: 1, war_id: 1 }, { id: 2, war_id: 1 }, { id: 3, war_id: null }]);
+  });
+
+  it("repairs missing and stray links of a recent event older than the recent window", async () => {
+    const eventId = await create();
+    db.exec("UPDATE attacks SET event_id = NULL WHERE id = 2");
+    db.prepare("UPDATE attacks SET event_id = ? WHERE id = 1").run(eventId);
+    const error = await auditFailure(START + 2 * 24 * 60 * 60);
+    expect(error.metrics.details).toMatchObject({ relinked: 2,
+      scopes: [{ eventId: null, checked: 0 }, { eventId, checked: 3, mismatched: 2 }],
+      samples: [{ attackId: 1, eventId, expectedEventId: null }, { attackId: 2, eventId: null, expectedEventId: eventId }] });
+    expect([1, 2, 3].map(eventIdOf)).toEqual([null, eventId, eventId]);
+  });
+
+  it("checks one older event per maintenance slot in turn", async () => {
+    const first = await create();
+    const second = await create({ name: "Later", practical_start_time: START + 7200, practical_finish_time: START + 10800 });
+    const slot = 15 * 60;
+    const later = (Math.floor((START + 30 * 24 * 60 * 60) / slot / 2) * 2) * slot;
+    const audited = async (now: number) => ((await auditEventAttackLinks(env, now)).details.scopes as Array<{ eventId: number | null }>)
+      .map(scope => scope.eventId);
+    expect(await audited(later)).toEqual([null, first]);
+    expect(await audited(later + slot)).toEqual([null, second]);
+    expect(await audited(later + 2 * slot)).toEqual([null, first]);
+    // Recent events are checked in full on every run alongside the older one.
+    expect(await audited(START + 10800 + 60)).toEqual([null, first, second]);
   });
 });
