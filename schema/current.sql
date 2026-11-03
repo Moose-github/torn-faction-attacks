@@ -131,6 +131,17 @@ CREATE TABLE retaliation_discord_messages (
   lease_until INTEGER NOT NULL DEFAULT 0
 );
 
+-- Retained for the previous Worker during the migration-first deployment.
+CREATE TABLE retaliation_board_state (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  discord_message_id TEXT,
+  discord_target_id TEXT,
+  last_rendered_hash TEXT,
+  last_edited_at INTEGER,
+  created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+  updated_at INTEGER NOT NULL DEFAULT (unixepoch())
+);
+
 CREATE TABLE chain_watch_state (
   war_id INTEGER PRIMARY KEY REFERENCES wars(id) ON DELETE CASCADE,
   enabled INTEGER NOT NULL DEFAULT 1,

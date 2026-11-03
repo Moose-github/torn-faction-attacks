@@ -480,6 +480,11 @@ Deploy:
 npm run deploy
 ```
 
+This applies migrations before deploying the Worker. Migration `0203` retains
+`retaliation_board_state` so the previous Worker can continue syncing retaliation
+alerts during deployment or if deployment fails. The new Worker no longer reads
+that table; remove it in a later release after this Worker is deployed.
+
 ## Dashboard
 
 The React dashboard lives in `dashboard/` and is intended to be deployed with Cloudflare Pages. It shows recorded wars, member breakdowns, enemy status/scouting/travel panels, activity heatmaps, ranked war report validation, discrepancy drilldowns, member attack lists, and admin controls for the testing workflow.

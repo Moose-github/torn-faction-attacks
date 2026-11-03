@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { expect, it } from "vitest";
 
@@ -12,7 +12,6 @@ it("removes unused schema while keeping shared items, live indexes and current s
     db.exec(`
       ALTER TABLE ingestion_runs ADD COLUMN heatmap_finished_at INTEGER;
       ALTER TABLE wars ADD COLUMN auto_end_enabled INTEGER NOT NULL DEFAULT 0;
-      CREATE TABLE retaliation_board_state (id INTEGER PRIMARY KEY, discord_message_id TEXT);
       CREATE TABLE item_groups (id TEXT PRIMARY KEY);
       CREATE TABLE item_group_items (group_id TEXT NOT NULL REFERENCES item_groups(id) ON DELETE CASCADE,
         torn_item_id INTEGER NOT NULL REFERENCES torn_items(torn_item_id));
@@ -36,7 +35,7 @@ it("removes unused schema while keeping shared items, live indexes and current s
     db.exec(read("migrations/0203_remove_unused_schema.sql"));
 
     const names = db.prepare("SELECT name FROM sqlite_schema").all().map((row) => row.name);
-    for (const removed of ["retaliation_board_state", "item_groups", "item_group_items", "idx_attacks_war_ingest_run"]) {
+    for (const removed of ["item_groups", "item_group_items", "idx_attacks_war_ingest_run"]) {
       expect(names).not.toContain(removed);
     }
     expect(names).toContain("idx_attacks_war_started");
@@ -52,6 +51,35 @@ it("removes unused schema while keeping shared items, live indexes and current s
       { name: "member_personal_stats_recent_daily" },
     ]);
     expect(db.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
+  } finally {
+    db.close();
+  }
+});
+
+it("keeps the previous Worker's legacy board queries working after migration 0203", () => {
+  const db = new DatabaseSync(":memory:");
+  try {
+    // Replay the real history so the test covers the schema serving the old
+    // Worker while npm run deploy applies migrations, including a failed deploy.
+    db.exec("PRAGMA foreign_keys = ON");
+    for (const file of readdirSync(new URL("../migrations/", import.meta.url)).filter(file => file.endsWith(".sql")).sort()) {
+      if (file >= "0203") break;
+      db.exec(read(`migrations/${file}`));
+    }
+    db.exec(`INSERT INTO retaliation_board_state (id, discord_message_id, discord_target_id)
+      VALUES (1, 'legacy-message', 'bot:111111')`);
+    db.exec(read("migrations/0203_remove_unused_schema.sql"));
+
+    // These are the SELECT and UPDATE used by retireLegacyBoard in the old Worker.
+    const query = `SELECT discord_message_id, discord_target_id FROM retaliation_board_state
+      WHERE id = 1 AND discord_message_id IS NOT NULL`;
+    expect(db.prepare(query).get()).toEqual({
+      discord_message_id: "legacy-message", discord_target_id: "bot:111111",
+    });
+    db.prepare(`UPDATE retaliation_board_state SET discord_message_id = NULL, discord_target_id = NULL,
+      last_rendered_hash = NULL, last_edited_at = NULL WHERE id = 1 AND discord_message_id = ?`)
+      .run("legacy-message");
+    expect(db.prepare(query).get()).toBeUndefined();
   } finally {
     db.close();
   }

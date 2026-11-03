@@ -1,4 +1,6 @@
--- Apply after the Worker that no longer reads retaliation_board_state is deployed.
+-- npm run deploy applies migrations before deploying the Worker. Keep
+-- retaliation_board_state for the previous Worker's retireLegacyBoard query.
+-- Drop it in a later release after the compatible Worker has been deployed.
 
 -- attacks: no query filters on ingest_run_id, but ingestion keeps rewriting it.
 DROP INDEX IF EXISTS idx_attacks_ingest_run_war_attacker;
@@ -24,10 +26,9 @@ DROP INDEX IF EXISTS idx_home_faction_activity_samples_sampled;
 DROP INDEX IF EXISTS idx_home_faction_members_faction;
 DROP INDEX IF EXISTS idx_enemy_faction_members_faction;
 
--- Retired: nothing reads or writes the item groups, and the legacy board is retired.
+-- Retired: nothing reads or writes the item groups.
 DROP TABLE IF EXISTS item_group_items;
 DROP TABLE IF EXISTS item_groups;
-DROP TABLE IF EXISTS retaliation_board_state;
 
 ALTER TABLE ingestion_runs DROP COLUMN heatmap_finished_at;
 ALTER TABLE wars DROP COLUMN auto_end_enabled;
