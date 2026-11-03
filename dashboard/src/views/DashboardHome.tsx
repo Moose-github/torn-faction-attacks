@@ -52,8 +52,8 @@ import type { AppView } from "../routes";
 
 const RECENT_ATTACK_LIMIT = 10;
 const RECENT_ATTACK_REFRESH_MS = 30_000;
-const ADMIN_HEALTH_REFRESH_MS = 60_000;
-const DATA_HEALTH_REFRESH_MS = 60_000;
+const ADMIN_HEALTH_REFRESH_MS = 5 * 60_000;
+const DATA_HEALTH_REFRESH_MS = 5 * 60_000;
 const ATTACK_POLLING_RATE_LABEL = "Every minute";
 const ATTACK_POLLING_DETAIL = "Attack ingestion now polls on the same one-minute cadence in every war state.";
 const HIGHLIGHT_ROTATE_MS = 6_000;
