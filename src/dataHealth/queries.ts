@@ -277,7 +277,7 @@ export async function readPersonalStatsCoverageGaps(
     ${savedPersonalStatsAttentionCte()}
     SELECT stats.snapshot_date, stats.member_id, stats.member_name,
       (SELECT MAX(existing.snapshot_date) FROM member_lifestyle_stat_snapshots existing
-       WHERE existing.member_id = stats.member_id AND existing.personal_ready = 1) AS latest_personal_ready_date,
+       WHERE existing.member_id = stats.member_id AND +existing.personal_ready = 1) AS latest_personal_ready_date,
       stats.snapshot_date AS recent_snapshot_date,
       stats.status AS recent_status, stats.error AS recent_error, stats.updated_at AS recent_updated_at
     FROM attention_stats stats WHERE stats.accepted = 0

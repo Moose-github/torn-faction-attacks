@@ -3,7 +3,7 @@ import { sendDiscordAlertMessageWithAttachment } from "./discordAlertDelivery";
 import { formatDiscordAlertMessage, readDiscordAlertMentions } from "./discordMentions";
 import { isDiscordAlertEnabled } from "./discordAlertSettings";
 import { DISCORD_ALERT_KEYS } from "./discordAlerts";
-import { readCompleteLifestyleSnapshotDateRange } from "./lifestyleStats/queries";
+import { readLatestCompletePersonalSnapshotDate } from "./lifestyleStats/queries";
 import { claimDailyBatchGate } from "./scheduledGates";
 import { upsertSyncTimestamp } from "./syncState";
 import { Env } from "./types";
@@ -47,11 +47,6 @@ type ProgressQueryRow = {
   start_xantaken: number | null;
   end_xantaken: number | null;
   latest_snapshot_date: string | null;
-};
-
-type CompleteLifestyleSnapshotRange = {
-  start_date: string;
-  end_date: string;
 };
 
 type XanaxCompetitionDisplayMode = "active" | "grace_progress" | "completed_summary";
@@ -281,12 +276,12 @@ async function buildCompetitionState(
   const calendarMonthKey = currentMonthKey();
   const displayMonthKey = displayMonthKeyForDate(new Date());
   const graceWindow = displayMonthKey !== calendarMonthKey;
-  const completePersonalRange = await readCompleteLifestyleSnapshotDateRange(env, "personal_ready");
-  const displayComplete = isMonthComplete(displayMonthKey, completePersonalRange);
+  const latestCompleteDate = await readLatestCompletePersonalSnapshotDate(env, `${displayMonthKey}-01`);
+  const displayComplete = isMonthComplete(displayMonthKey, latestCompleteDate);
   const displayMode: XanaxCompetitionDisplayMode = graceWindow
     ? displayComplete ? "completed_summary" : "grace_progress"
     : "active";
-  const leaderboard = await readCompetitionProgress(env, displayMonthKey, completePersonalRange);
+  const leaderboard = await readCompetitionProgress(env, displayMonthKey, latestCompleteDate);
   const serializedSettings = serializeSettings(settings, displayMonthKey);
   const latestSnapshotDate = latestProgressSnapshotDate(leaderboard);
   const currentUserProgress =
@@ -477,17 +472,18 @@ async function readCompetitionSettings(env: Env): Promise<CompetitionSettingsRow
 async function readCompetitionProgress(
   env: Env,
   monthKey: string,
-  completePersonalRange?: CompleteLifestyleSnapshotRange | null,
+  knownLatestCompleteDate?: string | null,
 ): Promise<XanaxCompetitionProgress[]> {
   const startDate = `${monthKey}-01`;
   const nextStartDate = nextMonthStartDate(monthKey);
-  const effectiveCompletePersonalRange = completePersonalRange === undefined
-    ? await readCompleteLifestyleSnapshotDateRange(env, "personal_ready")
-    : completePersonalRange;
-  const latestCompleteDate = effectiveCompletePersonalRange?.end_date ?? null;
+  const latestCompleteDate = knownLatestCompleteDate === undefined
+    ? await readLatestCompletePersonalSnapshotDate(env, startDate)
+    : knownLatestCompleteDate;
   const endExclusiveDate = latestCompleteDate && latestCompleteDate >= startDate
     ? minDate(nextStartDate, nextDate(latestCompleteDate))
     : startDate;
+  // +personal_ready keeps these per-member subqueries on the (member_id, snapshot_date)
+  // key. Without it the planner scans personal_ready_latest's date range for each member.
   const rows = ((await env.DB.prepare(
     `
     SELECT
@@ -505,7 +501,7 @@ async function readCompetitionProgress(
         WHERE member_id = members.member_id
           AND snapshot_date >= ?
           AND snapshot_date < ?
-          AND personal_ready = 1
+          AND +personal_ready = 1
       )
     LEFT JOIN member_lifestyle_stat_snapshots baseline
       ON baseline.member_id = members.member_id
@@ -518,7 +514,7 @@ async function readCompetitionProgress(
               WHEN members.current_join_date IS NOT NULL AND members.current_join_date > ? THEN members.current_join_date
               ELSE ?
             END
-            AND personal_ready = 1
+            AND +personal_ready = 1
         ),
         (
           SELECT MIN(snapshot_date)
@@ -529,7 +525,7 @@ async function readCompetitionProgress(
               ELSE ?
             END
             AND snapshot_date < ?
-            AND personal_ready = 1
+            AND +personal_ready = 1
         )
       )
     WHERE members.faction_id = ?
@@ -688,8 +684,8 @@ function previousDate(dateKey: string): string {
   return date.toISOString().slice(0, 10);
 }
 
-function isMonthComplete(monthKey: string, completePersonalRange: CompleteLifestyleSnapshotRange | null): boolean {
-  return Boolean(completePersonalRange?.end_date && completePersonalRange.end_date >= previousDate(nextMonthStartDate(monthKey)));
+function isMonthComplete(monthKey: string, latestCompleteDate: string | null): boolean {
+  return Boolean(latestCompleteDate && latestCompleteDate >= previousDate(nextMonthStartDate(monthKey)));
 }
 
 function minDate(left: string, right: string): string {

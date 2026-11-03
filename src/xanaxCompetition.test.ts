@@ -118,7 +118,7 @@ describe("monthly Xanax competition progress", () => {
       vi.setSystemTime(new Date(timestamp));
       const calls: Array<{ method: string; sql: string; params: unknown[] }> = [];
       const env = createProgressFixture(calls, {
-        completeRange: { start_date: "2026-04-30", end_date: "2026-06-29" },
+        latestCompleteDate: "2026-06-29",
       });
 
       const response = await getXanaxCompetition(env, 3238283);
@@ -139,7 +139,7 @@ describe("monthly Xanax competition progress", () => {
     vi.setSystemTime(new Date("2026-07-03T12:00:00.000Z"));
     const calls: Array<{ method: string; sql: string; params: unknown[] }> = [];
     const env = createProgressFixture(calls, {
-      completeRange: { start_date: "2026-04-30", end_date: "2026-06-30" },
+      latestCompleteDate: "2026-06-30",
       progressRows: [
         {
           member_id: 111,
@@ -207,7 +207,7 @@ describe("monthly Xanax competition progress", () => {
     vi.setSystemTime(new Date("2026-07-03T12:00:00.000Z"));
     const calls: Array<{ method: string; sql: string; params: unknown[] }> = [];
     const env = createProgressFixture(calls, {
-      completeRange: { start_date: "2026-04-30", end_date: "2026-06-29" },
+      latestCompleteDate: "2026-06-29",
     });
 
     const response = await getXanaxCompetition(env, 3238283);
@@ -228,7 +228,7 @@ describe("monthly Xanax competition progress", () => {
     vi.setSystemTime(new Date("2026-07-06T00:00:00.000Z"));
     const calls: Array<{ method: string; sql: string; params: unknown[] }> = [];
     const env = createProgressFixture(calls, {
-      completeRange: { start_date: "2026-04-30", end_date: "2026-07-05" },
+      latestCompleteDate: "2026-07-05",
     });
 
     const response = await getXanaxCompetition(env, 3238283);
@@ -405,7 +405,7 @@ type TestProgressRow = {
 function createProgressFixture(
   calls: Array<{ method: string; sql: string; params: unknown[] }>,
   options: {
-    completeRange?: { start_date: string; end_date: string } | null;
+    latestCompleteDate?: string | null;
     progressRows?: TestProgressRow[];
   } = {},
 ): Env {
@@ -417,7 +417,7 @@ function createProgressFixture(
     last_rollover_month_key: "2026-06",
     updated_at: 1,
   };
-  const completeRange = options.completeRange ?? { start_date: "2026-04-30", end_date: "2026-07-23" };
+  const latestCompleteDate = options.latestCompleteDate === undefined ? "2026-07-23" : options.latestCompleteDate;
   const progressRows = options.progressRows ?? [
     {
       member_id: 3238283,
@@ -438,8 +438,8 @@ function createProgressFixture(
         async first() {
           const compactSql = compact(sql);
           calls.push({ method: "first", sql: compactSql, params: values });
-          if (compactSql.includes("MIN(candidate_dates.snapshot_date) AS start_date")) {
-            return completeRange;
+          if (compactSql.includes("SELECT dates.snapshot_date FROM member_lifestyle_stat_snapshots dates")) {
+            return latestCompleteDate && latestCompleteDate >= String(values[0]) ? { snapshot_date: latestCompleteDate } : null;
           }
           if (compactSql.includes("FROM xanax_competition_settings")) {
             return { ...settings };

@@ -108,6 +108,37 @@ export async function readCompleteLifestyleSnapshotDateRange(
   };
 }
 
+/** Newest date since fromDate with personal stats for every current member.
+ * Walks dates newest first and stops at the first complete one, so polling
+ * competition callers do not check all history for a range they do not use. */
+export async function readLatestCompletePersonalSnapshotDate(
+  env: Env,
+  fromDate: string,
+): Promise<string | null> {
+  const row = await env.DB.prepare(
+    `
+    SELECT dates.snapshot_date
+    FROM member_lifestyle_stat_snapshots dates
+    WHERE dates.snapshot_date >= ?
+      AND NOT EXISTS (
+        SELECT 1
+        FROM home_faction_members members
+        LEFT JOIN member_lifestyle_stat_snapshots snapshots
+          ON snapshots.member_id = members.member_id
+         AND snapshots.snapshot_date = dates.snapshot_date
+        WHERE members.faction_id = ?
+          AND members.is_current = 1
+          AND members.report_exempt = 0
+          AND ${currentMembershipDateCondition("members", "dates.snapshot_date")}
+          AND COALESCE(${lifestyleSnapshotReadyCondition("snapshots", "personal_ready")}, 0) = 0
+      )
+    ORDER BY dates.snapshot_date DESC
+    LIMIT 1
+    `,
+  ).bind(fromDate, HOME_FACTION_ID).first<{ snapshot_date: string }>();
+  return row?.snapshot_date ?? null;
+}
+
 export async function readLifestylePeriodSnapshotRows(
   env: Env,
   startDate: string,
