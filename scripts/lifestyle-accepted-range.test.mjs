@@ -85,7 +85,8 @@ describe("accepted personal gaps in the Daily stats date range", () => {
     expect((await chart("xantaken", 102)).series[0].points.at(-1)).toEqual({ date: "2026-10-12", value: 1 });
     expect((await readCompleteLifestyleSnapshotDateRange(env, "personal_ready")).end_date).toBe("2026-09-29");
     expect(db.prepare("SELECT last_started FROM sync_state WHERE name = ?").get(MEMBER_LIFESTYLE_CACHE_VERSION_NAME).last_started)
-      .toBe(Math.floor(Date.now() / 1000));
+      // Three acceptances in the same second each invalidate the previous result.
+      .toBe(Math.floor(Date.now() / 1000) + 2);
     expect(db.prepare("SELECT personal_ready, fully_ready, xantaken FROM member_lifestyle_stat_snapshots WHERE member_id = 101 AND snapshot_date = '2026-10-12'").get())
       .toEqual({ personal_ready: 0, fully_ready: 0, xantaken: 999 });
   });

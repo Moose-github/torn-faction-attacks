@@ -1,6 +1,6 @@
 import { HOME_FACTION_ID } from "../constants";
 import type { Env } from "../types";
-import { acceptedDailyStatsIssueSql, PERSONAL_STATS_ATTENTION_CTE, personalStatsAttentionParams } from "./attentionPolicy";
+import { acceptedDailyStatsIssueSql, PERSONAL_STATS_ATTENTION_CTE, personalStatsAttentionCte, personalStatsAttentionParams } from "./attentionPolicy";
 import type {
   DailyStatsAttention,
   LifestyleMemberRow,
@@ -213,31 +213,49 @@ export async function readDailyStatsAttentionMembers(
   env: Env,
   now: number,
 ): Promise<DailyStatsAttention["affected_members"]> {
-  const rows = await env.DB.prepare(`
-    ${PERSONAL_STATS_ATTENTION_CTE}
-    SELECT member_id, member_name, snapshot_date, status, error, updated_at
-    FROM attention_stats WHERE accepted = 0
-    ORDER BY snapshot_date ASC, member_name ASC, member_id ASC
-    LIMIT 12
-  `).bind(...personalStatsAttentionParams(now)).all<DailyStatsAttention["affected_members"][number]>();
-  return rows.results ?? [];
+  return (await readDailyStatsAttentionSummary(env, now)).affected_members;
 }
 
 export async function readDailyStatsAttentionCounts(env: Env, now: number): Promise<DailyStatsAttentionCounts> {
-  const counts = await env.DB.prepare(`
-    ${PERSONAL_STATS_ATTENTION_CTE}
-    SELECT
-      SUM(CASE WHEN accepted = 0 AND issue_kind <> 'missing_donator_days' THEN 1 ELSE 0 END) AS stale_personalstats,
-      SUM(CASE WHEN accepted = 0 AND issue_kind = 'missing_donator_days' THEN 1 ELSE 0 END) AS missing_donator_days,
-      COUNT(DISTINCT CASE WHEN accepted = 0 THEN member_id END) AS affected_member_count,
-      SUM(accepted) AS accepted_issues
-    FROM attention_stats
-  `).bind(...personalStatsAttentionParams(now)).first<DailyStatsAttentionCounts>();
+  const counts = await readDailyStatsAttentionSummary(env, now);
   return {
     stale_personalstats: counts?.stale_personalstats ?? 0,
     missing_donator_days: counts?.missing_donator_days ?? 0,
     affected_member_count: counts?.affected_member_count ?? 0,
     accepted_issues: counts?.accepted_issues ?? 0,
+  };
+}
+
+/** Materialize the historical gap check once for both totals and the bounded list. */
+export async function readDailyStatsAttentionSummary(
+  env: Env,
+  now: number,
+): Promise<DailyStatsAttentionCounts & Pick<DailyStatsAttention, "affected_members">> {
+  const row = await env.DB.prepare(`
+    ${personalStatsAttentionCte(true)}
+    SELECT
+      SUM(CASE WHEN accepted = 0 AND issue_kind <> 'missing_donator_days' THEN 1 ELSE 0 END) AS stale_personalstats,
+      SUM(CASE WHEN accepted = 0 AND issue_kind = 'missing_donator_days' THEN 1 ELSE 0 END) AS missing_donator_days,
+      COUNT(DISTINCT CASE WHEN accepted = 0 THEN member_id END) AS affected_member_count,
+      SUM(accepted) AS accepted_issues,
+      (SELECT json_group_array(json_object(
+        'member_id', member_id, 'member_name', member_name, 'snapshot_date', snapshot_date,
+        'status', status, 'error', error, 'updated_at', updated_at
+      )) FROM (
+        SELECT member_id, member_name, snapshot_date, status, error, updated_at
+        FROM attention_stats WHERE accepted = 0
+        ORDER BY snapshot_date ASC, member_name ASC, member_id ASC
+        LIMIT 12
+      )) AS affected_members_json
+    FROM attention_stats
+  `).bind(...personalStatsAttentionParams(now))
+    .first<DailyStatsAttentionCounts & { affected_members_json: string }>();
+  return {
+    stale_personalstats: row?.stale_personalstats ?? 0,
+    missing_donator_days: row?.missing_donator_days ?? 0,
+    affected_member_count: row?.affected_member_count ?? 0,
+    accepted_issues: row?.accepted_issues ?? 0,
+    affected_members: JSON.parse(row?.affected_members_json ?? "[]"),
   };
 }
 

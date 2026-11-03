@@ -39,5 +39,12 @@ export async function bumpGlobalWarCacheVersion(env: Env): Promise<void> {
 }
 
 export async function bumpMemberLifestyleCacheVersion(env: Env): Promise<void> {
-  await upsertSyncTimestamp(env, MEMBER_LIFESTYLE_CACHE_VERSION_NAME, nowSeconds());
+  // Multiple repairs/acceptances can finish in the same second. Each must
+  // invalidate cached health results, even when the wall clock has not moved.
+  await env.DB.prepare(`
+    INSERT INTO sync_state (name, last_started, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)
+    ON CONFLICT(name) DO UPDATE SET
+      last_started = MAX(COALESCE(sync_state.last_started, 0) + 1, excluded.last_started),
+      updated_at = CURRENT_TIMESTAMP
+  `).bind(MEMBER_LIFESTYLE_CACHE_VERSION_NAME, nowSeconds()).run();
 }

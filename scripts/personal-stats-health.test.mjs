@@ -3,6 +3,7 @@ import { DatabaseSync } from "node:sqlite";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getAdminDataHealth, getDataHealthSummary } from "../src/dataHealth.ts";
 import { acceptDailyStatsIssueFromRequest } from "../src/lifestyleStats/dailyAttention.ts";
+import { bumpMemberLifestyleCacheVersion } from "../src/cacheVersions.ts";
 
 vi.mock("../src/auth", () => ({ readAuthenticatedUserId: vi.fn(async () => 9001) }));
 
@@ -95,6 +96,7 @@ describe("personal stats across the health API and acceptance", () => {
     expect(body.details.daily_stats_attention.affected_members).toEqual([]);
     // Both causes remain visible when an overdue gap also exists.
     missing(102, "2026-09-18");
+    await bumpMemberLifestyleCacheVersion(env);
     const mixed = await health();
     expect(personal(mixed).summary).toContain("1 personal stat issue across 1 member; 1 Xanax recheck needs repair");
     expect(mixed.issues.find(row => row.key === "personal_stats").detail).toContain("Member 102 #102; 1 Xanax recheck needs repair");

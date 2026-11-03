@@ -52,7 +52,8 @@ export function acceptedDailyStatsIssueSql(
 // Only dates already tracked by snapshots/collection (plus the newly due date)
 // are expected. This also finds gaps with no queue row or recorded error.
 // Every consumer binds personalStatsAttentionParams(now) to this CTE.
-export const PERSONAL_STATS_ATTENTION_CTE = `
+export function personalStatsAttentionCte(materialized = false): string {
+  return `
   WITH policy(cutoff_date, today, faction_id) AS (SELECT ?, ?, ?),
   tracked_dates(snapshot_date) AS (
     SELECT snapshot_date FROM member_lifestyle_stat_snapshots
@@ -80,9 +81,12 @@ export const PERSONAL_STATS_ATTENTION_CTE = `
   classified_stats AS (
     SELECT *, ${issueKindSql("error")} AS issue_kind FROM missing_stats
   ),
-  attention_stats AS (
+  attention_stats AS ${materialized ? "MATERIALIZED " : ""}(
     SELECT stats.*, ${acceptedDailyStatsIssueSql("stats")} AS accepted
     FROM classified_stats stats CROSS JOIN policy
     WHERE stats.snapshot_date <= policy.cutoff_date OR stats.issue_kind = 'collection_error'
   )
 `;
+}
+
+export const PERSONAL_STATS_ATTENTION_CTE = personalStatsAttentionCte();

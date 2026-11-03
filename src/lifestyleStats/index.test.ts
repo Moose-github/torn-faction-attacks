@@ -66,7 +66,7 @@ describe("daily lifestyle stats attention", () => {
     }));
 
     const affectedMembersCall = calls.find((call) =>
-      call.method === "all" && call.sql.includes("LIMIT 12")
+      call.method === "first" && call.sql.includes("affected_members_json")
     );
     const countsCall = calls.find((call) =>
       call.method === "first" && call.sql.includes("AS stale_personalstats")
@@ -139,7 +139,7 @@ function firstRowForQuery(
   }
 
   if (sql.includes("AS stale_personalstats")) {
-    return options.counts;
+    return { ...options.counts, affected_members_json: JSON.stringify(options.affectedMembers) };
   }
 
   return null;
