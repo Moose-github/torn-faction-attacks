@@ -1385,9 +1385,6 @@ CREATE TABLE event_competition_eliminated_teams (
 CREATE INDEX idx_attacks_attacker_faction_started
   ON attacks(attacker_faction_id, started DESC, id DESC);
 
-CREATE INDEX idx_attacks_chain_watch_hit_at
-  ON attacks (attacker_faction_id, COALESCE(ended, started), id) WHERE chain > 0;
-
 CREATE INDEX idx_attacks_successful_hit_at
   ON attacks (attacker_faction_id, COALESCE(ended, started))
   WHERE result IN ('Hospitalized','Mugged','Attacked','Arrested');
@@ -1397,9 +1394,6 @@ CREATE INDEX idx_attacks_attacker_faction_war
 
 CREATE INDEX idx_attacks_defender_faction_started
   ON attacks(defender_faction_id, started DESC, id DESC);
-
-CREATE INDEX idx_attacks_retaliation_enemy_recent
-  ON attacks(attacker_id, defender_faction_id, started DESC, id DESC);
 
 CREATE INDEX idx_attacks_retaliation_claim_recent
   ON attacks(defender_id, attacker_faction_id, started DESC, id DESC);
