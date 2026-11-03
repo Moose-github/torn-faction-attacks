@@ -132,16 +132,6 @@ CREATE TABLE retaliation_discord_messages (
 );
 
 -- Retained for the previous Worker during the migration-first deployment.
-CREATE TABLE retaliation_board_state (
-  id INTEGER PRIMARY KEY CHECK (id = 1),
-  discord_message_id TEXT,
-  discord_target_id TEXT,
-  last_rendered_hash TEXT,
-  last_edited_at INTEGER,
-  created_at INTEGER NOT NULL DEFAULT (unixepoch()),
-  updated_at INTEGER NOT NULL DEFAULT (unixepoch())
-);
-
 CREATE TABLE chain_watch_state (
   war_id INTEGER PRIMARY KEY REFERENCES wars(id) ON DELETE CASCADE,
   enabled INTEGER NOT NULL DEFAULT 1,
@@ -1441,20 +1431,11 @@ CREATE INDEX idx_report_attack_recon_runs_war
 CREATE INDEX idx_auth_sessions_expires_at
   ON auth_sessions (expires_at);
 
-CREATE INDEX idx_retaliation_claim_signals_expires
-  ON retaliation_claim_signals(expires_at);
-
-CREATE INDEX idx_retaliation_claim_signals_target
-  ON retaliation_claim_signals(target_id, updated_at DESC);
-
 CREATE UNIQUE INDEX idx_retaliation_opportunities_opening_attack
   ON retaliation_opportunities(opening_attack_id);
 
 CREATE INDEX idx_retaliation_opportunities_attack_at
   ON retaliation_opportunities(attack_at DESC, opening_attack_id DESC);
-
-CREATE INDEX idx_retaliation_opportunities_expires
-  ON retaliation_opportunities(expires_at);
 
 CREATE INDEX idx_retaliation_discord_messages_active
   ON retaliation_discord_messages(finalized_at, expires_at);
@@ -1483,12 +1464,6 @@ CREATE INDEX idx_enemy_big_hitters_faction
 CREATE INDEX idx_enemy_hit_stat_snapshots_pending
   ON enemy_hit_stat_snapshots(war_id, faction_id, completed_at, attempt_count, attempted_at, snapshot_kind, snapshot_date, member_name)
   WHERE completed_at IS NULL;
-
-CREATE INDEX idx_enemy_hit_stat_snapshots_member
-  ON enemy_hit_stat_snapshots(war_id, faction_id, member_id, snapshot_date);
-
-CREATE INDEX idx_war_control_snapshots_war_created
-  ON war_control_snapshots(war_id, created_at DESC);
 
 CREATE INDEX idx_enemy_member_live_status_faction
   ON enemy_member_live_status(faction_id);
@@ -1526,17 +1501,11 @@ CREATE INDEX idx_member_gym_stats_current_captured
 CREATE INDEX idx_member_lifestyle_repair_items_job_status
   ON member_lifestyle_repair_items(job_id, status, snapshot_date, member_id);
 
-CREATE INDEX idx_member_lifestyle_repair_items_status
-  ON member_lifestyle_repair_items(status, updated_at);
-
 CREATE INDEX idx_member_lifestyle_repair_jobs_status
   ON member_lifestyle_repair_jobs(status, updated_at);
 
 CREATE INDEX idx_member_lifestyle_xantaken_rechecks_status
   ON member_lifestyle_xantaken_rechecks(status, next_check_at);
-
-CREATE INDEX idx_member_lifestyle_xantaken_rechecks_member_date
-  ON member_lifestyle_xantaken_rechecks(member_id, snapshot_date);
 
 CREATE INDEX idx_member_lifestyle_snapshots_date
   ON member_lifestyle_stat_snapshots(snapshot_date);
