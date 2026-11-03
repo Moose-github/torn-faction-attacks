@@ -104,11 +104,10 @@ export async function lookupTornPlayer(
   const previousTimestamp = currentTimestamp - THIRTY_DAYS_SECONDS;
   const output = await runWithTornKeyPool(env, {
     feature: "enemy_scouting",
-    usageCount: 4,
+    usageCount: 3,
     run: async ({ key, keySource }) => {
-      const [profile, job, battleStats, currentStats, previousStats] = await Promise.all([
-        fetchTornPlayerProfile(env, playerId, { apiKey: key, keySource }),
-        fetchTornPlayerJob(env, playerId, { apiKey: key, keySource }),
+      const [{ profile, job }, battleStats, currentStats, previousStats] = await Promise.all([
+        fetchTornPlayerProfileAndJob(env, playerId, { apiKey: key, keySource }),
         fetchPlayerLookupBattleStats(env, playerId),
         fetchTornPersonalStatsWithTimestamps(env, playerId, PLAYER_LOOKUP_PERSONAL_STAT_KEYS, {
           apiKey: key,
@@ -138,12 +137,14 @@ export async function lookupTornPlayer(
   return output.result;
 }
 
-export async function fetchTornPlayerProfile(
+export async function fetchTornPlayerProfileAndJob(
   env: Env,
   playerId: number,
   options: { apiKey: string; keySource: string },
-): Promise<TornPlayerLookupProfile> {
-  const url = new URL(`${TORN_USER_API_BASE_URL}/${playerId}/profile`);
+): Promise<{ profile: TornPlayerLookupProfile; job: TornPlayerLookupJob }> {
+  const url = new URL(TORN_USER_API_BASE_URL);
+  url.searchParams.set("id", String(playerId));
+  url.searchParams.set("selections", "profile,job");
   const data = await fetchTrackedTornJson<unknown>(
     env,
     url,
@@ -154,40 +155,17 @@ export async function fetchTornPlayerProfile(
       },
     },
     {
-      feature: "player-lookup:profile",
+      feature: "player-lookup:profile-job",
       keySource: options.keySource,
       timeoutMs: PLAYER_LOOKUP_FETCH_TIMEOUT_MS,
     },
     { service: "Torn player lookup" },
   );
 
-  return normalizeTornPlayerProfile(data, playerId);
-}
-
-export async function fetchTornPlayerJob(
-  env: Env,
-  playerId: number,
-  options: { apiKey: string; keySource: string },
-): Promise<TornPlayerLookupJob> {
-  const url = new URL(`${TORN_USER_API_BASE_URL}/${playerId}/job`);
-  const data = await fetchTrackedTornJson<unknown>(
-    env,
-    url,
-    {
-      headers: {
-        Accept: "application/json",
-        Authorization: `ApiKey ${options.apiKey}`,
-      },
-    },
-    {
-      feature: "player-lookup:job",
-      keySource: options.keySource,
-      timeoutMs: PLAYER_LOOKUP_FETCH_TIMEOUT_MS,
-    },
-    { service: "Torn player job" },
-  );
-
-  return normalizeTornPlayerJob(data);
+  return {
+    profile: normalizeTornPlayerProfile(data, playerId),
+    job: normalizeTornPlayerJob(data),
+  };
 }
 
 export function normalizeTornPlayerJob(data: unknown): TornPlayerLookupJob {

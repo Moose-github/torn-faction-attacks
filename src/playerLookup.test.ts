@@ -59,34 +59,27 @@ describe("player lookup", () => {
   });
 
   it("fetches player info and current plus 30-day personal stats", async () => {
-    mocks.fetchTrackedTornJson.mockImplementation((_env, url) => {
-      if (String(url).endsWith("/job")) {
-        return Promise.resolve({
-          job: {
-            type: "company",
-            id: 987,
-            type_id: 29,
-            rating: 10,
-          },
-        });
-      }
-
-      return Promise.resolve({
-        profile: {
-          id: 123,
-          name: "Alice",
-          level: 75,
-          rank: "Absolute beginner",
-          title: "Pilot",
-          age: 3000,
-          faction: { id: 8803, name: "Buttgrass" },
-          property: { name: "Private Island" },
-          spouse: { id: 456, name: "Bob", days_married: 789 },
-          awards: 250,
-          status: { state: "Okay", description: "Okay" },
-          last_action: { status: "Online", timestamp: 1_800_000_000 },
-        },
-      });
+    mocks.fetchTrackedTornJson.mockResolvedValue({
+      job: {
+        type: "company",
+        id: 987,
+        type_id: 29,
+        rating: 10,
+      },
+      profile: {
+        id: 123,
+        name: "Alice",
+        level: 75,
+        rank: "Absolute beginner",
+        title: "Pilot",
+        age: 3000,
+        faction: { id: 8803, name: "Buttgrass" },
+        property: { name: "Private Island" },
+        spouse: { id: 456, name: "Bob", days_married: 789 },
+        awards: 250,
+        status: { state: "Okay", description: "Okay" },
+        last_action: { status: "Online", timestamp: 1_800_000_000 },
+      },
     });
     mocks.fetchTornPersonalStatsWithTimestamps
       .mockResolvedValueOnce({
@@ -124,35 +117,22 @@ describe("player lookup", () => {
 
     expect(mocks.runWithTornKeyPool).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
       feature: "enemy_scouting",
-      usageCount: 4,
+      usageCount: 3,
     }));
+    expect(mocks.fetchTrackedTornJson).toHaveBeenCalledTimes(1);
     expect(mocks.fetchTrackedTornJson).toHaveBeenCalledWith(
       expect.anything(),
-      expect.objectContaining({ href: "https://api.torn.com/v2/user/123/profile" }),
+      expect.objectContaining({ href: "https://api.torn.com/v2/user?id=123&selections=profile%2Cjob" }),
       expect.objectContaining({
         headers: expect.objectContaining({
           Authorization: "ApiKey api-key-1",
         }),
       }),
       expect.objectContaining({
-        feature: "player-lookup:profile",
+        feature: "player-lookup:profile-job",
         keySource: "key_pool:key-1",
       }),
       expect.objectContaining({ service: "Torn player lookup" }),
-    );
-    expect(mocks.fetchTrackedTornJson).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.objectContaining({ href: "https://api.torn.com/v2/user/123/job" }),
-      expect.objectContaining({
-        headers: expect.objectContaining({
-          Authorization: "ApiKey api-key-1",
-        }),
-      }),
-      expect.objectContaining({
-        feature: "player-lookup:job",
-        keySource: "key_pool:key-1",
-      }),
-      expect.objectContaining({ service: "Torn player job" }),
     );
     expect(mocks.fetchTornPersonalStatsWithTimestamps).toHaveBeenNthCalledWith(
       1,
