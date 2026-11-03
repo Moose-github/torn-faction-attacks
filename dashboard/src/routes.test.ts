@@ -1,26 +1,23 @@
 import { describe, expect, it } from "vitest";
-import { isAdminOnlyView, PAGE_PATHS, parseAppRoute, retiredPageRedirect } from "./routes";
+import { isAdminOnlyView, PAGE_PATHS, parseAppRoute } from "./routes";
 
 it("protects the armory route as an admin page", () => {
   expect(parseAppRoute("/admin/armory")).toEqual({ view: "factionArmory", warName: null });
   expect(isAdminOnlyView("factionArmory")).toBe(true);
 });
 
-describe("retired page routes", () => {
-  it.each(["/dice-game", "/dice-game/", "/DICE-GAME", "/admin/packs", "/admin/packs/"])(
-    "redirects %s to the dashboard",
+describe("page routes", () => {
+  it.each(["/unknown-page", "/unknown-page/"])(
+    "falls back to the dashboard for %s",
     (path) => {
-      expect(retiredPageRedirect(path)).toBe("/");
       expect(parseAppRoute(path)).toEqual({ view: "dashboard", warName: null });
     },
   );
 
   it("leaves active page and recorded war routes unchanged", () => {
     for (const [view, path] of Object.entries(PAGE_PATHS)) {
-      expect(retiredPageRedirect(path)).toBeNull();
       expect(parseAppRoute(path)).toEqual({ view, warName: null });
     }
-    expect(retiredPageRedirect("/wars/dice-game")).toBeNull();
-    expect(parseAppRoute("/wars/dice-game")).toEqual({ view: "war", warName: "dice-game" });
+    expect(parseAppRoute("/wars/example-war")).toEqual({ view: "war", warName: "example-war" });
   });
 });

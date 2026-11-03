@@ -120,10 +120,10 @@ describe("member utility routes", () => {
     expect(getWarResearchResults).not.toHaveBeenCalled();
   });
   it.each([
-    ["/api/dice-game", "GET"],
-    ["/api/dice-game/roll", "POST"],
-    ["/api/dice-game/send-xanax", "POST"],
-  ])("does not register retired endpoint %s", async (path, method) => {
+    ["/api/unknown-endpoint", "GET"],
+    ["/api/unknown-endpoint/roll", "POST"],
+    ["/api/unknown-endpoint/action", "POST"],
+  ])("ignores unknown endpoint %s", async (path, method) => {
     const response = await routeMemberUtilityApi(routeContext(`https://worker.test${path}`, { method }));
     expect(response).toBeNull();
     expect(requireMember).not.toHaveBeenCalled();

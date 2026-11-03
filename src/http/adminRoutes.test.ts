@@ -146,8 +146,8 @@ describe("admin routes", () => {
     expect((await routeAdminApi(context))?.status).toBe(200);
     expect(revokeAdminAccess).toHaveBeenCalledWith(context.request, context.env);
   });
-  it("does not register the retired packs endpoint", async () => {
-    const response = await routeAdminApi(routeContext("https://worker.test/api/admin/packs"));
+  it("ignores unknown admin endpoints", async () => {
+    const response = await routeAdminApi(routeContext("https://worker.test/api/admin/unknown-endpoint"));
     expect(response).toBeNull();
     expect(requireAdmin).not.toHaveBeenCalled();
   });

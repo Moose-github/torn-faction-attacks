@@ -54,7 +54,6 @@ import {
   isAdminOnlyView,
   parseAppRoute,
   pathForView,
-  retiredPageRedirect,
 } from "../routes";
 import {
   initialThemeMode,
@@ -201,10 +200,6 @@ function AppContents() {
 
   React.useEffect(() => {
     function applyBrowserRoute() {
-      const redirect = retiredPageRedirect(window.location.pathname);
-      if (redirect !== null) {
-        window.history.replaceState(null, "", redirect);
-      }
       const route = parseAppRoute(window.location.pathname);
       setView(route.view);
       setRoutedWarName(route.warName);

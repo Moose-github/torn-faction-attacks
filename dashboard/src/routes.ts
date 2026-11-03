@@ -100,11 +100,6 @@ export function parseAppRoute(pathname: string): AppRoute {
   };
 }
 
-export function retiredPageRedirect(pathname: string): string | null {
-  const path = pathname.replace(/\/+$/, "").toLowerCase();
-  return path === "/dice-game" || path === "/admin/packs" ? PAGE_PATHS.dashboard : null;
-}
-
 export function pathForView(view: AppView, warName?: string | null): string {
   if (view === "war") {
     return warName ? `/wars/${encodeURIComponent(warName)}` : "/wars";

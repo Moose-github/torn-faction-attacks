@@ -237,26 +237,6 @@ CREATE INDEX idx_chain_watch_threshold_events_watch
 CREATE INDEX idx_chain_watch_threshold_events_member
   ON chain_watch_threshold_events (assigned_to, observed_at);
 
-CREATE TABLE dice_game_losses (
-  torn_user_id INTEGER PRIMARY KEY,
-  member_name TEXT,
-  xanax_balance INTEGER NOT NULL DEFAULT 250,
-  total_gained INTEGER NOT NULL DEFAULT 0,
-  total_lost INTEGER NOT NULL DEFAULT 0,
-  rolls INTEGER NOT NULL DEFAULT 0,
-  largest_loss INTEGER NOT NULL DEFAULT 0,
-  last_bet_amount INTEGER,
-  last_loss_amount INTEGER,
-  last_verdict TEXT,
-  created_at INTEGER NOT NULL DEFAULT (unixepoch()),
-  updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
-  consecutive_losses INTEGER NOT NULL DEFAULT 0,
-  streak_loss_total INTEGER NOT NULL DEFAULT 0,
-  pity_after_losses INTEGER NOT NULL DEFAULT 0,
-  last_roll_won INTEGER NOT NULL DEFAULT 0,
-  last_natural_win INTEGER NOT NULL DEFAULT 0
-);
-
 CREATE TABLE data_health_settings (
   id INTEGER PRIMARY KEY CHECK (id = 1),
   ingestion_warn_seconds INTEGER NOT NULL DEFAULT 600,
@@ -1130,28 +1110,6 @@ CREATE TABLE item_group_items (
   PRIMARY KEY (group_id, torn_item_id)
 );
 
-CREATE TABLE pack_definitions (
-  id TEXT PRIMARY KEY,
-  name TEXT NOT NULL,
-  description TEXT,
-  enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
-  created_at INTEGER NOT NULL DEFAULT (unixepoch()),
-  updated_at INTEGER NOT NULL DEFAULT (unixepoch())
-);
-
-CREATE TABLE pack_reward_entries (
-  id TEXT PRIMARY KEY,
-  pack_id TEXT NOT NULL REFERENCES pack_definitions(id) ON DELETE CASCADE,
-  torn_item_id INTEGER NOT NULL REFERENCES torn_items(torn_item_id),
-  rarity TEXT NOT NULL CHECK (rarity IN ('standard', 'select', 'elite', 'legendary')),
-  weight INTEGER NOT NULL CHECK (weight >= 0),
-  enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
-  display_order INTEGER NOT NULL DEFAULT 0,
-  created_at INTEGER NOT NULL DEFAULT (unixepoch()),
-  updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
-  UNIQUE(pack_id, torn_item_id)
-);
-
 CREATE TABLE trade_watchlist_items (
   watchlist_id INTEGER NOT NULL REFERENCES trade_watchlists(id) ON DELETE CASCADE,
   torn_item_id INTEGER NOT NULL REFERENCES torn_items(torn_item_id),
@@ -1530,9 +1488,6 @@ CREATE INDEX idx_attacks_retaliation_openings
   ON attacks(defender_faction_id, ended, id)
   WHERE result IN ('Hospitalized','Mugged','Attacked','Arrested');
 
-CREATE INDEX idx_dice_game_losses_total_lost
-  ON dice_game_losses(total_lost DESC, rolls DESC);
-
 CREATE INDEX idx_discord_admin_alert_subscriptions_alert
   ON discord_admin_alert_subscriptions (alert_key, enabled);
 CREATE INDEX idx_discord_member_alert_subscriptions_alert
@@ -1718,12 +1673,6 @@ CREATE INDEX idx_torn_items_name
 
 CREATE INDEX idx_item_group_items_item
   ON item_group_items(torn_item_id);
-
-CREATE INDEX idx_pack_reward_entries_pack
-  ON pack_reward_entries(pack_id, enabled, display_order);
-
-CREATE INDEX idx_pack_reward_entries_item
-  ON pack_reward_entries(torn_item_id);
 
 CREATE INDEX idx_trade_watchlist_items_item
   ON trade_watchlist_items(torn_item_id);

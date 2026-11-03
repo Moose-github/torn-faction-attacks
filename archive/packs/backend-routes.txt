@@ -1,3 +1,0 @@
-  if (matchesExactRoute(url, request, "/api/admin/packs", "GET")) {
-    return withAdmin(routeContext, () => listPacks(env));
-  }
