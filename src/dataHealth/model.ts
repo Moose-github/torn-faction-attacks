@@ -288,7 +288,8 @@ export type DataHealthSnapshot = {
   apiEndpoints: ApiUsageFeatureRow[];
   apiRecentErrors: ApiUsageRecentErrorRow[];
   stockRun: StockRunRow | null;
-  stockCoverage: StockCoverageRow;
+  // Null when the stock database could not be read.
+  stockCoverage: StockCoverageRow | null;
   stockLastError: string | null;
   warReports: WarReportHealthRow;
   enemyScoutingCoverage: EnemyScoutingCoverageRow[];

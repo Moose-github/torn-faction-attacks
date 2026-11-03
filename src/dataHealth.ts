@@ -170,9 +170,7 @@ async function readDataHealthSnapshot(
     apiFeatures,
     apiEndpoints,
     apiRecentErrors,
-    stockRun,
-    stockCoverage,
-    stockLastError,
+    stockHealth,
     warReports,
     enemyScoutingCoverage,
     enemyScoutingGaps,
@@ -191,9 +189,7 @@ async function readDataHealthSnapshot(
     includeApiUsageBreakdown ? readApiUsageFeatures(env, now, "feature", apiUsageWindowSeconds) : Promise.resolve([]),
     includeApiUsageBreakdown ? readApiUsageFeatures(env, now, "endpoint", apiUsageWindowSeconds) : Promise.resolve([]),
     options.includeAdminDetail ? readRecentApiErrors(env) : Promise.resolve([]),
-    readLatestStockRun(env),
-    readStockCoverage(env, now, settings),
-    readStockLastError(env),
+    readStockHealth(env, now, settings),
     readWarReportHealth(env),
     options.includeAdminDetail ? readEnemyScoutingCoverage(env) : Promise.resolve([]),
     options.includeAdminDetail ? readEnemyScoutingGaps(env) : Promise.resolve([]),
@@ -234,13 +230,31 @@ async function readDataHealthSnapshot(
     apiFeatures,
     apiEndpoints,
     apiRecentErrors,
-    stockRun,
-    stockCoverage,
-    stockLastError,
+    ...stockHealth,
     warReports,
     enemyScoutingCoverage,
     enemyScoutingGaps,
   };
+}
+
+// The stock database fails independently, so an outage there is reported as a
+// stock issue instead of taking down every other health check.
+async function readStockHealth(
+  env: Env,
+  now: number,
+  settings: DataHealthSettings,
+): Promise<Pick<DataHealthSnapshot, "stockRun" | "stockCoverage" | "stockLastError">> {
+  try {
+    const [stockRun, stockCoverage, stockLastError] = await Promise.all([
+      readLatestStockRun(env),
+      readStockCoverage(env, now, settings),
+      readStockLastError(env),
+    ]);
+    return { stockRun, stockCoverage, stockLastError };
+  } catch (err: any) {
+    console.warn("Unable to read stock data health:", err?.message || err);
+    return { stockRun: null, stockCoverage: null, stockLastError: null };
+  }
 }
 
 function keyPoolSummary(snapshot: DataHealthSnapshot): DataHealthKeyPoolSummary {
@@ -507,7 +521,13 @@ function apiSubsystem(snapshot: DataHealthSnapshot): DataHealthSubsystem {
 
 function stockSubsystem(snapshot: DataHealthSnapshot): DataHealthSubsystem {
   const coverage = snapshot.stockCoverage;
-  const stockAge = coverage.newest_snapshot_at === null ? null : snapshot.now - coverage.newest_snapshot_at;
+  if (!coverage) {
+    return {
+      ...unknownSubsystem("stock_data", "Stock data", "Stock storage could not be read"),
+      status: "critical",
+    };
+  }
+  const stockAge =coverage.newest_snapshot_at === null ? null : snapshot.now - coverage.newest_snapshot_at;
   const freshnessStatus = statusForAgeSeconds(
     stockAge,
     snapshot.settings.stock_freshness_warn_seconds,
@@ -605,6 +625,7 @@ function issueDetailForSubsystem(snapshot: DataHealthSnapshot, subsystem: DataHe
     ].join("; ");
   }
   if (subsystem.key === "maintenance" && snapshot.maintenance?.error) return snapshot.maintenance.error;
+  if (subsystem.key === "stock_data" && !snapshot.stockCoverage) return subsystem.summary;
   if (subsystem.key === "stock_data" && snapshot.stockRun?.error) return snapshot.stockRun.error;
   if (subsystem.key === "personal_stats") {
     const details: string[] = [];

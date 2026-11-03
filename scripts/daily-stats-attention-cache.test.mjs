@@ -9,7 +9,7 @@ import { readDailyStatsAttentionSummary } from "../src/lifestyleStats/queries.ts
 vi.mock("../src/auth", () => ({ readAuthenticatedUserId: vi.fn(async () => 9001) }));
 vi.mock("../src/xanaxCompetition", () => ({ reconcileXanaxCompetitionRollover: vi.fn() }));
 
-let db, env, scans, store, edge, failNextScan;
+let db, env, scans, store, edge, failNextScan, hangNextScan;
 const now = () => Math.floor(Date.now() / 1000);
 function binding() {
   return { prepare(sql) {
@@ -21,6 +21,12 @@ function binding() {
         if (sql.includes("affected_members_json")) {
           scans++;
           if (failNextScan) { failNextScan = false; throw new Error("read failed"); }
+          if (hangNextScan) {
+            const notifyStarted = hangNextScan;
+            hangNextScan = null;
+            notifyStarted();
+            return new Promise(() => {});
+          }
         }
         return statement.get(...params) ?? null;
       },
@@ -46,6 +52,7 @@ beforeEach(() => {
   env = { DB: binding() };
   scans = 0;
   failNextScan = false;
+  hangNextScan = null;
   store = new Map();
   edge = {
     match: vi.fn(async request => store.get(request.url)?.clone()),
@@ -59,15 +66,23 @@ function missing(date) {
 }
 
 describe("shared daily attention calculation", () => {
-  it("coalesces simultaneous health and maintenance reads and reuses the result", async () => {
+  it("reuses a finished result across health and maintenance reads", async () => {
     missing("2026-09-16");
-    const [health, maintenance] = await Promise.all([
-      getDailyStatsAttention(env), getLatestMaintenanceRun(env).then(r => r.json()),
-    ]);
+    const health = await getDailyStatsAttention(env);
+    const maintenance = await getLatestMaintenanceRun(env).then(r => r.json());
     expect(health).toEqual(maintenance.daily_stats_attention);
     expect(health.stale_personalstats).toBe(1);
     await getDailyStatsAttention(env);
     expect(scans).toBe(1);
+  });
+
+  it("does not make later requests wait on a load whose request was cancelled", async () => {
+    missing("2026-09-16");
+    const scanStarted = new Promise(resolve => { hangNextScan = resolve; });
+    void getDailyStatsAttention(env);
+    await scanStarted;
+    expect((await getDailyStatsAttention(env)).stale_personalstats).toBe(1);
+    expect(scans).toBe(2);
   });
 
   it("shares across isolates without extending the original five-minute expiry", async () => {

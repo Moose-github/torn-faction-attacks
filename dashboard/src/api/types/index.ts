@@ -1085,7 +1085,7 @@ export type AdminDataHealthResponse = DataHealthSummaryResponse & {
     api_endpoints: TornApiUsageFeature[];
     api_recent_errors: TornApiUsageCall[];
     stock_run: StockIngestionRun | null;
-    stock_coverage: StockCoverage;
+    stock_coverage: StockCoverage | null;
     stock_last_error: string | null;
     war_reports: {
       missing_reports: number;

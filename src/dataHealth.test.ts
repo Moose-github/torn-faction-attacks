@@ -190,6 +190,47 @@ describe("data health severity", () => {
     expect(ingestion?.metrics[1].title).toContain("latest poll window");
   });
 
+  it("reports unreadable stock storage without failing other health checks", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.mocked(getDailyStatsAttention).mockResolvedValue({
+      affected_member_count: 0, accepted_issues: 0,
+      stale_personalstats: 0,
+      missing_donator_days: 0,
+      personalstats_target_date: "2025-12-31",
+      latest_personalstats_bucket_date: "2025-12-31",
+      personalstats_lag_days: 0,
+      affected_members: [],
+    });
+    const env = dataHealthEnv({ stockDbError: "D1_ERROR: stock storage secret detail" });
+
+    const response = await getAdminDataHealth(env);
+    const text = await response.text();
+    const body = JSON.parse(text) as {
+      subsystems: Array<{ key: string; status: string; summary: string; metrics: unknown[] }>;
+      issues: Array<{ key: string; status: string; detail: string }>;
+      details: { stock_run: unknown; stock_coverage: unknown; stock_last_error: unknown };
+    };
+
+    expect(response.status).toBe(200);
+    expect(body.subsystems.find((subsystem) => subsystem.key === "stock_data")).toMatchObject({
+      status: "critical",
+      summary: "Stock storage could not be read",
+      metrics: [],
+    });
+    expect(body.subsystems.map((subsystem) => subsystem.key)).toContain("ingestion");
+    expect(body.issues.find((issue) => issue.key === "stock_data")).toMatchObject({
+      status: "critical",
+      detail: "Stock storage could not be read",
+    });
+    expect(body.details).toMatchObject({ stock_run: null, stock_coverage: null, stock_last_error: null });
+    expect(text).not.toContain("secret detail");
+
+    const summary = await getDataHealthSummary(env);
+    expect(summary.status).toBe(200);
+    expect(await summary.text()).not.toContain("secret detail");
+    expect(console.warn).toHaveBeenCalledWith("Unable to read stock data health:", "D1_ERROR: stock storage secret detail");
+  });
+
   it("hides admin-only subsystems from the member summary", async () => {
     vi.mocked(getDailyStatsAttention).mockResolvedValue({
       affected_member_count: 0, accepted_issues: 0,
@@ -724,6 +765,7 @@ function dataHealthEnv({
   apiKeyRows = [],
   keyPoolCounts,
   onApiBreakdownQuery,
+  stockDbError,
 }: {
   settings?: Record<string, unknown>;
   ingestionRun?: Record<string, unknown>;
@@ -740,6 +782,7 @@ function dataHealthEnv({
   apiKeyRows?: Array<Record<string, unknown>>;
   keyPoolCounts?: Record<string, unknown>;
   onApiBreakdownQuery?: (sql: string) => void;
+  stockDbError?: string;
 }): Env {
   const env = {
     DB: {
@@ -783,7 +826,8 @@ function dataHealthEnv({
       },
     },
   };
-  return { ...env, STOCK_DB: env.DB } as unknown as Env;
+  const failingStockDb = { prepare() { throw new Error(stockDbError); } };
+  return { ...env, STOCK_DB: stockDbError ? failingStockDb : env.DB } as unknown as Env;
 }
 
 function firstRowForDataHealthQuery(
