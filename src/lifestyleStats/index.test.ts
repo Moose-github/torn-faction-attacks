@@ -73,9 +73,9 @@ describe("daily lifestyle stats attention", () => {
     );
 
     expect(affectedMembersCall?.sql).toContain("members.current_join_date IS NULL");
-    expect(affectedMembersCall?.sql).toContain("dates.snapshot_date >= members.current_join_date");
+    expect(affectedMembersCall?.sql).toContain("gaps.snapshot_date >= members.current_join_date");
     expect(countsCall?.sql).toContain("members.current_join_date IS NULL");
-    expect(countsCall?.sql).toContain("dates.snapshot_date >= members.current_join_date");
+    expect(countsCall?.sql).toContain("gaps.snapshot_date >= members.current_join_date");
   });
 });
 

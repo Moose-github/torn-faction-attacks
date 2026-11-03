@@ -1,6 +1,6 @@
 import { HOME_FACTION_ID } from "../constants";
 import type { Env } from "../types";
-import { acceptedDailyStatsIssueSql, PERSONAL_STATS_ATTENTION_CTE, personalStatsAttentionCte, personalStatsAttentionParams } from "./attentionPolicy";
+import { acceptedDailyStatsIssueSql, personalStatsAttentionCte, personalStatsAttentionParams, savedPersonalStatsAttentionCte } from "./attentionPolicy";
 import type {
   DailyStatsAttention,
   LifestyleMemberRow,
@@ -226,13 +226,13 @@ export async function readDailyStatsAttentionCounts(env: Env, now: number): Prom
   };
 }
 
-/** Materialize the historical gap check once for both totals and the bounded list. */
+/** Summarize the saved gaps, without rechecking snapshot history. */
 export async function readDailyStatsAttentionSummary(
   env: Env,
   now: number,
 ): Promise<DailyStatsAttentionCounts & Pick<DailyStatsAttention, "affected_members">> {
   const row = await env.DB.prepare(`
-    ${personalStatsAttentionCte(true)}
+    ${savedPersonalStatsAttentionCte()}
     SELECT
       SUM(CASE WHEN accepted = 0 AND issue_kind <> 'missing_donator_days' THEN 1 ELSE 0 END) AS stale_personalstats,
       SUM(CASE WHEN accepted = 0 AND issue_kind = 'missing_donator_days' THEN 1 ELSE 0 END) AS missing_donator_days,
@@ -266,7 +266,7 @@ export async function acceptDailyStatsAttentionIssue(
   acceptedBy: number | null,
 ): Promise<boolean> {
   const result = await env.DB.prepare(`
-    ${PERSONAL_STATS_ATTENTION_CTE}
+    ${personalStatsAttentionCte("member")}
     INSERT INTO daily_stats_issue_acceptances
       (member_id, snapshot_date, issue_status, issue_error, accepted_by, accepted_at)
     SELECT member_id, snapshot_date, status, error, ?, unixepoch()
@@ -278,7 +278,7 @@ export async function acceptDailyStatsAttentionIssue(
       accepted_by = excluded.accepted_by,
       accepted_at = excluded.accepted_at
   `).bind(
-    ...personalStatsAttentionParams(now), acceptedBy,
+    ...personalStatsAttentionParams(now), issue.snapshot_date, issue.member_id, acceptedBy,
     issue.member_id, issue.snapshot_date, issue.status, issue.error,
   ).run();
   return Number(result.meta.changes) > 0;

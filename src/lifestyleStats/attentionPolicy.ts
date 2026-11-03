@@ -51,15 +51,22 @@ export function acceptedDailyStatsIssueSql(
 
 // Only dates already tracked by snapshots/collection (plus the newly due date)
 // are expected. This also finds gaps with no queue row or recorded error.
-// Every consumer binds personalStatsAttentionParams(now) to this CTE.
-export function personalStatsAttentionCte(materialized = false): string {
+// Bind personalStatsAttentionParams(now), then date/member for a targeted check.
+export function personalStatsAttentionCte(
+  scope: "week" | "member",
+): string {
+  const dateFilter = scope === "week"
+    ? " WHERE snapshot_date >= date((SELECT today FROM policy), '-7 days') AND snapshot_date < (SELECT today FROM policy)"
+    : "";
+  const dates = scope === "member" ? "SELECT ? AS snapshot_date" : `
+    SELECT snapshot_date FROM member_lifestyle_stat_snapshots${dateFilter}
+    UNION SELECT snapshot_date FROM member_personal_stats_recent${dateFilter}
+    UNION SELECT snapshot_date FROM daily_stats_issue_acceptances${dateFilter}
+    UNION SELECT cutoff_date FROM policy`;
   return `
   WITH policy(cutoff_date, today, faction_id) AS (SELECT ?, ?, ?),
   tracked_dates(snapshot_date) AS (
-    SELECT snapshot_date FROM member_lifestyle_stat_snapshots
-    UNION SELECT snapshot_date FROM member_personal_stats_recent
-    UNION SELECT snapshot_date FROM daily_stats_issue_acceptances
-    UNION SELECT cutoff_date FROM policy
+    ${dates}
   ),
   missing_stats AS (
     SELECT members.member_id, members.name AS member_name, dates.snapshot_date,
@@ -70,6 +77,7 @@ export function personalStatsAttentionCte(materialized = false): string {
     JOIN home_faction_members members
       ON members.faction_id = policy.faction_id
      AND members.is_current = 1 AND members.report_exempt = 0
+     ${scope === "member" ? "AND members.member_id = ?" : ""}
      AND (members.current_join_date IS NULL OR dates.snapshot_date >= members.current_join_date)
     LEFT JOIN member_lifestyle_stat_snapshots snapshots
       ON snapshots.member_id = members.member_id AND snapshots.snapshot_date = dates.snapshot_date
@@ -81,7 +89,7 @@ export function personalStatsAttentionCte(materialized = false): string {
   classified_stats AS (
     SELECT *, ${issueKindSql("error")} AS issue_kind FROM missing_stats
   ),
-  attention_stats AS ${materialized ? "MATERIALIZED " : ""}(
+  attention_stats AS (
     SELECT stats.*, ${acceptedDailyStatsIssueSql("stats")} AS accepted
     FROM classified_stats stats CROSS JOIN policy
     WHERE stats.snapshot_date <= policy.cutoff_date OR stats.issue_kind = 'collection_error'
@@ -89,4 +97,27 @@ export function personalStatsAttentionCte(materialized = false): string {
 `;
 }
 
-export const PERSONAL_STATS_ATTENTION_CTE = personalStatsAttentionCte();
+/** Read only saved gaps. Collection writes maintain these member/date pairs. */
+export function savedPersonalStatsAttentionCte(): string {
+  return `
+  WITH policy(cutoff_date, today, faction_id) AS (SELECT ?, ?, ?),
+  classified_stats AS (
+    SELECT gaps.member_id, members.name AS member_name, gaps.snapshot_date,
+      COALESCE(recent.status, 'pending') AS status, recent.error, recent.updated_at,
+      ${issueKindSql("recent.error")} AS issue_kind
+    FROM daily_stats_attention_gaps gaps
+    CROSS JOIN policy
+    JOIN home_faction_members members ON members.member_id = gaps.member_id
+      AND members.faction_id = policy.faction_id
+      AND members.is_current = 1 AND members.report_exempt = 0
+      AND (members.current_join_date IS NULL OR gaps.snapshot_date >= members.current_join_date)
+    LEFT JOIN member_personal_stats_recent recent
+      ON recent.member_id = gaps.member_id AND recent.snapshot_date = gaps.snapshot_date
+    WHERE gaps.snapshot_date <= policy.today
+  ),
+  attention_stats AS MATERIALIZED (
+    SELECT stats.*, ${acceptedDailyStatsIssueSql("stats")} AS accepted
+    FROM classified_stats stats CROSS JOIN policy
+    WHERE stats.snapshot_date <= policy.cutoff_date OR stats.issue_kind = 'collection_error'
+  )`;
+}

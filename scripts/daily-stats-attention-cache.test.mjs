@@ -2,7 +2,6 @@ import { readFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getDailyStatsAttention, acceptDailyStatsIssueFromRequest } from "../src/lifestyleStats/dailyAttention.ts";
-import { bumpMemberLifestyleCacheVersion } from "../src/cacheVersions.ts";
 import { getLatestMaintenanceRun } from "../src/maintenance.ts";
 import { readDailyStatsAttentionSummary } from "../src/lifestyleStats/queries.ts";
 
@@ -65,15 +64,16 @@ function missing(date) {
   db.prepare("DELETE FROM member_lifestyle_stat_snapshots WHERE member_id=101 AND snapshot_date = ?").run(date);
 }
 
-describe("shared daily attention calculation", () => {
-  it("reuses a finished result across health and maintenance reads", async () => {
+describe("saved daily attention results", () => {
+  it("reads the same saved gaps across health and maintenance without a historical scan", async () => {
     missing("2026-09-16");
     const health = await getDailyStatsAttention(env);
     const maintenance = await getLatestMaintenanceRun(env).then(r => r.json());
     expect(health).toEqual(maintenance.daily_stats_attention);
     expect(health.stale_personalstats).toBe(1);
     await getDailyStatsAttention(env);
-    expect(scans).toBe(1);
+    expect(scans).toBe(3);
+    expect(edge.match).not.toHaveBeenCalled();
   });
 
   it("does not make later requests wait on a load whose request was cancelled", async () => {
@@ -85,15 +85,16 @@ describe("shared daily attention calculation", () => {
     expect(scans).toBe(2);
   });
 
-  it("shares across isolates without extending the original five-minute expiry", async () => {
+  it("reads repairs immediately across isolates without waiting for cache expiry", async () => {
+    missing("2026-09-16");
     await getDailyStatsAttention(env);
     vi.advanceTimersByTime(299_000);
     const anotherIsolate = { DB: binding() };
-    await getDailyStatsAttention(anotherIsolate);
-    expect(scans).toBe(1);
-    vi.advanceTimersByTime(1_000);
-    await getDailyStatsAttention(anotherIsolate);
-    expect(scans).toBe(2);
+    expect((await getDailyStatsAttention(anotherIsolate)).stale_personalstats).toBe(1);
+    db.exec(`INSERT INTO member_lifestyle_stat_snapshots(member_id,snapshot_date,personal_ready,captured_at)
+      VALUES (101,'2026-09-16',1,2)`);
+    expect((await getDailyStatsAttention(anotherIsolate)).stale_personalstats).toBe(0);
+    expect(edge.match).not.toHaveBeenCalled();
   });
 
   it("invalidates every acceptance even when two mutations finish in the same second", async () => {
@@ -113,17 +114,16 @@ describe("shared daily attention calculation", () => {
     expect(scans).toBe(3);
   });
 
-  it("refreshes repaired snapshots when the lifestyle version changes", async () => {
+  it("refreshes repaired snapshots without needing a cache version change", async () => {
     missing("2026-09-16");
     expect((await getDailyStatsAttention(env)).stale_personalstats).toBe(1);
     db.exec(`INSERT INTO member_lifestyle_stat_snapshots(member_id,snapshot_date,personal_ready,captured_at)
       VALUES (101,'2026-09-16',1,2)`);
-    await bumpMemberLifestyleCacheVersion(env);
     expect((await getDailyStatsAttention(env)).stale_personalstats).toBe(0);
     expect(scans).toBe(2);
   });
 
-  it("surfaces newly overdue gaps at UTC midnight before TTL expiry", async () => {
+  it("surfaces saved pending gaps when they become overdue at UTC midnight", async () => {
     missing("2026-09-19");
     vi.setSystemTime(new Date("2026-09-20T23:59:59Z"));
     expect((await getDailyStatsAttention(env)).stale_personalstats).toBe(0);
@@ -141,7 +141,7 @@ describe("shared daily attention calculation", () => {
     expect(scans).toBe(2);
   });
 
-  it("counts all historical gaps while returning only the first twelve, with empty totals normalized", async () => {
+  it("keeps saved historical gaps while returning only the first twelve, with empty totals normalized", async () => {
     expect(await readDailyStatsAttentionSummary(env, now())).toEqual({
       stale_personalstats: 0, missing_donator_days: 0, affected_member_count: 0,
       accepted_issues: 0, affected_members: [],

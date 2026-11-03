@@ -30,7 +30,7 @@ beforeEach(() => {
       PRIMARY KEY (member_id, snapshot_date)
     );
   `);
-  for (const file of ["0080_create_member_personal_stats_recent.sql", "0151_create_daily_stats_issue_acceptances.sql"]) {
+  for (const file of ["0080_create_member_personal_stats_recent.sql", "0151_create_daily_stats_issue_acceptances.sql", "0206_save_daily_stats_attention.sql"]) {
     sqlite.exec(readFileSync(new URL(`../migrations/${file}`, import.meta.url), "utf8"));
   }
   sqlite.prepare("INSERT INTO home_faction_members (member_id, faction_id, name, current_join_date) VALUES (?, ?, ?, ?)")

@@ -1,5 +1,5 @@
 import { HOME_FACTION_ID } from "../constants";
-import { acceptedDailyStatsIssueSql, PERSONAL_STATS_ATTENTION_CTE, personalStatsAttentionParams } from "../lifestyleStats/attentionPolicy";
+import { acceptedDailyStatsIssueSql, savedPersonalStatsAttentionCte, personalStatsAttentionParams } from "../lifestyleStats/attentionPolicy";
 import { recentCompletedPersonalStatsDates } from "../lifestyleStats/dates";
 import {
   DAILY_GYM_COMPLETE_STATE_NAME,
@@ -274,7 +274,7 @@ export async function readPersonalStatsCoverageGaps(
   now: number,
 ): Promise<PersonalStatsCoverageGapRow[]> {
   const rows = await env.DB.prepare(`
-    ${PERSONAL_STATS_ATTENTION_CTE}
+    ${savedPersonalStatsAttentionCte()}
     SELECT stats.snapshot_date, stats.member_id, stats.member_name,
       (SELECT MAX(existing.snapshot_date) FROM member_lifestyle_stat_snapshots existing
        WHERE existing.member_id = stats.member_id AND existing.personal_ready = 1) AS latest_personal_ready_date,

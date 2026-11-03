@@ -1,21 +1,15 @@
 import type { Env } from "../types";
 import { readAuthenticatedUserId } from "../auth";
-import { bumpMemberLifestyleCacheVersion, MEMBER_LIFESTYLE_CACHE_VERSION_NAME } from "../cacheVersions";
+import { bumpMemberLifestyleCacheVersion } from "../cacheVersions";
 import { readJsonObject } from "../backend/request";
 import { json, nowSeconds } from "../utils";
-import { calendarDateDiffDays, recentCompletedPersonalStatsDates, utcDateKey } from "./dates";
+import { calendarDateDiffDays, recentCompletedPersonalStatsDates } from "./dates";
 import type { DailyStatsAttention } from "./model";
 import {
   acceptDailyStatsAttentionIssue,
   readDailyStatsAttentionSummary,
   readLatestPersonalStatsBucketDate,
 } from "./queries";
-
-const ATTENTION_CACHE_SECONDS = 5 * 60;
-type CachedAttention = { key: string; expiresAt: number; attention: DailyStatsAttention };
-// Finished results only: a pending D1 promise belongs to the request that started
-// it and never settles if that request is cancelled, so requests must not share one.
-const attentionCache = new WeakMap<Env["DB"], CachedAttention>();
 
 export async function acceptDailyStatsIssueFromRequest(request: Request, env: Env): Promise<Response> {
   const body = await readJsonObject(request);
@@ -41,38 +35,8 @@ export async function acceptDailyStatsIssueFromRequest(request: Request, env: En
 }
 
 export async function getDailyStatsAttention(env: Env, now = nowSeconds()): Promise<DailyStatsAttention> {
-  const version = await env.DB.prepare("SELECT last_started FROM sync_state WHERE name = ?")
-    .bind(MEMBER_LIFESTYLE_CACHE_VERSION_NAME).first<{ last_started: number | null }>();
-  // The UTC date is part of the key: newly overdue gaps must appear at midnight.
-  const key = `${utcDateKey(now)}/${version?.last_started ?? 0}`;
-  const existing = attentionCache.get(env.DB);
-  if (existing?.key === key && existing.expiresAt > now) return existing.attention;
-
-  const entry = await loadCachedAttention(env, now, key);
-  attentionCache.set(env.DB, entry);
-  return entry.attention;
-}
-
-async function loadCachedAttention(env: Env, now: number, key: string): Promise<CachedAttention> {
-  // Named edge cache shares results between Worker isolates in the same colo.
-  // Cache failure must never make the health endpoint unavailable.
-  const cache = typeof caches === "undefined" ? undefined
-    : await caches.open("daily-stats-attention-v1").catch(() => undefined);
-  const request = new Request(`https://daily-stats-attention.internal/v1/${key}`);
-  const hit = await cache?.match(request).catch(() => undefined);
-  if (hit) {
-    const stored = await hit.json<{ expiresAt: number; attention: DailyStatsAttention }>().catch(() => null);
-    if (stored && stored.expiresAt > now) return { key, ...stored };
-  }
-  const expiresAt = Math.min(now + ATTENTION_CACHE_SECONDS, (Math.floor(now / 86400) + 1) * 86400);
-  const attention = await readDailyStatsAttention(env, now);
-  await cache?.put(request, new Response(JSON.stringify({ expiresAt, attention }), {
-    headers: { "Content-Type": "application/json", "Cache-Control": `public, max-age=${expiresAt - now}` },
-  })).catch(() => undefined);
-  return { key, expiresAt, attention };
-}
-
-async function readDailyStatsAttention(env: Env, now: number): Promise<DailyStatsAttention> {
+  // Reads only saved gaps and the indexed latest bucket. No expiring historical
+  // calculation, shared request-owned promise, or cache invalidation is needed.
   const activeDates = recentCompletedPersonalStatsDates(now);
   const targetDate = activeDates.at(-1) ?? null;
   const latestBucketDate = await readLatestPersonalStatsBucketDate(env);

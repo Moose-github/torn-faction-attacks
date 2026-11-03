@@ -450,6 +450,10 @@ Every minute, the ingestion run:
 
 Every 15 minutes, the maintenance run samples faction member activity, updates cached revivable status, fetches missing ranked war reports for ended wars, retries missing FFScouter stat estimates, and refreshes missing networth estimates.
 
+Daily personal-stats health reads saved missing member/date pairs from `daily_stats_attention_gaps`, rather than scanning snapshot history on dashboard polls. Migration `0206` seeds existing historical gaps once; database triggers maintain the affected pairs as collection and repairs write snapshots or queue entries. Status, errors and acceptance remain in their existing tables, and the existing personal-stats grace period still applies.
+
+The first maintenance run at or after 06:15 UTC audits the previous seven completed UTC dates, after the overnight collection window. A successful audit runs once per day; failures retry on later maintenance runs. Older saved issues remain visible until repaired or accepted, and accepted issues retain their existing acceptance rules. Apply migration `0206` before deploying the Worker that reads the saved gaps; the migration is compatible with the previous Worker.
+
 For termed wars, the latest Torn ranked war score is stored in `wars.official_home_score` and `wars.official_enemy_score`. If `official_home_score` reaches `faction_respect_limit`, the Worker records a `practical_finish_time` and rebuilds derived stats using that practical window for Buttgrass attacks.
 
 If the latest Torn ranked war has a future `start` time, the Worker creates a scheduled `real` war using Torn's war ID and enemy faction ID. If a different scheduled war already exists, the sync skips creating another one.

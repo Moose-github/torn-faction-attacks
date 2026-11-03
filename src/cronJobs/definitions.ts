@@ -116,7 +116,7 @@ export const CRON_JOB_DEFINITIONS: CronJobDefinition[] = [
     label: "Cron scheduled maintenance",
     cadence: "15m, catching up within 5m",
     category: "maintenance",
-    purpose: "Run membership sync, heatmap sampling, ranked war reports, achievements, API usage rollups and retention cleanup.",
+    purpose: "Run membership sync, heatmap sampling, ranked war reports, achievements, API usage rollups, retention cleanup and the daily seven-day stats audit after 06:15 UTC.",
     shouldRun: QUARTER_HOUR_SLOT.isDue,
     run: (env, scheduledTime) =>
       runOncePerSlot(env, "scheduled_maintenance", QUARTER_HOUR_SLOT, scheduledTime, () => runScheduledMaintenance(env)),

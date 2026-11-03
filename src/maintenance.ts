@@ -3,6 +3,7 @@ import { HeatmapSamplingError, sampleFactionActivityHeatmaps } from "./heatmap";
 import { syncHomeFactionMembershipAndSessions } from "./homeFactionMembers";
 import { syncMissingRankedWarReports } from "./ingestion";
 import { getDailyStatsAttention } from "./lifestyleStats/dailyAttention";
+import { auditDailyStatsAttention } from "./lifestyleStats/attentionAudit";
 import { refreshMemberAchievementSummariesIfStale } from "./memberAchievements";
 import { readSyncTimestamp, upsertSyncTimestamp } from "./syncState";
 import { refreshTornApiUsageRollups } from "./tornApiUsage";
@@ -93,6 +94,10 @@ function buildScheduledMaintenanceTasks(
   options: ScheduledMaintenanceOptions,
 ): MaintenanceTask[] {
   return [
+    {
+      name: "daily stats attention audit",
+      run: () => auditDailyStatsAttention(env),
+    },
     {
       name: "home faction membership",
       run: async () => {
