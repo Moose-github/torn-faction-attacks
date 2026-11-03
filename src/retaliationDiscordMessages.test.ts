@@ -200,14 +200,4 @@ describe("individual retaliation message lifecycle", () => {
     vi.mocked(isDiscordAlertEnabled).mockResolvedValue(true);
     await sync(); expect(editedStatus()).toBe("Timed out");
   });
-
-  it("retires the old board once without reusing it for an opportunity", async () => {
-    db.sqlite.exec(`INSERT INTO retaliation_board_state (id, discord_message_id, discord_target_id)
-      VALUES (1, 'legacy-message', 'bot:111111')`);
-    opening(); await sync(); await sync();
-    expect(editDiscordBotMessage).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(editDiscordBotMessage).mock.calls[0][3]).toContain("no longer updated");
-    expect(state(1)?.discord_message_id).toBe("message-retal:1");
-    expect(db.sqlite.prepare("SELECT discord_message_id FROM retaliation_board_state").get()?.discord_message_id).toBeNull();
-  });
 });

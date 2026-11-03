@@ -59,7 +59,6 @@ export type IngestionRunRow = {
   d1_writes_finished_at: number | null;
   stats_finished_at: number | null;
   report_finished_at: number | null;
-  heatmap_finished_at: number | null;
   finished_at: number | null;
   latest_attack_started: number | null;
   fetched_pages: number;

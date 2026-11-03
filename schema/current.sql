@@ -131,16 +131,6 @@ CREATE TABLE retaliation_discord_messages (
   lease_until INTEGER NOT NULL DEFAULT 0
 );
 
-CREATE TABLE retaliation_board_state (
-  id INTEGER PRIMARY KEY CHECK (id = 1),
-  discord_message_id TEXT,
-  discord_target_id TEXT,
-  last_rendered_hash TEXT,
-  last_edited_at INTEGER,
-  created_at INTEGER NOT NULL DEFAULT (unixepoch()),
-  updated_at INTEGER NOT NULL DEFAULT (unixepoch())
-);
-
 CREATE TABLE chain_watch_state (
   war_id INTEGER PRIMARY KEY REFERENCES wars(id) ON DELETE CASCADE,
   enabled INTEGER NOT NULL DEFAULT 1,
@@ -567,7 +557,6 @@ CREATE TABLE ingestion_runs (
   d1_writes_finished_at INTEGER,
   stats_finished_at INTEGER,
   report_finished_at INTEGER,
-  heatmap_finished_at INTEGER,
   finished_at INTEGER,
   latest_attack_started INTEGER,
   fetched_pages INTEGER NOT NULL DEFAULT 0,
@@ -732,6 +721,7 @@ CREATE TABLE member_lifestyle_stat_snapshots (
   personalstats_requested_at INTEGER,
   personalstats_key_source TEXT,
   validation_error TEXT,
+  gym_error TEXT,
   personal_captured_at INTEGER,
   gym_captured_at INTEGER,
   personal_ready INTEGER NOT NULL DEFAULT 0,
@@ -1094,22 +1084,6 @@ CREATE TABLE torn_items (
   updated_at INTEGER NOT NULL DEFAULT (unixepoch())
 );
 
-CREATE TABLE item_groups (
-  id TEXT PRIMARY KEY,
-  name TEXT NOT NULL,
-  description TEXT,
-  created_at INTEGER NOT NULL DEFAULT (unixepoch()),
-  updated_at INTEGER NOT NULL DEFAULT (unixepoch())
-);
-
-CREATE TABLE item_group_items (
-  group_id TEXT NOT NULL REFERENCES item_groups(id) ON DELETE CASCADE,
-  torn_item_id INTEGER NOT NULL REFERENCES torn_items(torn_item_id) ON DELETE CASCADE,
-  display_order INTEGER NOT NULL DEFAULT 0,
-  created_at INTEGER NOT NULL DEFAULT (unixepoch()),
-  PRIMARY KEY (group_id, torn_item_id)
-);
-
 CREATE TABLE trade_watchlist_items (
   watchlist_id INTEGER NOT NULL REFERENCES trade_watchlists(id) ON DELETE CASCADE,
   torn_item_id INTEGER NOT NULL REFERENCES torn_items(torn_item_id),
@@ -1335,7 +1309,6 @@ CREATE TABLE wars (
   enemy_faction_id INTEGER,
   war_type TEXT,
   torn_war_id INTEGER,
-  auto_end_enabled INTEGER NOT NULL DEFAULT 0,
   practical_revision INTEGER NOT NULL DEFAULT 0,
   practical_rebuild_pending INTEGER NOT NULL DEFAULT 0,
   chain_watch_enabled INTEGER NOT NULL DEFAULT 1,
@@ -1433,12 +1406,6 @@ CREATE INDEX idx_attacks_retaliation_claim_recent
 CREATE INDEX idx_attacks_defender_faction_war
   ON attacks(defender_faction_id, war_id, started DESC);
 
-CREATE INDEX idx_attacks_ingest_run_war_attacker
-  ON attacks(ingest_run_id, war_id, attacker_faction_id, attacker_id);
-
-CREATE INDEX idx_attacks_ingest_run_war_defender
-  ON attacks(ingest_run_id, war_id, defender_faction_id, defender_id);
-
 CREATE INDEX idx_attacks_started
   ON attacks(started DESC);
 
@@ -1447,9 +1414,6 @@ CREATE INDEX idx_attacks_war_attacker_started
 
 CREATE INDEX idx_attacks_war_defender_started
   ON attacks (war_id, defender_id, started DESC);
-
-CREATE INDEX idx_attacks_war_ingest_run
-  ON attacks(war_id, ingest_run_id);
 
 CREATE INDEX idx_attacks_war_started
   ON attacks(war_id, started DESC);
@@ -1495,9 +1459,6 @@ CREATE INDEX idx_discord_member_alert_subscriptions_alert
 CREATE INDEX idx_discord_notification_channels_alert
   ON discord_notification_channels (alert_key, enabled);
 
-CREATE INDEX idx_enemy_faction_members_faction
-  ON enemy_faction_members(faction_id);
-
 CREATE INDEX idx_enemy_faction_members_ranked
   ON enemy_faction_members(faction_id, ff_battlestats DESC, level DESC, name);
 
@@ -1518,38 +1479,14 @@ CREATE INDEX idx_enemy_hit_stat_snapshots_member
 CREATE INDEX idx_war_control_snapshots_war_created
   ON war_control_snapshots(war_id, created_at DESC);
 
-CREATE INDEX idx_enemy_member_activity_samples_war_bucket
-  ON enemy_member_activity_samples(war_id, date, interval_index);
-
-CREATE INDEX idx_enemy_member_activity_samples_war_member
-  ON enemy_member_activity_samples(war_id, member_id, date, interval_index);
-
 CREATE INDEX idx_enemy_member_live_status_faction
   ON enemy_member_live_status(faction_id);
-
-CREATE INDEX idx_enemy_member_live_status_state
-  ON enemy_member_live_status(status_state);
-
-CREATE INDEX idx_enemy_member_live_status_travel
-  ON enemy_member_live_status(status_state, estimated_arrival_at);
 
 CREATE INDEX idx_home_faction_activity_samples_faction_sampled
   ON home_faction_activity_samples(faction_id, sampled_at);
 
-CREATE INDEX idx_home_faction_activity_samples_sampled
-  ON home_faction_activity_samples(sampled_at);
-
-CREATE INDEX idx_enemy_faction_activity_samples_war_bucket
-  ON enemy_faction_activity_samples(war_id, date, interval_index);
-
-CREATE INDEX idx_enemy_faction_activity_samples_faction_sampled
-  ON enemy_faction_activity_samples(faction_id, sampled_at);
-
 CREATE INDEX idx_home_faction_members_current
   ON home_faction_members(is_current, member_id);
-
-CREATE INDEX idx_home_faction_members_faction
-  ON home_faction_members(faction_id);
 
 CREATE INDEX idx_home_faction_members_ranked
   ON home_faction_members(faction_id, ff_battlestats DESC, level DESC, name);
@@ -1562,12 +1499,6 @@ CREATE INDEX idx_home_faction_members_reportable_join
 
 CREATE INDEX idx_home_member_live_status_faction
   ON home_member_live_status(faction_id);
-
-CREATE INDEX idx_home_member_live_status_state
-  ON home_member_live_status(status_state);
-
-CREATE INDEX idx_home_member_live_status_travel
-  ON home_member_live_status(status_state, estimated_arrival_at);
 
 CREATE INDEX idx_ingestion_runs_started
   ON ingestion_runs(started_at DESC);
@@ -1596,20 +1527,11 @@ CREATE INDEX idx_member_lifestyle_xantaken_rechecks_status
 CREATE INDEX idx_member_lifestyle_xantaken_rechecks_member_date
   ON member_lifestyle_xantaken_rechecks(member_id, snapshot_date);
 
-CREATE INDEX idx_member_lifestyle_snapshots_bucket_date
-  ON member_lifestyle_stat_snapshots(personalstats_bucket_date);
-
 CREATE INDEX idx_member_lifestyle_snapshots_date
   ON member_lifestyle_stat_snapshots(snapshot_date);
 
-CREATE INDEX idx_member_lifestyle_snapshots_fully_ready
-  ON member_lifestyle_stat_snapshots(snapshot_date, fully_ready);
-
-CREATE INDEX idx_member_lifestyle_snapshots_gym_ready
-  ON member_lifestyle_stat_snapshots(snapshot_date, gym_ready);
-
-CREATE INDEX idx_member_lifestyle_snapshots_personal_ready
-  ON member_lifestyle_stat_snapshots(snapshot_date, personal_ready);
+CREATE INDEX idx_member_lifestyle_snapshots_personal_ready_latest
+  ON member_lifestyle_stat_snapshots(personal_ready, snapshot_date DESC, member_id);
 
 CREATE INDEX idx_member_personal_stats_recent_status
   ON member_personal_stats_recent(status, snapshot_date, attempted_at, member_name);
@@ -1670,9 +1592,6 @@ CREATE INDEX idx_torn_api_usage_rollup_type_bucket
 
 CREATE INDEX idx_torn_items_name
   ON torn_items(name);
-
-CREATE INDEX idx_item_group_items_item
-  ON item_group_items(torn_item_id);
 
 CREATE INDEX idx_trade_watchlist_items_item
   ON trade_watchlist_items(torn_item_id);

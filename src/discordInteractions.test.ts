@@ -1223,7 +1223,6 @@ function fakeDiscordEnv(options: {
     enemy_faction_id: 123,
     war_type: "real",
     torn_war_id: 456,
-    auto_end_enabled: 0,
     faction_respect_limit: null,
     member_respect_limit: null,
     winner_faction_id: null,

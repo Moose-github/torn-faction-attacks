@@ -18,8 +18,6 @@ beforeEach(() => {
   vi.setSystemTime(new Date("2026-10-14T15:00:00Z"));
   db = new DatabaseSync(":memory:");
   db.exec(readFileSync(new URL("../schema/current.sql", import.meta.url), "utf8"));
-  // The schema snapshot omits this existing production migration.
-  db.exec(readFileSync(new URL("../migrations/0090_add_lifestyle_snapshot_gym_error.sql", import.meta.url), "utf8"));
   db.exec(`
     INSERT INTO home_faction_members (member_id, faction_id, name, current_join_date)
       VALUES (101, 8803, 'Missing member', '2026-09-30'), (102, 8803, 'Ready member', NULL);

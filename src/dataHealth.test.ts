@@ -934,7 +934,6 @@ function successfulIngestionRun(now: number): Record<string, unknown> {
     d1_writes_finished_at: null,
     stats_finished_at: null,
     report_finished_at: null,
-    heatmap_finished_at: null,
     finished_at: now - 30,
     latest_attack_started: null,
     fetched_pages: 0,

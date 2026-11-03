@@ -59,8 +59,8 @@ afterEach(() => { db.close(); vi.useRealTimers(); });
 
 function war(finish: number | null = base + 12 * 3600, target: number | null = 7000) {
   db.prepare(`INSERT INTO wars (id, name, status, war_type, practical_start_time, practical_finish_time,
-    official_start_time, enemy_faction_id, faction_respect_limit, auto_end_enabled)
-    VALUES (1, 'Test', 'active', 'termed', ?, ?, ?, 99, ?, 0)`).run(base, finish, base, target);
+    official_start_time, enemy_faction_id, faction_respect_limit)
+    VALUES (1, 'Test', 'active', 'termed', ?, ?, ?, 99, ?)`).run(base, finish, base, target);
   db.prepare("INSERT INTO sync_state(name, last_started, active_war_id, war_state) VALUES ('attacks', 0, 1, ?)").run(finish === null ? "current" : "practically_finished");
 }
 function attack(id: number, at: number, respect: number, run: string | null = null) {

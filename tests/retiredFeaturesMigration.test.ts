@@ -10,7 +10,7 @@ it("removes retired game data while preserving shared catalogue items and groups
     db.exec("PRAGMA foreign_keys = ON");
     db.exec(read("schema/current.sql"));
     const packs = read("migrations/0139_add_item_catalog_pack_tables_and_current_trade_items.sql");
-    for (const table of ["pack_definitions", "pack_reward_entries"]) {
+    for (const table of ["item_groups", "item_group_items", "pack_definitions", "pack_reward_entries"]) {
       db.exec(packs.match(new RegExp(`CREATE TABLE IF NOT EXISTS ${table} \\(.*?\\n\\);`, "s"))![0]);
     }
     db.exec(read("migrations/0140_seed_travel_pack_and_item_names.sql"));

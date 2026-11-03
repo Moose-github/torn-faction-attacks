@@ -5,7 +5,7 @@ export function retaliationDatabase(now) {
   const db = watchDatabase(now);
   const schema = readFileSync(new URL("../schema/current.sql", import.meta.url), "utf8").replaceAll("\r\n", "\n");
   db.sqlite.exec("CREATE TABLE wars (id INTEGER PRIMARY KEY)");
-  for (const table of ["attacks", "retaliation_claim_signals", "retaliation_board_state", "sync_state"]) {
+  for (const table of ["attacks", "retaliation_claim_signals", "sync_state"]) {
     const sql = schema.match(new RegExp(`CREATE TABLE ${table} \\([\\s\\S]*?\\n\\);`))?.[0];
     if (!sql) throw new Error(`Missing schema for ${table}`);
     db.sqlite.exec(sql);

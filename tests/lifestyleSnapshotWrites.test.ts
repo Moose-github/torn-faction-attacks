@@ -20,10 +20,6 @@ beforeEach(() => {
   for (const table of ["home_faction_members", "member_personal_stats_recent", "member_gym_stats_current", "member_lifestyle_stat_snapshots"]) {
     db.exec(schema.match(new RegExp(`CREATE TABLE ${table} \\([\\s\\S]*?\\n\\);`))![0]);
   }
-  // The canonical snapshot predates this historical column migration.
-  if (!db.prepare("PRAGMA table_info(member_lifestyle_stat_snapshots)").all().some(row => row.name === "gym_error")) {
-    db.exec(readFileSync(new URL("../migrations/0090_add_lifestyle_snapshot_gym_error.sql", import.meta.url), "utf8"));
-  }
   env = { DB: { prepare(sql: string) {
     return { bind(...args: SQLInputValue[]) {
       return { async run() {

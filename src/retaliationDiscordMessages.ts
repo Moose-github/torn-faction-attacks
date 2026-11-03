@@ -33,7 +33,6 @@ export async function syncRetaliationMessages(
   // opportunity cannot be posted again. No Discord references remain in it.
   await env.DB.prepare(`DELETE FROM retaliation_discord_messages
     WHERE finalized_at IS NOT NULL AND expires_at < ?`).bind(checkedAt - 86400).run();
-  await retireLegacyBoard(env);
 
   for (const opportunity of opportunities) {
     const id = opportunity.openingAttackId;
@@ -120,27 +119,4 @@ async function finalizeMessage(env: Env, id: number, leaseToken: string, now: nu
     finalized_at = ?, discord_message_id = NULL, discord_channel_id = NULL,
     last_rendered_hash = NULL, last_edited_at = NULL
     WHERE opening_attack_id = ? AND lease_token = ?`).bind(now, id, leaseToken).run();
-}
-
-async function retireLegacyBoard(env: Env): Promise<void> {
-  const state = await env.DB.prepare(`SELECT discord_message_id, discord_target_id FROM retaliation_board_state
-    WHERE id = 1 AND discord_message_id IS NOT NULL`)
-    .first<{ discord_message_id: string; discord_target_id: string | null }>();
-  if (!state) return;
-  const channelId = state.discord_target_id?.match(/^bot:(\d+)$/)?.[1];
-  if (channelId) {
-    try {
-      await editDiscordBotMessage(env, channelId, state.discord_message_id,
-        "**Retaliation alerts**\nEach new retaliation opportunity now has its own message. This board is no longer updated.",
-        { users: [], roles: [] }, { embeds: [], timeoutMs: REQUEST_TIMEOUT_MS });
-    } catch (error) {
-      if (!(error instanceof ExternalApiError && error.status === 404)) {
-        console.warn("Unable to retire the legacy retaliation board; will retry.");
-        return;
-      }
-    }
-  }
-  await env.DB.prepare(`UPDATE retaliation_board_state SET discord_message_id = NULL, discord_target_id = NULL,
-    last_rendered_hash = NULL, last_edited_at = NULL WHERE id = 1 AND discord_message_id = ?`)
-    .bind(state.discord_message_id).run();
 }

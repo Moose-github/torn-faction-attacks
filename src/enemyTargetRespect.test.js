@@ -53,13 +53,12 @@ describe("optional enemy target respect", () => {
     expect(saved().enemy_target_respect).toBe(3200.125);
     const reloaded = await readWarFromUrl(new URL("https://worker.test/api/wars/test-war"), env);
     expect(reloaded.enemy_target_respect).toBe(3200.125);
-    expect(saved().auto_end_enabled).toBe(0);
   });
 
   it.each([undefined, null, ""])("allows conversion with no enemy target (%s)", async (value) => {
-    const response = await update({ enemy_target_respect: value, auto_end_enabled: true, faction_respect_limit: 9000 });
+    const response = await update({ enemy_target_respect: value, faction_respect_limit: 9000 });
     expect(response.status).toBe(200);
-    expect(saved()).toMatchObject({ enemy_target_respect: null, auto_end_enabled: 0, faction_respect_limit: 9000 });
+    expect(saved()).toMatchObject({ enemy_target_respect: null, faction_respect_limit: 9000 });
   });
 
   it("accepts zero as an explicit target", async () => {
