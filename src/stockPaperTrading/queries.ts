@@ -23,13 +23,13 @@ export type PaperTradeWithProfile = PaperTrade & {
 };
 
 export async function readLivePaperAccount(env: Env, accountId: string): Promise<PaperAccount | null> {
-  return await env.DB.prepare("SELECT * FROM stock_paper_accounts WHERE id = ?")
+  return await env.STOCK_DB.prepare("SELECT * FROM stock_paper_accounts WHERE id = ?")
     .bind(accountId)
     .first<PaperAccount>();
 }
 
 export async function readAccountPositions(env: Env, accountId: string): Promise<PaperPosition[]> {
-  const rows = await env.DB.prepare(
+  const rows = await env.STOCK_DB.prepare(
     `
     SELECT *
     FROM stock_paper_positions
@@ -47,7 +47,7 @@ export async function readAccountPositionsWithMarket(
   env: Env,
   accountId: string,
 ): Promise<PaperPositionWithMarket[]> {
-  const rows = await env.DB.prepare(
+  const rows = await env.STOCK_DB.prepare(
     `
     SELECT
       pos.*,
@@ -82,7 +82,7 @@ export async function readAccountPositionsWithMarket(
 }
 
 export async function readLatestAccountEquity(env: Env, accountId: string): Promise<EquitySnapshot | null> {
-  return await env.DB.prepare(
+  return await env.STOCK_DB.prepare(
     `
     SELECT *
     FROM stock_paper_equity_snapshots
@@ -107,7 +107,7 @@ export async function readRecentPaperTrades(
     return [];
   }
 
-  const rows = await env.DB.prepare(
+  const rows = await env.STOCK_DB.prepare(
     `
     SELECT t.*, p.acronym, p.name
     FROM stock_paper_trades t
@@ -124,7 +124,7 @@ export async function readRecentPaperTrades(
 }
 
 export async function readLatestSimulationRun(env: Env): Promise<SimulationRun | null> {
-  return await env.DB.prepare(
+  return await env.STOCK_DB.prepare(
     `
     SELECT *
     FROM stock_paper_simulation_runs
@@ -135,7 +135,7 @@ export async function readLatestSimulationRun(env: Env): Promise<SimulationRun |
 }
 
 export async function readMarketStocks(env: Env, startAt: number, endAt: number): Promise<MarketStock[]> {
-  const rows = await env.DB.prepare(
+  const rows = await env.STOCK_DB.prepare(
     `
     SELECT
       s.stock_id,
@@ -159,7 +159,7 @@ export async function readMarketStocksForDecision(env: Env, observedAt: number):
   const recentStartAt = observedAt - 60 * 60;
   const anchor3h = observedAt - 3 * 60 * 60;
   const anchor6h = observedAt - 6 * 60 * 60;
-  const rows = await env.DB.prepare(
+  const rows = await env.STOCK_DB.prepare(
     `
     SELECT stock_id, observed_at, price, market_cap, total_shares, investors
     FROM (
@@ -181,13 +181,13 @@ export async function readMarketStocksForDecision(env: Env, observedAt: number):
 }
 
 export async function readNewestStockSnapshotAt(env: Env): Promise<number | null> {
-  const row = await env.DB.prepare("SELECT MAX(observed_at) AS observed_at FROM stock_price_snapshots")
+  const row = await env.STOCK_DB.prepare("SELECT MAX(observed_at) AS observed_at FROM stock_price_snapshots")
     .first<{ observed_at: number | null }>();
   return row?.observed_at === null || row?.observed_at === undefined ? null : Number(row.observed_at);
 }
 
 export async function readOldestStockSnapshotAt(env: Env): Promise<number | null> {
-  const row = await env.DB.prepare("SELECT MIN(observed_at) AS observed_at FROM stock_price_snapshots")
+  const row = await env.STOCK_DB.prepare("SELECT MIN(observed_at) AS observed_at FROM stock_price_snapshots")
     .first<{ observed_at: number | null }>();
   return row?.observed_at === null || row?.observed_at === undefined ? null : Number(row.observed_at);
 }

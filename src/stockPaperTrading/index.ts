@@ -301,7 +301,7 @@ async function readPaperBotStatus(
 }
 
 export async function getStockPaperSimulations(env: Env): Promise<Response> {
-  const rows = await env.DB.prepare(
+  const rows = await env.STOCK_DB.prepare(
     `
     SELECT *
     FROM stock_paper_simulation_runs
@@ -339,7 +339,7 @@ export async function exportStockSnapshots(url: URL, env: Env): Promise<Response
     ? [startAt, endAt, limit]
     : [startAt, endAt, afterAt, afterAt, afterStockId, limit];
 
-  const rows = await env.DB.prepare(
+  const rows = await env.STOCK_DB.prepare(
     `
     SELECT s.stock_id, s.observed_at, s.price, s.market_cap, s.total_shares, s.investors
     FROM stock_price_snapshots s
@@ -379,11 +379,11 @@ export async function resetStockPaperAccount(request: Request, env: Env): Promis
 
   const now = nowSeconds();
   const resetStatements = [
-    env.DB.prepare("DELETE FROM stock_paper_positions WHERE account_id = ?").bind(bot.id),
-    env.DB.prepare("DELETE FROM stock_paper_trades WHERE account_id = ?").bind(bot.id),
-    env.DB.prepare("DELETE FROM stock_paper_equity_snapshots WHERE account_id = ?").bind(bot.id),
+    env.STOCK_DB.prepare("DELETE FROM stock_paper_positions WHERE account_id = ?").bind(bot.id),
+    env.STOCK_DB.prepare("DELETE FROM stock_paper_trades WHERE account_id = ?").bind(bot.id),
+    env.STOCK_DB.prepare("DELETE FROM stock_paper_equity_snapshots WHERE account_id = ?").bind(bot.id),
   ];
-  await env.DB.batch(resetStatements);
+  await env.STOCK_DB.batch(resetStatements);
   const account = await upsertLivePaperAccount(env, bot, now, startingCash, startingCash, 0, null);
   return json({ ok: true, account, bot: publicBotDefinition(bot) });
 }
@@ -724,7 +724,7 @@ async function persistAccountDecision(
     await replaceAccountPositions(env, account.id, [...state.positions.values()]);
   }
   await saveEquitySnapshots(env, [result.snapshot]);
-  await env.DB.prepare(
+  await env.STOCK_DB.prepare(
     `
     UPDATE stock_paper_accounts
     SET cash_balance = ?, realized_pnl = ?, last_decision_at = ?, updated_at = ?
@@ -737,7 +737,7 @@ async function persistAccountDecision(
 
 async function savePaperTrades(env: Env, trades: PaperTrade[]): Promise<void> {
   const statements = trades.map((trade) =>
-    env.DB.prepare(
+    env.STOCK_DB.prepare(
       `
       INSERT INTO stock_paper_trades (
         id,
@@ -780,13 +780,13 @@ async function savePaperTrades(env: Env, trades: PaperTrade[]): Promise<void> {
   );
 
   for (let index = 0; index < statements.length; index += 50) {
-    await env.DB.batch(statements.slice(index, index + 50));
+    await env.STOCK_DB.batch(statements.slice(index, index + 50));
   }
 }
 
 async function saveEquitySnapshots(env: Env, snapshots: EquitySnapshot[]): Promise<void> {
   const statements = snapshots.map((snapshot) =>
-    env.DB.prepare(
+    env.STOCK_DB.prepare(
       `
       INSERT INTO stock_paper_equity_snapshots (
         id,
@@ -819,15 +819,15 @@ async function saveEquitySnapshots(env: Env, snapshots: EquitySnapshot[]): Promi
   );
 
   for (let index = 0; index < statements.length; index += 50) {
-    await env.DB.batch(statements.slice(index, index + 50));
+    await env.STOCK_DB.batch(statements.slice(index, index + 50));
   }
 }
 
 async function replaceAccountPositions(env: Env, accountId: string, positions: PaperPosition[]): Promise<void> {
   const statements = [
-    env.DB.prepare("DELETE FROM stock_paper_positions WHERE account_id = ?").bind(accountId),
+    env.STOCK_DB.prepare("DELETE FROM stock_paper_positions WHERE account_id = ?").bind(accountId),
     ...positions.map((position) =>
-      env.DB.prepare(
+      env.STOCK_DB.prepare(
         `
         INSERT INTO stock_paper_positions (
           account_id,
@@ -851,12 +851,12 @@ async function replaceAccountPositions(env: Env, accountId: string, positions: P
   ];
 
   for (let index = 0; index < statements.length; index += 50) {
-    await env.DB.batch(statements.slice(index, index + 50));
+    await env.STOCK_DB.batch(statements.slice(index, index + 50));
   }
 }
 
 async function insertSimulationRun(env: Env, run: SimulationRun): Promise<void> {
-  await env.DB.prepare(
+  await env.STOCK_DB.prepare(
     `
     INSERT INTO stock_paper_simulation_runs (
       id,
@@ -903,7 +903,7 @@ async function insertSimulationRun(env: Env, run: SimulationRun): Promise<void> 
 }
 
 async function updateSimulationRun(env: Env, run: SimulationRun): Promise<void> {
-  await env.DB.prepare(
+  await env.STOCK_DB.prepare(
     `
     UPDATE stock_paper_simulation_runs
     SET
@@ -964,7 +964,7 @@ async function upsertLivePaperAccount(
   realizedPnl: number,
   lastDecisionAt: number | null,
 ): Promise<PaperAccount> {
-  await env.DB.prepare(
+  await env.STOCK_DB.prepare(
     `
     INSERT INTO stock_paper_accounts (
       id,

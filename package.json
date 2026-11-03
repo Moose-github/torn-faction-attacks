@@ -22,11 +22,13 @@
 		"deploy:enemy-hospital-monitor": "npm --prefix workers/enemy-hospital-monitor run deploy",
 		"deploy:stock-worker": "npm --prefix workers/stock-market run deploy",
 		"dev": "npm run seedLocalD1 && wrangler dev",
-		"migrate:local": "wrangler d1 migrations apply DB --local",
-		"migrate:remote": "wrangler d1 migrations apply DB --remote",
+		"migrate:local": "wrangler d1 migrations apply DB --local && npm run migrate:stocks:local",
+		"migrate:remote": "wrangler d1 migrations apply DB --remote && npm run migrate:stocks:remote",
 		"schema:check": "node scripts/schema-tools.mjs --strict",
-		"seedLocalD1": "wrangler d1 migrations apply DB --local",
-		"test": "vitest run"
+		"seedLocalD1": "npm run migrate:local",
+		"test": "vitest run",
+		"migrate:stocks:local": "wrangler d1 migrations apply STOCK_DB --local",
+		"migrate:stocks:remote": "wrangler d1 migrations apply STOCK_DB --remote"
 	},
 	"dependencies": {
 		"@resvg/resvg-wasm": "^2.6.2",

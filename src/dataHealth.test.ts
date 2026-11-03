@@ -741,7 +741,7 @@ function dataHealthEnv({
   keyPoolCounts?: Record<string, unknown>;
   onApiBreakdownQuery?: (sql: string) => void;
 }): Env {
-  return {
+  const env = {
     DB: {
       prepare(sql: string) {
         const compactSql = sql.replace(/\s+/g, " ").trim();
@@ -782,7 +782,8 @@ function dataHealthEnv({
         return statement;
       },
     },
-  } as unknown as Env;
+  };
+  return { ...env, STOCK_DB: env.DB } as unknown as Env;
 }
 
 function firstRowForDataHealthQuery(

@@ -31,6 +31,7 @@ beforeEach(() => {
     },
     async batch(statements) { return Promise.all(statements.map(statement => statement.run())); },
   } };
+  env.STOCK_DB = env.DB;
   for (const member of [101, 102]) {
     db.prepare("INSERT INTO home_faction_members (member_id, faction_id, name, current_join_date) VALUES (?, 8803, ?, '2026-09-01')")
       .run(member, `Member ${member}`);

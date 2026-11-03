@@ -5,7 +5,8 @@
   "upload_source_maps": true,
   "vars": {
     "DISCORD_GUILD_ID": "833065345023606805",
-    "BILLING_ALERT_DISCORD_USER_ID": "327916221330620436"
+    "BILLING_ALERT_DISCORD_USER_ID": "327916221330620436",
+    "STOCK_STORAGE_PAUSED": "false"
   },
   "triggers": {
     "crons": ["* * * * *"]
@@ -52,6 +53,12 @@
       "binding": "DB",
       "database_id": "954da4c5-24ab-40d1-83d0-6dcc782d3668",
       "database_name": "torn_attacks_db"
+    },
+    {
+      "binding": "STOCK_DB",
+      "database_id": "731fde36-b6f4-4cdf-997a-c780bd19679e",
+      "database_name": "torn_stocks_db",
+      "migrations_dir": "stock-migrations"
     }
   ],
   "secrets_store_secrets": [

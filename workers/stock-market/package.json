@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "check": "tsc --noEmit && wrangler deploy --dry-run --config wrangler.jsonc",
-    "deploy": "wrangler deploy --config wrangler.jsonc",
+    "deploy": "wrangler d1 migrations apply STOCK_DB --remote --config wrangler.jsonc && wrangler deploy --config wrangler.jsonc",
     "dev": "wrangler dev --config wrangler.jsonc",
     "types": "wrangler types --config wrangler.jsonc"
   },

@@ -1,5 +1,7 @@
 export interface Env {
   DB: D1Database;
+  STOCK_DB: D1Database;
+  STOCK_STORAGE_PAUSED?: string;
   CHAIN_WATCH_ALARMS: DurableObjectNamespace;
   CHAIN_WATCH_SESSIONS: DurableObjectNamespace;
   RETALIATION_BOARD_ALARMS: DurableObjectNamespace;

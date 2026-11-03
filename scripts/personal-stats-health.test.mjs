@@ -30,6 +30,7 @@ beforeEach(() => {
       async run() { return { meta: { changes: Number(statement.run(...params).changes) } }; },
     };
   } } };
+  env.STOCK_DB = env.DB;
 });
 afterEach(() => { db.close(); vi.useRealTimers(); });
 

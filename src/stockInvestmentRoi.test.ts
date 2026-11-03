@@ -343,7 +343,7 @@ describe("stock benefit disabled stocks", () => {
       benefit_key: "item:mystery_box",
       updated_at: 1_800_000_000,
     });
-    const response = await getStockInvestmentRoi({ DB: db as unknown as D1Database } as Env, 12345);
+    const response = await getStockInvestmentRoi({ DB: db as unknown as D1Database, STOCK_DB: db as unknown as D1Database } as Env, 12345);
     const body = await response.json() as {
       rows: Array<{ stock_id: number | null }>;
       skipped: { disabled: number; unpriced: number };
@@ -356,7 +356,7 @@ describe("stock benefit disabled stocks", () => {
 
   it("loads ROI when disabled-stock storage has not been migrated yet", async () => {
     const db = new MissingDisabledStockTableD1();
-    const response = await getStockInvestmentRoi({ DB: db as unknown as D1Database } as Env, 12345);
+    const response = await getStockInvestmentRoi({ DB: db as unknown as D1Database, STOCK_DB: db as unknown as D1Database } as Env, 12345);
     const body = await response.json() as {
       rows: Array<{ stock_id: number | null }>;
       skipped: { disabled: number; unpriced: number };
@@ -375,7 +375,7 @@ describe("stock benefit disabled stocks", () => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ disabled: true }),
       }),
-      { DB: db as unknown as D1Database } as Env,
+      { DB: db as unknown as D1Database, STOCK_DB: db as unknown as D1Database } as Env,
       12345,
       1,
     );
@@ -400,7 +400,7 @@ describe("stock benefit disabled stocks", () => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ disabled: true }),
       }),
-      { DB: db as unknown as D1Database } as Env,
+      { DB: db as unknown as D1Database, STOCK_DB: db as unknown as D1Database } as Env,
       12345,
       1,
     );
@@ -421,7 +421,7 @@ describe("stock benefit disabled stocks", () => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ disabled: true }),
       }),
-      { DB: db as unknown as D1Database } as Env,
+      { DB: db as unknown as D1Database, STOCK_DB: db as unknown as D1Database } as Env,
       12345,
       2,
     );
@@ -449,7 +449,7 @@ describe("stock benefit disabled stocks", () => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ disabled: false }),
       }),
-      { DB: db as unknown as D1Database } as Env,
+      { DB: db as unknown as D1Database, STOCK_DB: db as unknown as D1Database } as Env,
       12345,
       1,
     );

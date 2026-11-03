@@ -528,7 +528,7 @@ function rollupWindowStart(now: number, windowSeconds: number): number {
 }
 
 export async function readLatestStockRun(env: Env): Promise<StockRunRow | null> {
-  return env.DB.prepare(
+  return env.STOCK_DB.prepare(
     `
     SELECT *
     FROM stock_ingestion_runs
@@ -539,7 +539,7 @@ export async function readLatestStockRun(env: Env): Promise<StockRunRow | null> 
 }
 
 export async function readStockCoverage(env: Env, now: number, settings: DataHealthSettings): Promise<StockCoverageRow> {
-  const row = await env.DB.prepare(
+  const row = await env.STOCK_DB.prepare(
     `
     WITH latest AS (
       SELECT
@@ -589,7 +589,7 @@ export async function readShopliftingHealth(env: Env): Promise<ShopliftingHealth
 }
 
 export async function readStockLastError(env: Env): Promise<string | null> {
-  const row = await env.DB.prepare(
+  const row = await env.STOCK_DB.prepare(
     `
     SELECT error
     FROM stock_ingestion_runs

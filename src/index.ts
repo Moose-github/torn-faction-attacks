@@ -15,6 +15,7 @@ import { routeWarCommands, routeWarReads } from "./http/warRoutes";
 import { routeWarPayoutPresetApi } from "./http/warPayoutPresetRoutes";
 import { Env } from "./types";
 import { corsHeaders, json } from "./utils";
+import { stockMaintenanceResponse } from "./stockStorage";
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
@@ -31,6 +32,9 @@ export default {
         headers: corsHeaders,
       });
     }
+
+    const stockMaintenance = stockMaintenanceResponse(url, env);
+    if (stockMaintenance) return stockMaintenance;
 
     const discordResponse = await handleDiscordInteractions(request, env, ctx);
     if (discordResponse) {

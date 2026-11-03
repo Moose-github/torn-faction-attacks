@@ -22,6 +22,7 @@ export default {
 };
 
 async function runStockCron(env: Env, scheduledTime: number): Promise<void> {
+  if (env.STOCK_STORAGE_PAUSED === "true") return;
   const run = await refreshTornStockMarketMinute(env, scheduledTime);
   if (run.status !== "error") {
     await runLiveStockPaperBotTick(env, scheduledTime);

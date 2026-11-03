@@ -103,7 +103,7 @@ describe("stock storage maintenance", () => {
   it("rolls up stock history before pruning raw minute data", async () => {
     const db = new TestD1Database();
     const scheduledTime = Date.UTC(2026, 7, 25, 12, 7, 0);
-    const env = { DB: db as unknown as D1Database } as Env;
+    const env = { DB: db as unknown as D1Database, STOCK_DB: db as unknown as D1Database } as Env;
 
     const result = await runStockStorageMaintenance(env, scheduledTime);
 
@@ -140,7 +140,7 @@ describe("stock storage maintenance", () => {
     db.oldestIngestionRunAt = null;
     db.rollupChanges = 0;
     db.ingestionStatsChanges = 0;
-    const env = { DB: db as unknown as D1Database } as Env;
+    const env = { DB: db as unknown as D1Database, STOCK_DB: db as unknown as D1Database } as Env;
 
     const result = await runStockStorageMaintenance(env, Date.UTC(2026, 7, 25, 12, 7, 0));
 

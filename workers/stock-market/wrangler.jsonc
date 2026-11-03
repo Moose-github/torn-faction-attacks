@@ -11,6 +11,12 @@
       "binding": "DB",
       "database_id": "954da4c5-24ab-40d1-83d0-6dcc782d3668",
       "database_name": "torn_attacks_db"
+    },
+    {
+      "binding": "STOCK_DB",
+      "database_id": "731fde36-b6f4-4cdf-997a-c780bd19679e",
+      "database_name": "torn_stocks_db",
+      "migrations_dir": "../../stock-migrations"
     }
   ],
   "secrets_store_secrets": [
@@ -22,5 +28,8 @@
   ],
   "observability": {
     "enabled": true
+  },
+  "vars": {
+    "STOCK_STORAGE_PAUSED": "false"
   }
 }

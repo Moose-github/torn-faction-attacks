@@ -27,7 +27,7 @@ let accounts: PaperAccount[];
 const run = vi.fn().mockResolvedValue({ success: true });
 const batch = vi.fn().mockResolvedValue([]);
 const prepare = vi.fn(() => ({ bind: vi.fn(() => ({ run })) }));
-const env = { DB: { prepare, batch } } as unknown as Env;
+const env = { STOCK_DB: { prepare, batch } } as unknown as Env;
 
 beforeEach(() => {
   vi.clearAllMocks();

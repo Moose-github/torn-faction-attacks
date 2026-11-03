@@ -652,7 +652,7 @@ export async function fetchTornStockHistory(
 }
 
 export async function getStocks(env: Env): Promise<Response> {
-  const rows = await env.DB.prepare(
+  const rows = await env.STOCK_DB.prepare(
     `
     SELECT
       p.*,
@@ -686,7 +686,7 @@ export async function getStockHistory(url: URL, env: Env, stockId: number): Prom
   }
 
   const limit = parseLimit(url.searchParams.get("limit"), 240, 1440);
-  const rows = await env.DB.prepare(
+  const rows = await env.STOCK_DB.prepare(
     `
     SELECT stock_id, observed_at, price, market_cap, total_shares, investors, fetched_at
     FROM stock_price_snapshots
@@ -880,7 +880,7 @@ export async function updateStockBenefitDisabledStockFromRequest(
 }
 
 export async function getStockIngestionStatus(env: Env): Promise<Response> {
-  const latest = await env.DB.prepare(
+  const latest = await env.STOCK_DB.prepare(
     `
     SELECT *
     FROM stock_ingestion_runs
@@ -889,7 +889,7 @@ export async function getStockIngestionStatus(env: Env): Promise<Response> {
     `,
   ).first<StockIngestionRun>();
 
-  const recent = await env.DB.prepare(
+  const recent = await env.STOCK_DB.prepare(
     `
     SELECT *
     FROM stock_ingestion_runs
@@ -899,7 +899,7 @@ export async function getStockIngestionStatus(env: Env): Promise<Response> {
   ).all<StockIngestionRun>();
 
   const coverage = await readStockCoverage(env, nowSeconds());
-  const lastError = await env.DB.prepare(
+  const lastError = await env.STOCK_DB.prepare(
     `
     SELECT error
     FROM stock_ingestion_runs
@@ -962,7 +962,7 @@ async function ensureStockProfiles(env: Env, now: number): Promise<StockProfile[
 }
 
 async function readStockProfiles(env: Env): Promise<StockProfile[]> {
-  const rows = await env.DB.prepare(
+  const rows = await env.STOCK_DB.prepare(
     `
     SELECT *
     FROM stock_profiles
@@ -974,7 +974,7 @@ async function readStockProfiles(env: Env): Promise<StockProfile[]> {
 }
 
 async function readInvestmentProfileRows(env: Env): Promise<StockInvestmentProfileRow[]> {
-  const rows = await env.DB.prepare(
+  const rows = await env.STOCK_DB.prepare(
     `
     SELECT
       p.stock_id,
@@ -1005,7 +1005,7 @@ async function readInvestmentProfileRows(env: Env): Promise<StockInvestmentProfi
 }
 
 async function readBenefitValueOverrides(env: Env, tornUserId: number): Promise<StockBenefitValueOverride[]> {
-  const rows = await env.DB.prepare(
+  const rows = await env.STOCK_DB.prepare(
     `
     SELECT benefit_key, override_value
     FROM stock_benefit_value_overrides
@@ -1021,7 +1021,7 @@ async function readBenefitValueOverrides(env: Env, tornUserId: number): Promise<
 async function readStockBenefitDisabledStocks(env: Env, tornUserId: number): Promise<StockBenefitDisabledStock[]> {
   let rows: D1Result<StockBenefitDisabledStockRow>;
   try {
-    rows = await env.DB.prepare(
+    rows = await env.STOCK_DB.prepare(
       `
       SELECT
         d.stock_id,
@@ -1069,7 +1069,7 @@ async function readStockBenefitStandardValueMap(env: Env): Promise<Map<string, n
 }
 
 async function readStockBenefitItemPrices(env: Env): Promise<StockBenefitItemPrice[]> {
-  const rows = await env.DB.prepare(
+  const rows = await env.STOCK_DB.prepare(
     `
     SELECT *
     FROM stock_benefit_item_prices
@@ -1080,7 +1080,7 @@ async function readStockBenefitItemPrices(env: Env): Promise<StockBenefitItemPri
 }
 
 async function readStockBenefitMarketDefinitions(env: Env): Promise<StockBenefitMarketDefinition[]> {
-  const rows = await env.DB.prepare(
+  const rows = await env.STOCK_DB.prepare(
     `
     SELECT
       benefit_key,
@@ -1132,7 +1132,7 @@ function stockBenefitMarketDefinitionFromProfile(row: StockBenefitMarketDefiniti
 }
 
 async function readLatestStockBenefitItemPriceRefreshAt(env: Env): Promise<number | null> {
-  const row = await env.DB.prepare(
+  const row = await env.STOCK_DB.prepare(
     `
     SELECT MAX(fetched_at) AS latest_fetched_at
     FROM stock_benefit_item_prices
@@ -1284,7 +1284,7 @@ async function upsertBenefitValueOverride(
   benefitKey: string,
   overrideValue: number,
 ): Promise<void> {
-  await env.DB.prepare(
+  await env.STOCK_DB.prepare(
     `
     INSERT INTO stock_benefit_value_overrides (torn_user_id, benefit_key, override_value, updated_at)
     VALUES (?, ?, ?, unixepoch())
@@ -1298,7 +1298,7 @@ async function upsertBenefitValueOverride(
 }
 
 async function deleteBenefitValueOverride(env: Env, tornUserId: number, benefitKey: string): Promise<void> {
-  await env.DB.prepare(
+  await env.STOCK_DB.prepare(
     `
     DELETE FROM stock_benefit_value_overrides
     WHERE torn_user_id = ? AND benefit_key = ?
@@ -1314,7 +1314,7 @@ async function upsertStockBenefitDisabledStock(
   stockId: number,
   benefitKey: string,
 ): Promise<void> {
-  await env.DB.prepare(
+  await env.STOCK_DB.prepare(
     `
     INSERT INTO stock_benefit_disabled_stocks (torn_user_id, stock_id, benefit_key, updated_at)
     VALUES (?, ?, ?, unixepoch())
@@ -1328,7 +1328,7 @@ async function upsertStockBenefitDisabledStock(
 }
 
 async function deleteStockBenefitDisabledStock(env: Env, tornUserId: number, stockId: number): Promise<void> {
-  await env.DB.prepare(
+  await env.STOCK_DB.prepare(
     `
     DELETE FROM stock_benefit_disabled_stocks
     WHERE torn_user_id = ? AND stock_id = ?
@@ -1353,7 +1353,7 @@ function stockBenefitDisabledStorageUnavailableResponse(): Response {
 }
 
 async function upsertStockBenefitItemPrice(env: Env, price: StockBenefitItemPrice): Promise<void> {
-  await env.DB.prepare(
+  await env.STOCK_DB.prepare(
     `
     INSERT INTO stock_benefit_item_prices (
       benefit_key,
@@ -1835,7 +1835,7 @@ async function readLatestSnapshotTimes(env: Env, stockIds: number[]): Promise<Ma
   }
 
   const statements = stockIds.map((stockId) =>
-    env.DB.prepare(
+    env.STOCK_DB.prepare(
       `
       SELECT observed_at
       FROM stock_price_snapshots
@@ -1845,7 +1845,7 @@ async function readLatestSnapshotTimes(env: Env, stockIds: number[]): Promise<Ma
       `,
     ).bind(stockId),
   );
-  const results = await env.DB.batch(statements);
+  const results = await env.STOCK_DB.batch(statements);
   const latestByStock = new Map<number, number>();
   results.forEach((result, index) => {
     const row = (result.results?.[0] ?? null) as { observed_at?: number | null } | null;
@@ -1857,7 +1857,7 @@ async function readLatestSnapshotTimes(env: Env, stockIds: number[]): Promise<Ma
 }
 
 async function readStockCoverage(env: Env, now: number): Promise<StockCoverageRow> {
-  const row = await env.DB.prepare(
+  const row = await env.STOCK_DB.prepare(
     `
     WITH latest AS (
       SELECT
@@ -2015,7 +2015,7 @@ async function upsertHourlyStockRollups(env: Env, startAt: number, endAt: number
     return 0;
   }
 
-  const result = await env.DB.prepare(
+  const result = await env.STOCK_DB.prepare(
     `
     WITH grouped AS (
       SELECT
@@ -2095,7 +2095,7 @@ async function upsertDailyStockRollups(env: Env, startAt: number, endAt: number)
     return 0;
   }
 
-  const result = await env.DB.prepare(
+  const result = await env.STOCK_DB.prepare(
     `
     WITH grouped AS (
       SELECT
@@ -2177,7 +2177,7 @@ async function upsertStockIngestionRunDailyStats(env: Env, startAt: number, endA
     return 0;
   }
 
-  const result = await env.DB.prepare(
+  const result = await env.STOCK_DB.prepare(
     `
     WITH grouped AS (
       SELECT
@@ -2274,7 +2274,7 @@ async function upsertStockIngestionRunDailyStats(env: Env, startAt: number, endA
 }
 
 async function deleteOldMinuteStockSnapshots(env: Env, deleteBefore: number): Promise<number> {
-  const result = await env.DB.prepare(
+  const result = await env.STOCK_DB.prepare(
     `
     DELETE FROM stock_price_snapshots
     WHERE rowid IN (
@@ -2293,7 +2293,7 @@ async function deleteOldMinuteStockSnapshots(env: Env, deleteBefore: number): Pr
 }
 
 async function deleteOldSuccessfulStockIngestionRuns(env: Env, deleteBefore: number): Promise<number> {
-  const result = await env.DB.prepare(
+  const result = await env.STOCK_DB.prepare(
     `
     DELETE FROM stock_ingestion_runs
     WHERE rowid IN (
@@ -2313,26 +2313,26 @@ async function deleteOldSuccessfulStockIngestionRuns(env: Env, deleteBefore: num
 }
 
 async function readOldestStockSnapshotAt(env: Env): Promise<number | null> {
-  const row = await env.DB.prepare("SELECT MIN(observed_at) AS observed_at FROM stock_price_snapshots")
+  const row = await env.STOCK_DB.prepare("SELECT MIN(observed_at) AS observed_at FROM stock_price_snapshots")
     .first<{ observed_at: number | null }>();
   return nullableNumber(row?.observed_at);
 }
 
 async function readOldestStockHourlyRollupAt(env: Env): Promise<number | null> {
-  const row = await env.DB.prepare("SELECT MIN(bucket_start) AS bucket_start FROM stock_price_rollups_hourly")
+  const row = await env.STOCK_DB.prepare("SELECT MIN(bucket_start) AS bucket_start FROM stock_price_rollups_hourly")
     .first<{ bucket_start: number | null }>();
   return nullableNumber(row?.bucket_start);
 }
 
 async function readOldestStockIngestionRunAt(env: Env): Promise<number | null> {
-  const row = await env.DB.prepare("SELECT MIN(started_at) AS started_at FROM stock_ingestion_runs")
+  const row = await env.STOCK_DB.prepare("SELECT MIN(started_at) AS started_at FROM stock_ingestion_runs")
     .first<{ started_at: number | null }>();
   return nullableNumber(row?.started_at);
 }
 
 async function saveStockProfiles(env: Env, profiles: StockProfile[]): Promise<void> {
   const statements = profiles.map((profile) =>
-    env.DB.prepare(
+    env.STOCK_DB.prepare(
       `
       INSERT INTO stock_profiles (
         stock_id,
@@ -2394,7 +2394,7 @@ async function saveStockProfiles(env: Env, profiles: StockProfile[]): Promise<vo
   );
 
   for (let index = 0; index < statements.length; index += 50) {
-    await env.DB.batch(statements.slice(index, index + 50));
+    await env.STOCK_DB.batch(statements.slice(index, index + 50));
   }
 }
 
@@ -2404,7 +2404,7 @@ async function shouldSaveMinuteStockProfiles(env: Env, now: number): Promise<boo
     return true;
   }
 
-  const row = await env.DB.prepare("SELECT COUNT(*) AS count FROM stock_profiles").first<{ count: number }>();
+  const row = await env.STOCK_DB.prepare("SELECT COUNT(*) AS count FROM stock_profiles").first<{ count: number }>();
   return Number(row?.count ?? 0) === 0;
 }
 
@@ -2415,7 +2415,7 @@ async function saveStockSnapshots(env: Env, snapshots: StockSnapshot[]): Promise
 
   let written = 0;
   const statements = snapshots.map((snapshot) =>
-    env.DB.prepare(
+    env.STOCK_DB.prepare(
       `
       INSERT INTO stock_price_snapshots (
         stock_id,
@@ -2449,7 +2449,7 @@ async function saveStockSnapshots(env: Env, snapshots: StockSnapshot[]): Promise
   );
 
   for (let index = 0; index < statements.length; index += 50) {
-    const results = await env.DB.batch(statements.slice(index, index + 50));
+    const results = await env.STOCK_DB.batch(statements.slice(index, index + 50));
     written += results.reduce((total, result) => total + Number(result.meta?.changes ?? 0), 0);
   }
 
@@ -2457,7 +2457,7 @@ async function saveStockSnapshots(env: Env, snapshots: StockSnapshot[]): Promise
 }
 
 async function insertStockIngestionRun(env: Env, run: StockIngestionRun): Promise<void> {
-  await env.DB.prepare(
+  await env.STOCK_DB.prepare(
     `
     INSERT INTO stock_ingestion_runs (
       id,
@@ -2498,7 +2498,7 @@ async function insertStockIngestionRun(env: Env, run: StockIngestionRun): Promis
 }
 
 async function updateStockIngestionRun(env: Env, run: StockIngestionRun): Promise<void> {
-  await env.DB.prepare(
+  await env.STOCK_DB.prepare(
     `
     UPDATE stock_ingestion_runs
     SET

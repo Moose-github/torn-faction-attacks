@@ -35,6 +35,7 @@ beforeEach(() => {
     };
     return statement;
   } } } as unknown as Env;
+  env.STOCK_DB = env.DB;
 });
 afterEach(() => db.close());
 

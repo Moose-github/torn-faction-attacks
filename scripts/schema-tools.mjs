@@ -52,6 +52,17 @@ console.log(`- migration prefixes: ${prefixes.size}`);
 console.log(`- tables in schema/current.sql: ${tables.length}`);
 console.log(`- indexes in schema/current.sql: ${indexes.length}`);
 
+const stockMigrations = readdirSync(path.join(rootDir, "stock-migrations"))
+  .filter((file) => /^\d+_.+\.sql$/i.test(file));
+const stockPrefixes = stockMigrations.map((file) => file.split("_")[0]);
+const stockSchema = readFileSync(path.join(rootDir, "schema", "stocks.sql"), "utf8");
+console.log(`- stock migrations: ${stockMigrations.length}`);
+console.log(`- tables in schema/stocks.sql: ${[...stockSchema.matchAll(/CREATE\s+TABLE\s+/gi)].length}`);
+if (new Set(stockPrefixes).size !== stockPrefixes.length) {
+  console.error("Duplicate stock migration prefixes");
+  if (strict) process.exitCode = 1;
+}
+
 if (duplicatePrefixes.length > 0) {
   console.log("");
   const knownDuplicates = duplicatePrefixes.filter(([prefix]) => knownDuplicatePrefixes.has(prefix));

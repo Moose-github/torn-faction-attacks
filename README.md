@@ -97,6 +97,7 @@ The app schema starts in `0002_create_torn_attack_tables.sql`; later migrations 
 The Worker expects:
 
 - A D1 binding named `DB`
+- A D1 binding named `STOCK_DB` for stock prices, history, preferences, and paper trading
 - A secret named `TORN_API_KEY`
 - Optional: a secret named `BSP_TORN_API_KEY` for BSP stat predictions
 - Optional: a secret named `FFSCOUTER_API_KEY` for enemy stat estimates
@@ -139,6 +140,11 @@ export const HOME_FACTION_ID = 8803;
 ```
 
 ## Database
+
+Stock storage uses a dedicated `torn_stocks_db` database. See
+[stock database operations](docs/stock-database.md) for migrations, bindings, and recovery.
+Use `npm run migrate:local` or `npm run migrate:remote` to apply both the core and
+stock migration streams. The direct `wrangler ... DB` commands below apply only core migrations.
 
 Apply migrations locally:
 
