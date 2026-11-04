@@ -1060,6 +1060,16 @@ describe("armory sync database work", () => {
     expect(count("armory_detail_fetch_state")).toBe(0);
   });
 
+  it("checks the usually empty queue before reading any inventory", async () => {
+    await runArmoryCron(env);
+    const gate = prepared.mock.calls.map(([query]) => String(query)).find(query => query.startsWith("SELECT 1 FROM armory_detail_fetch_state f"));
+
+    const plan = db.sqlite.prepare(`EXPLAIN QUERY PLAN ${gate}`).all(HOME_FACTION_ID, "weapons", time) as Array<{ detail: string }>;
+
+    expect(plan[0].detail).toMatch(/^SCAN f\b/);
+    expect(plan[1].detail).toContain("SEARCH i");
+  });
+
   it("stops scanning for a pending copy that left the armory", async () => {
     missing.add(SECOND);
     await runArmoryCron(env);

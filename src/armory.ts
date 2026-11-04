@@ -427,8 +427,9 @@ async function saveInventory(env: Env, token: string, payload: unknown, previous
 
 async function hasDueArmoryDetails(env: Env, category: ArmoryInventoryCategory): Promise<boolean> {
   // Migration 0207 seeds legacy unqueued copies; saveInventory queues new ones.
+  // CROSS JOIN keeps the usually empty queue first instead of reading the whole category.
   return !!await env.DB.prepare(`SELECT 1 FROM armory_detail_fetch_state f
-    JOIN faction_armory_inventory i ON i.faction_id = ? AND i.uid = f.uid
+    CROSS JOIN faction_armory_inventory i ON i.faction_id = ? AND i.uid = f.uid
     WHERE i.category = ? AND f.retry_at <= ? LIMIT 1`).bind(HOME_FACTION_ID, category, now()).first();
 }
 
