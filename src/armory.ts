@@ -129,6 +129,14 @@ const DETAIL_JOIN = `LEFT JOIN armory_weapon_details d ON d.uid = i.uid AND d.mo
   AND json_extract(d.details_json, '$.type') = CASE WHEN i.category = 'armor' THEN 'Armor' ELSE 'Weapon' END`;
 const NEEDS_DETAILS = "(d.uid IS NULL OR COALESCE(f.refetch, 0) = 1)";
 
+/** Order-independent, because the stored rows carry no position. */
+function sameArmoryItems(sourceJson: string | null, items: ArmoryCopy[]): boolean {
+  if (!sourceJson) return false;
+  const sorted = (copies: ArmoryCopy[]) => JSON.stringify([...copies].sort((a, b) => a.uid.localeCompare(b.uid)));
+  try { return sorted(parseArmoryInventory(JSON.parse(sourceJson)).items) === sorted(items); }
+  catch { return false; }
+}
+
 async function state(env: Env, category: ArmoryInventoryCategory = "weapons"): Promise<State | null> {
   return env.DB.prepare("SELECT * FROM faction_armory_state WHERE faction_id = ? AND category = ?").bind(HOME_FACTION_ID, category).first<State>();
 }
@@ -360,6 +368,14 @@ async function saveInventory(env: Env, token: string, payload: unknown, previous
         JSON.stringify(settings), JSON.stringify(payload), HOME_FACTION_ID, category, token).run();
     return;
   }
+  const saveState = env.DB.prepare(`UPDATE faction_armory_state SET inventory_timestamp = ?, checked_at = ?, next_inventory_at = ?,
+      inventory_failures = 0, inventory_error = NULL, source_json = ? WHERE faction_id = ? AND category = ? AND lease_token = ?`)
+    .bind(inventory.timestamp, checkedAt, nextInventory, JSON.stringify(payload), HOME_FACTION_ID, category, token);
+  // Torn's timestamp advances on every fetch, so only the items show whether anything changed.
+  if (sameArmoryItems(previous.source_json, inventory.items as ArmoryCopy[])) {
+    await saveState.run();
+    return;
+  }
   const copyJson = JSON.stringify(inventory.items);
   const conflict = await env.DB.prepare(`SELECT d.uid FROM armory_weapon_details d JOIN json_each(?) j
     ON d.uid = json_extract(j.value, '$.uid') WHERE d.model_id != json_extract(j.value, '$.id') LIMIT 1`)
@@ -399,15 +415,32 @@ async function saveInventory(env: Env, token: string, payload: unknown, previous
     env.DB.prepare(`DELETE FROM faction_armory_inventory WHERE faction_id = ? AND category = ? AND ${OWNED}
       AND uid NOT IN (SELECT json_extract(value, '$.uid') FROM json_each(?))`)
       .bind(HOME_FACTION_ID, category, HOME_FACTION_ID, category, token, copyJson),
-    env.DB.prepare(`UPDATE faction_armory_state SET inventory_timestamp = ?, checked_at = ?, next_inventory_at = ?,
-      inventory_failures = 0, inventory_error = NULL, source_json = ? WHERE faction_id = ? AND category = ? AND lease_token = ?`)
-      .bind(inventory.timestamp, checkedAt, nextInventory, JSON.stringify(payload), HOME_FACTION_ID, category, token),
+    // Queue every copy without details so hasDueArmoryDetails finds work a capped run left behind.
+    env.DB.prepare(`INSERT INTO armory_detail_fetch_state (uid)
+      SELECT i.uid FROM faction_armory_inventory i ${DETAIL_JOIN}
+      WHERE i.faction_id = ? AND i.category = ? AND d.uid IS NULL AND ${OWNED}
+      ON CONFLICT(uid) DO NOTHING`)
+      .bind(HOME_FACTION_ID, category, HOME_FACTION_ID, category, token),
+    saveState,
   ]);
 }
 
+async function hasDueArmoryDetails(env: Env, category: ArmoryInventoryCategory): Promise<boolean> {
+  // Migration 0207 seeds legacy unqueued copies; saveInventory queues new ones.
+  return !!await env.DB.prepare(`SELECT 1 FROM armory_detail_fetch_state f
+    JOIN faction_armory_inventory i ON i.faction_id = ? AND i.uid = f.uid
+    WHERE i.category = ? AND f.retry_at <= ? LIMIT 1`).bind(HOME_FACTION_ID, category, now()).first();
+}
+
 export async function syncArmory(env: Env, category: ArmoryInventoryCategory = "weapons"): Promise<Response> {
+  await syncArmoryData(env, category);
+  // Read after the lease is released so clients never wait out their own completed lease.
+  return getArmory(env, category);
+}
+
+async function syncArmoryData(env: Env, category: ArmoryInventoryCategory): Promise<void> {
   const token = await acquire(env, category);
-  if (!token) return getArmory(env, category);
+  if (!token) return;
   try {
     const current = (await state(env, category))!;
     if (inventoryDueAt(current) <= now()) {
@@ -418,14 +451,15 @@ export async function syncArmory(env: Env, category: ArmoryInventoryCategory = "
         await env.DB.prepare(`UPDATE faction_armory_state SET inventory_error = ?, inventory_failures = inventory_failures + 1,
           next_inventory_at = ?, details_blocked_until = MAX(details_blocked_until, ?) WHERE faction_id = ? AND category = ? AND lease_token = ?`)
           .bind(fail.message, now() + fail.delay, fail.halt ? now() + fail.delay : 0, HOME_FACTION_ID, category, token).run();
-        if (fail.halt) return await finishArmory(env, token, category);
+        if (fail.halt) return;
       }
     }
     if (category === "medical") {
       await checkMedicalStockAlerts(env, token);
-      return await finishArmory(env, token, category);
+      return;
     }
-    if (((await state(env, category))?.details_blocked_until ?? 0) > now()) return await finishArmory(env, token, category);
+    if (((await state(env, category))?.details_blocked_until ?? 0) > now()) return;
+    if (!await hasDueArmoryDetails(env, category)) return;
     // Renew between bounded network requests, including after a multi-page inventory fetch.
     for (let batch = 0; batch < 4; batch++) {
       if (!await renewLease(env, token, category)) break;
@@ -467,13 +501,6 @@ export async function syncArmory(env: Env, category: ArmoryInventoryCategory = "
       if (halt) break;
     }
   } finally { await release(env, token, category); }
-  return getArmory(env, category);
-}
-
-// Release before returning a snapshot so clients never wait out their own completed lease.
-async function finishArmory(env: Env, token: string, category: ArmoryInventoryCategory): Promise<Response> {
-  await release(env, token, category);
-  return getArmory(env, category);
 }
 
 export async function refreshArmoryDetails(env: Env, category: ArmoryCategory = "weapons"): Promise<Response> {
@@ -502,7 +529,7 @@ export async function refreshArmoryDetails(env: Env, category: ArmoryCategory = 
 export async function runArmoryCron(env: Env): Promise<void> {
   const errors: unknown[] = [];
   for (const category of ["medical", "weapons", "armor"] as const) {
-    try { await syncArmory(env, category); }
+    try { await syncArmoryData(env, category); }
     catch (error) { errors.push(error); }
   }
   if (errors.length) throw new AggregateError(errors, "Armory background refresh failed");

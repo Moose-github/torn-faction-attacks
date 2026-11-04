@@ -868,12 +868,13 @@ describe("current loan observations", () => {
     expect((await readArmory(env)).items.map(item => [item.uid, item.loan_first_seen_at]).sort())
       .toEqual([["10727704270", clock + 10803], ["7443497174", null]]);
   });
-  it("initializes legacy loans only on a successful inventory observation", async () => {
+  it("initializes legacy loans only on a successful inventory change", async () => {
     await observe(loan(), 0);
     db.sqlite.exec("UPDATE faction_armory_inventory SET loan_first_seen_at = NULL");
     expect((await readArmory(env)).items[0].loan_first_seen_at).toBeNull();
     expect((await observe({ error: { code: 17 } }, 3601))[0].loan_first_seen_at).toBeNull();
-    expect((await observe(loan(), 7202))[0].loan_first_seen_at).toBe(clock + 7202);
+    expect((await observe(loan(), 7202))[0].loan_first_seen_at).toBeNull();
+    expect((await observe(loan(2332935, "Renamed"), 10803))[0].loan_first_seen_at).toBe(clock + 10803);
   });
   it("tracks different copies independently before their details are known", async () => {
     fetcher.mockImplementation(async () => Response.json({ itemdetails: [] }));
@@ -887,6 +888,190 @@ describe("current loan observations", () => {
     const next = await observe(loan(1, "First"), 3601);
     expect(next.find(item => item.uid === "7443497174")?.loan_first_seen_at).toBe(clock);
     expect(next.find(item => item.uid === "10727704270")?.loan_first_seen_at).toBe(clock + 3601);
+  });
+});
+
+describe("armory sync database work", () => {
+  const migrateDetailQueue = () => db.sqlite.exec(readFileSync(
+    new URL("../migrations/0207_queue_existing_armory_details.sql", import.meta.url), "utf8"));
+  const SAVE_QUERIES = ["INSERT INTO faction_armory_inventory", "DELETE FROM faction_armory_inventory",
+    "INSERT INTO armory_detail_fetch_state (uid)\n      SELECT", "armory_weapon_details d JOIN json_each", "json_each(?) j CROSS JOIN"];
+  const DETAILS_SCAN = "ORDER BY i.uid LIMIT 25";
+  const FIRST = 7443497174, SECOND = 10727704270;
+  let weapons: number[], missing: Set<number>, detailRequests: number[], time: number;
+  let prepared: ReturnType<typeof vi.spyOn>;
+  const ran = (sql: string) => prepared.mock.calls.some(([query]) => String(query).includes(sql));
+  const count = (table: string) => Number(db.sqlite.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get()?.n);
+  const nextSlot = () => {
+    time += 15 * 60;
+    vi.setSystemTime(time * 1000);
+    prepared.mockClear();
+    detailRequests = [];
+  };
+  beforeEach(() => {
+    weapons = [FIRST, SECOND]; missing = new Set(); detailRequests = []; time = clock;
+    prepared = vi.spyOn(db, "prepare");
+    fetcher.mockImplementation(async (_env, input) => {
+      const url = String(input);
+      const uids = url.match(/torn\/([\d,]+)\/itemdetails/)?.[1].split(",").map(Number);
+      if (uids) {
+        detailRequests.push(...uids);
+        return Response.json({ itemdetails: uids.filter(uid => !missing.has(uid)).map(uid => detail(uid)) });
+      }
+      // Torn's timestamp advances on every fetch, including when the items did not change.
+      return Response.json(url.includes("cat=weapons") ? stock(weapons, time) : { inventory_timestamp: time, inventory: [] });
+    });
+  });
+
+  it("only records the fetch when the items are unchanged, in any order", async () => {
+    await runArmoryCron(env);
+    nextSlot();
+    weapons = [SECOND, FIRST];
+
+    await runArmoryCron(env);
+
+    for (const query of [...SAVE_QUERIES, DETAILS_SCAN]) expect(ran(query), query).toBe(false);
+    expect(detailRequests).toEqual([]);
+    expect(db.sqlite.prepare("SELECT inventory_timestamp, checked_at, next_inventory_at FROM faction_armory_state WHERE category = 'weapons'").get())
+      .toEqual({ inventory_timestamp: time, checked_at: time, next_inventory_at: time + 15 * 60 });
+  });
+
+  it("does not build an unused response in cron, but still returns one to the page", async () => {
+    await runArmoryCron(env);
+    expect(ran("SELECT i.*, d.details_json")).toBe(false);
+
+    nextSlot();
+    const body = await (await syncArmory(env)).json() as { items: Array<{ uid: string }>; syncing: boolean };
+
+    expect(body.items.map(item => item.uid).sort()).toEqual([String(SECOND), String(FIRST)]);
+    expect(body.syncing).toBe(false);
+  });
+
+  it("finishes a backlog larger than one run while the inventory stays unchanged", async () => {
+    weapons = Array.from({ length: 130 }, (_, index) => 1000 + index);
+
+    await runArmoryCron(env);
+    expect(count("armory_weapon_details")).toBe(100);
+
+    nextSlot();
+    await runArmoryCron(env);
+    expect(ran("INSERT INTO faction_armory_inventory")).toBe(false);
+    expect(count("armory_weapon_details")).toBe(130);
+    expect(count("armory_detail_fetch_state")).toBe(0);
+
+    nextSlot();
+    await runArmoryCron(env);
+    expect(ran(DETAILS_SCAN)).toBe(false);
+  });
+
+  it("migrates an existing unqueued backlog and drains it without inventory changes", async () => {
+    weapons = Array.from({ length: 230 }, (_, index) => 1000 + index);
+    await runArmoryCron(env);
+    expect(count("armory_weapon_details")).toBe(100);
+    // The old implementation left copies beyond the per-run cap unqueued.
+    db.sqlite.exec("DELETE FROM armory_detail_fetch_state");
+
+    migrateDetailQueue();
+    expect(count("armory_detail_fetch_state")).toBe(130);
+    nextSlot();
+    await runArmoryCron(env);
+    expect(ran("INSERT INTO faction_armory_inventory")).toBe(false);
+    expect(count("armory_weapon_details")).toBe(200);
+    expect(count("armory_detail_fetch_state")).toBe(30);
+
+    nextSlot();
+    const response = await (await syncArmory(env)).json() as {
+      pending: number; next_sync_at: number; syncing: boolean;
+    };
+    expect(ran("INSERT INTO faction_armory_inventory")).toBe(false);
+    expect(count("armory_weapon_details")).toBe(230);
+    expect(count("armory_detail_fetch_state")).toBe(0);
+    expect(response.pending).toBe(0);
+    expect(response.syncing).toBe(false);
+    expect(response.next_sync_at).toBeGreaterThan(time);
+
+    nextSlot();
+    await runArmoryCron(env);
+    expect(ran(DETAILS_SCAN)).toBe(false);
+  });
+
+  it("preserves existing retry backoff and admin refresh requests when migrating", async () => {
+    missing.add(SECOND);
+    await runArmoryCron(env);
+    await refreshArmoryDetails(env);
+    db.sqlite.prepare("UPDATE armory_detail_fetch_state SET retry_at = ? WHERE uid = ?")
+      .run(time + 30 * 60, String(SECOND));
+    const before = db.sqlite.prepare("SELECT * FROM armory_detail_fetch_state ORDER BY uid").all();
+
+    migrateDetailQueue();
+    migrateDetailQueue();
+
+    expect(db.sqlite.prepare("SELECT * FROM armory_detail_fetch_state ORDER BY uid").all()).toEqual(before);
+    nextSlot();
+    await runArmoryCron(env);
+    expect(detailRequests).toEqual([FIRST]);
+  });
+
+  it("migrates missing and incompatible details in both categories, skipping valid caches", async () => {
+    await runArmoryCron(env);
+    // A cached payload with an old version also needs to enter the queue.
+    db.sqlite.prepare("UPDATE armory_weapon_details SET payload_version = 0 WHERE uid = ?").run(String(SECOND));
+    const insert = db.sqlite.prepare(`INSERT INTO faction_armory_inventory
+      (faction_id, category, uid, model_id, name, slot_type) VALUES (?, 'armor', ?, 668, 'Assault Boots', 'Defensive')`);
+    for (const uid of ["2001", "2002", "2003", "2004"]) insert.run(HOME_FACTION_ID, uid);
+    const cache = db.sqlite.prepare(`INSERT INTO armory_weapon_details
+      (uid, model_id, details_json, fetched_at, payload_version) VALUES (?, ?, ?, ?, 1)`);
+    cache.run("2002", 668, JSON.stringify(armorDetail(2002)), time);
+    cache.run("2003", 668, JSON.stringify({ ...armorDetail(2003), type: "Weapon" }), time);
+    cache.run("2004", 999, JSON.stringify(armorDetail(2004)), time);
+
+    migrateDetailQueue();
+
+    expect(db.sqlite.prepare("SELECT uid FROM armory_detail_fetch_state ORDER BY uid").all())
+      .toEqual([String(SECOND), "2001", "2003", "2004"].sort().map(uid => ({ uid })));
+  });
+
+  it("retries failed details while the inventory stays unchanged, but not before they are due", async () => {
+    missing.add(SECOND);
+    await runArmoryCron(env);
+    expect(db.sqlite.prepare(`SELECT attempts FROM armory_detail_fetch_state WHERE uid = '${SECOND}'`).get()).toEqual({ attempts: 1 });
+
+    db.sqlite.exec(`UPDATE armory_detail_fetch_state SET retry_at = ${time + 30 * 60}`);
+    nextSlot();
+    await runArmoryCron(env);
+    expect(ran(DETAILS_SCAN)).toBe(false);
+
+    nextSlot();
+    nextSlot();
+    missing.clear();
+    await runArmoryCron(env);
+    expect(detailRequests).toEqual([SECOND]);
+    expect(count("armory_detail_fetch_state")).toBe(0);
+  });
+
+  it("runs an admin details refresh while the inventory stays unchanged", async () => {
+    await runArmoryCron(env);
+    await refreshArmoryDetails(env);
+
+    nextSlot();
+    await runArmoryCron(env);
+
+    expect([...detailRequests].sort()).toEqual([SECOND, FIRST].sort());
+    expect(count("armory_detail_fetch_state")).toBe(0);
+  });
+
+  it("stops scanning for a pending copy that left the armory", async () => {
+    missing.add(SECOND);
+    await runArmoryCron(env);
+    nextSlot();
+    weapons = [FIRST];
+    await runArmoryCron(env);
+
+    nextSlot();
+    await runArmoryCron(env);
+
+    expect(count("armory_detail_fetch_state")).toBe(1);
+    expect(ran(DETAILS_SCAN)).toBe(false);
   });
 });
 
