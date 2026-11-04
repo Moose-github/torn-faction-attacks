@@ -4,7 +4,7 @@ import { fetchTornFactionMembers } from "./enemyScouting";
 import {
   ENEMY_MEMBER_LIVE_STATUS_TABLE,
   HOME_MEMBER_LIVE_STATUS_TABLE,
-  upsertMemberRevivableStatus,
+  upsertMemberRevivableStatuses,
 } from "./memberLiveStatus";
 import { warNameFromWarRoute } from "./routes";
 import { readSyncTimestamp, upsertSyncTimestamp } from "./syncState";
@@ -425,7 +425,7 @@ async function updateCachedRevivableMembers(
   }
 
   const existingValues = await readCachedRevivableValues(env, tableName, factionId);
-  const statements = members
+  const changedMembers = members
     .filter((member) => {
       const effectiveRevivable = effectiveRevivableStatus(member);
       if (typeof effectiveRevivable !== "boolean") {
@@ -435,15 +435,12 @@ async function updateCachedRevivableMembers(
       const nextValue = boolToInt(effectiveRevivable);
       return existingValues.get(member.id) !== nextValue;
     })
-    .map((member) =>
-      upsertMemberRevivableStatus(
-        env,
-        tableName,
-        member.id,
-        factionId,
-        boolToInt(effectiveRevivableStatus(member) ?? false),
-      ),
-    );
+    .map((member) => ({
+      memberId: member.id,
+      factionId,
+      isRevivable: boolToInt(effectiveRevivableStatus(member) ?? false),
+    }));
+  const statements = upsertMemberRevivableStatuses(env, tableName, changedMembers);
 
   if (statements.length === 0) {
     return { writeStatements: 0, changedRows: 0 };

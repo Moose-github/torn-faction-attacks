@@ -1,4 +1,5 @@
 import type { Env } from "./types";
+import { chunkArray } from "./utils";
 
 export const HOME_MEMBER_LIVE_STATUS_TABLE = "home_member_live_status";
 export const ENEMY_MEMBER_LIVE_STATUS_TABLE = "enemy_member_live_status";
@@ -140,7 +141,16 @@ export function upsertMemberRevivableStatus(
   factionId: number,
   isRevivable: number | null,
 ): D1PreparedStatement {
-  return env.DB.prepare(
+  return upsertMemberRevivableStatuses(env, tableName, [{ memberId, factionId, isRevivable }])[0];
+}
+
+/** Three bindings per member; preserve the other live/travel fields on conflict. */
+export function upsertMemberRevivableStatuses(
+  env: Env,
+  tableName: MemberLiveStatusTable,
+  members: { memberId: number; factionId: number; isRevivable: number | null }[],
+): D1PreparedStatement[] {
+  return chunkArray(members, 33).map((batch) => env.DB.prepare(
     `
     INSERT INTO ${tableName} (
       member_id,
@@ -148,7 +158,7 @@ export function upsertMemberRevivableStatus(
       is_revivable,
       updated_at
     )
-    VALUES (?, ?, ?, unixepoch())
+    VALUES ${batch.map(() => "(?, ?, ?, unixepoch())").join(",")}
     ON CONFLICT(member_id) DO UPDATE SET
       faction_id = excluded.faction_id,
       is_revivable = excluded.is_revivable,
@@ -156,7 +166,7 @@ export function upsertMemberRevivableStatus(
     WHERE ${tableName}.faction_id IS NOT excluded.faction_id
        OR ${tableName}.is_revivable IS NOT excluded.is_revivable
     `,
-  ).bind(memberId, factionId, isRevivable);
+  ).bind(...batch.flatMap(({ memberId, factionId, isRevivable }) => [memberId, factionId, isRevivable])));
 }
 
 export function deleteStaleMemberLiveStatus(

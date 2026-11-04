@@ -4,12 +4,12 @@ import { HOME_FACTION_ID } from "./constants";
 import { fetchTornFactionMembers } from "./enemyScouting";
 import {
   markDepartedHomeFactionMembers,
-  upsertHomeFactionMemberRoster,
+  upsertHomeFactionMemberRosters,
   validMemberIds,
 } from "./homeFactionRoster";
 import {
   HOME_MEMBER_LIVE_STATUS_TABLE,
-  upsertMemberRevivableStatus,
+  upsertMemberRevivableStatuses,
 } from "./memberLiveStatus";
 import { Env } from "./types";
 import { boolToInt, d1Changes, effectiveRevivableStatus, json } from "./utils";
@@ -50,18 +50,15 @@ export async function syncHomeFactionMembershipAndSessions(
     };
   }
 
-  const upsertResults = await env.DB.batch(
-    members.flatMap((member) => [
-      upsertHomeFactionMemberRoster(env, member),
-      upsertMemberRevivableStatus(
-        env,
-        HOME_MEMBER_LIVE_STATUS_TABLE,
-        member.id,
-        HOME_FACTION_ID,
-        boolToInt(effectiveRevivableStatus(member) ?? false),
-      ),
-    ]),
-  );
+  const statements = [
+    ...upsertHomeFactionMemberRosters(env, members),
+    ...upsertMemberRevivableStatuses(env, HOME_MEMBER_LIVE_STATUS_TABLE, members.map((member) => ({
+      memberId: member.id,
+      factionId: HOME_FACTION_ID,
+      isRevivable: boolToInt(effectiveRevivableStatus(member) ?? false),
+    }))),
+  ];
+  const upsertResults = await env.DB.batch(statements);
 
   const currentMemberIds = validMemberIds(members);
   const markedDepartedRows = await markDepartedHomeFactionMembers(env, currentMemberIds);
@@ -72,7 +69,7 @@ export async function syncHomeFactionMembershipAndSessions(
   );
 
   return {
-    writeStatements: members.length * 2 + 2,
+    writeStatements: statements.length + 3,
     changedRows: upsertChangedRows + markedDepartedRows + revokedSessions,
     fetchedMembers: members.length,
     revokedSessions,

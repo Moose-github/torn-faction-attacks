@@ -2,7 +2,8 @@ import { readFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { HOME_FACTION_ID } from "./constants";
-import { markDepartedHomeFactionMembers, upsertHomeFactionMemberRoster, validMemberIds } from "./homeFactionRoster";
+import { markDepartedHomeFactionMembers, upsertHomeFactionMemberRoster, upsertHomeFactionMemberRosters, validMemberIds } from "./homeFactionRoster";
+import { HOME_MEMBER_LIVE_STATUS_TABLE, upsertMemberRevivableStatuses } from "./memberLiveStatus";
 
 let sqlite;
 let env;
@@ -15,7 +16,7 @@ beforeEach(() => {
       prepare(sql) {
         let values = [];
         return {
-          bind(...params) { values = params; return this; },
+          bind(...params) { expect(params.length).toBeLessThanOrEqual(100); values = params; return this; },
           async run() {
             const result = sqlite.prepare(sql).run(...values);
             return { success: true, meta: { changes: Number(result.changes) } };
@@ -44,6 +45,36 @@ function row(memberId = 101) {
 }
 
 describe("home faction roster upsert", () => {
+  it("syncs 100 members in 11 bounded statements, preserves unchanged fields, and handles mixed changes", async () => {
+    const members = Array.from({ length: 100 }, (_, i) => member({ id: i + 1, name: `Member ${i}` }));
+    const statements = () => [
+      ...upsertHomeFactionMemberRosters(env, members),
+      ...upsertMemberRevivableStatuses(env, HOME_MEMBER_LIVE_STATUS_TABLE,
+        members.map(m => ({ memberId: m.id, factionId: HOME_FACTION_ID, isRevivable: m.id === 1 ? null : 1 }))),
+    ];
+    expect(statements()).toHaveLength(11);
+    for (const statement of statements()) await statement.run();
+    expect(sqlite.prepare("SELECT COUNT(*) AS n FROM home_faction_members").get().n).toBe(100);
+    expect(sqlite.prepare("SELECT COUNT(*) AS n FROM home_member_live_status").get().n).toBe(100);
+    sqlite.exec("UPDATE home_faction_members SET updated_at=1, current_join_date='2020-01-01'; UPDATE home_member_live_status SET updated_at=1, status_state='Traveling', travel_destination='Japan'");
+    for (const statement of statements()) expect((await statement.run()).meta.changes).toBe(0);
+    members[0].level = 51;
+    sqlite.exec("UPDATE home_faction_members SET is_current=0 WHERE member_id=2");
+    let changed = 0;
+    for (const statement of statements()) changed += (await statement.run()).meta.changes;
+    expect(changed).toBe(2);
+    expect(row(1)).toMatchObject({ level: 51, current_join_date: "2020-01-01" });
+    expect(row(2).current_join_date).not.toBe("2020-01-01");
+    expect(row(3).updated_at).toBe(1);
+    expect(sqlite.prepare("SELECT * FROM home_member_live_status WHERE member_id=1").get())
+      .toMatchObject({ is_revivable: null, status_state: "Traveling", travel_destination: "Japan", updated_at: 1 });
+    await upsertMemberRevivableStatuses(env, HOME_MEMBER_LIVE_STATUS_TABLE,
+      [{ memberId: 1, factionId: HOME_FACTION_ID, isRevivable: 0 }])[0].run();
+    expect(sqlite.prepare("SELECT * FROM home_member_live_status WHERE member_id=1").get())
+      .toMatchObject({ is_revivable: 0, status_state: "Traveling", travel_destination: "Japan" });
+    expect(upsertHomeFactionMemberRosters(env, [])).toEqual([]);
+    expect(upsertMemberRevivableStatuses(env, HOME_MEMBER_LIVE_STATUS_TABLE, [])).toEqual([]);
+  });
   it("skips the write when nothing on the roster changed", async () => {
     expect(await upsert(member())).toBe(1);
     sqlite.exec("UPDATE home_faction_members SET updated_at = 1");

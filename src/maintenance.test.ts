@@ -1,7 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { HeatmapSamplingError, sampleFactionActivityHeatmaps, type HeatmapSampleMetrics } from "./heatmap";
-import { runHeatmapSamplingRetry } from "./maintenance";
+import { auditEventAttackLinks } from "./eventTracking";
+import { syncHomeFactionMembershipAndSessions } from "./homeFactionMembers";
+import { syncMissingRankedWarReports } from "./ingestion";
+import { auditDailyStatsAttention } from "./lifestyleStats/attentionAudit";
+import { runHeatmapSamplingRetry, runScheduledMaintenance } from "./maintenance";
+import { refreshMemberAchievementSummariesIfStale } from "./memberAchievements";
+import { cleanupRetaliationMessages } from "./retaliationDiscordMessages";
+import { refreshTornApiUsageRollups } from "./tornApiUsage";
 import type { Env } from "./types";
+import { reconcileXanaxCompetitionRollover } from "./xanaxCompetition";
 
 vi.mock("./heatmap", async (importOriginal) => ({
   ...await importOriginal<typeof import("./heatmap")>(),
@@ -10,6 +18,47 @@ vi.mock("./heatmap", async (importOriginal) => ({
 
 vi.mock("./xanaxCompetition", () => ({
   reconcileXanaxCompetitionRollover: vi.fn(),
+}));
+
+vi.mock("./eventTracking", async (importOriginal) => ({
+  ...await importOriginal<typeof import("./eventTracking")>(),
+  auditEventAttackLinks: vi.fn(),
+}));
+
+vi.mock("./homeFactionMembers", async (importOriginal) => ({
+  ...await importOriginal<typeof import("./homeFactionMembers")>(),
+  syncHomeFactionMembershipAndSessions: vi.fn(),
+}));
+
+vi.mock("./ingestion", async (importOriginal) => ({
+  ...await importOriginal<typeof import("./ingestion")>(),
+  syncMissingRankedWarReports: vi.fn(),
+}));
+
+vi.mock("./lifestyleStats/attentionAudit", async (importOriginal) => ({
+  ...await importOriginal<typeof import("./lifestyleStats/attentionAudit")>(),
+  auditDailyStatsAttention: vi.fn(),
+}));
+
+vi.mock("./memberAchievements", async (importOriginal) => ({
+  ...await importOriginal<typeof import("./memberAchievements")>(),
+  refreshMemberAchievementSummariesIfStale: vi.fn(),
+}));
+
+vi.mock("./retaliationDiscordMessages", async (importOriginal) => ({
+  ...await importOriginal<typeof import("./retaliationDiscordMessages")>(),
+  cleanupRetaliationMessages: vi.fn(),
+}));
+
+vi.mock("./tornApiUsage", async (importOriginal) => ({
+  ...await importOriginal<typeof import("./tornApiUsage")>(),
+  refreshTornApiUsageRollups: vi.fn(),
+}));
+
+vi.mock("./syncState", async (importOriginal) => ({
+  ...await importOriginal<typeof import("./syncState")>(),
+  // Retention counts as already run, leaving only the scheduled tasks to log.
+  readSyncTimestamp: vi.fn(async () => Number.MAX_SAFE_INTEGER),
 }));
 
 function metrics(overrides: Partial<HeatmapSampleMetrics> = {}): HeatmapSampleMetrics {
@@ -47,6 +96,44 @@ function testDatabase() {
 
 beforeEach(() => {
   vi.mocked(sampleFactionActivityHeatmaps).mockReset();
+  vi.mocked(cleanupRetaliationMessages).mockReset();
+});
+
+describe("scheduled maintenance task logging", () => {
+  beforeEach(() => {
+    const noWrites = { writeStatements: 0, changedRows: 0 };
+    vi.mocked(sampleFactionActivityHeatmaps).mockResolvedValue(metrics());
+    vi.mocked(auditDailyStatsAttention).mockResolvedValue(noWrites as never);
+    vi.mocked(syncHomeFactionMembershipAndSessions).mockResolvedValue(noWrites as never);
+    vi.mocked(syncMissingRankedWarReports).mockResolvedValue({ writeOperations: 0 } as never);
+    vi.mocked(refreshMemberAchievementSummariesIfStale).mockResolvedValue(noWrites as never);
+    vi.mocked(reconcileXanaxCompetitionRollover).mockResolvedValue(noWrites as never);
+    vi.mocked(refreshTornApiUsageRollups).mockResolvedValue(noWrites as never);
+    vi.mocked(auditEventAttackLinks).mockResolvedValue(noWrites as never);
+  });
+
+  const retentionTask = (statements: Array<{ sql: string; args: unknown[] }>) => statements.find((statement) =>
+    statement.sql.includes("INSERT INTO scheduled_maintenance_tasks") &&
+    statement.args[2] === "retaliation message retention");
+
+  it("does not log retaliation retention when nothing was deleted", async () => {
+    const { env, statements } = testDatabase();
+    vi.mocked(cleanupRetaliationMessages).mockResolvedValue(0);
+
+    await runScheduledMaintenance(env);
+
+    expect(cleanupRetaliationMessages).toHaveBeenCalledTimes(1);
+    expect(retentionTask(statements)).toBeUndefined();
+  });
+
+  it("logs retaliation retention when it deletes rows", async () => {
+    const { env, statements } = testDatabase();
+    vi.mocked(cleanupRetaliationMessages).mockResolvedValue(3);
+
+    await runScheduledMaintenance(env);
+
+    expect(retentionTask(statements)?.args.slice(5, 8)).toEqual(["success", 1, 3]);
+  });
 });
 
 describe("heatmap retry maintenance metrics", () => {

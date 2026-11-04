@@ -5,6 +5,7 @@ import {
   type DiscordAlertRouteKey,
 } from "./discordAlerts";
 import type { Env } from "./types";
+import { readBackgroundSetting } from "./backgroundReadScope";
 
 export type DiscordNotificationChannel = {
   guildId: string;
@@ -55,6 +56,13 @@ export async function readDiscordNotificationChannel(
   env: Env,
   guildId: string,
   alertKey: DiscordAlertRouteKey,
+): Promise<DiscordNotificationChannel | null> {
+  return readBackgroundSetting(env, `alert-route:${guildId}:${alertKey}`,
+    () => loadDiscordNotificationChannel(env, guildId, alertKey));
+}
+
+async function loadDiscordNotificationChannel(
+  env: Env, guildId: string, alertKey: DiscordAlertRouteKey,
 ): Promise<DiscordNotificationChannel | null> {
   const row = await env.DB.prepare(
     `

@@ -3,7 +3,7 @@ import { fetchTrackedTornJson } from "./external/torn";
 import { readSyncTimestamp, upsertSyncTimestamp } from "./syncState";
 import { withTornKeyPool } from "./tornKeyPool";
 import { Env } from "./types";
-import { d1Changes, json, nowSeconds, parseLimit } from "./utils";
+import { chunkArray, d1Changes, json, nowSeconds, parseLimit } from "./utils";
 
 type StockProfile = {
   stock_id: number;
@@ -2414,7 +2414,8 @@ async function saveStockSnapshots(env: Env, snapshots: StockSnapshot[]): Promise
   }
 
   let written = 0;
-  const statements = snapshots.map((snapshot) =>
+  // Eight bindings per row; a full 35-stock minute needs three queries, not 35.
+  const statements = chunkArray(snapshots, 12).map((batch) =>
     env.STOCK_DB.prepare(
       `
       INSERT INTO stock_price_snapshots (
@@ -2427,7 +2428,7 @@ async function saveStockSnapshots(env: Env, snapshots: StockSnapshot[]): Promise
         raw_json,
         fetched_at
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES ${batch.map(() => "(?, ?, ?, ?, ?, ?, ?, ?)").join(",")}
       ON CONFLICT(stock_id, observed_at) DO UPDATE SET
         price = excluded.price,
         market_cap = COALESCE(excluded.market_cap, stock_price_snapshots.market_cap),
@@ -2436,7 +2437,7 @@ async function saveStockSnapshots(env: Env, snapshots: StockSnapshot[]): Promise
         raw_json = excluded.raw_json,
         fetched_at = excluded.fetched_at
       `,
-    ).bind(
+    ).bind(...batch.flatMap((snapshot) => [
       snapshot.stock_id,
       snapshot.observed_at,
       snapshot.price,
@@ -2445,7 +2446,7 @@ async function saveStockSnapshots(env: Env, snapshots: StockSnapshot[]): Promise
       snapshot.investors,
       snapshot.raw_json,
       snapshot.fetched_at,
-    )
+    ]))
   );
 
   for (let index = 0; index < statements.length; index += 50) {

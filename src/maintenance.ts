@@ -10,6 +10,7 @@ import { refreshTornApiUsageRollups } from "./tornApiUsage";
 import { Env, TornFactionMember } from "./types";
 import { d1Changes, json, nowSeconds } from "./utils";
 import { reconcileXanaxCompetitionRollover } from "./xanaxCompetition";
+import { cleanupRetaliationMessages } from "./retaliationDiscordMessages";
 
 type MaintenanceTaskMetrics = {
   writeStatements: number;
@@ -94,6 +95,10 @@ function buildScheduledMaintenanceTasks(
   options: ScheduledMaintenanceOptions,
 ): MaintenanceTask[] {
   return [
+    {
+      name: "retaliation message retention",
+      run: async () => ({ writeStatements: 1, changedRows: await cleanupRetaliationMessages(env) }),
+    },
     {
       name: "daily stats attention audit",
       run: () => auditDailyStatsAttention(env),
@@ -309,7 +314,7 @@ function shouldLogMaintenanceTask(result: MaintenanceTaskLog): boolean {
     return result.writeStatements > 1 || result.changedRows > 1;
   }
 
-  if (result.name === "home faction membership") {
+  if (result.name === "home faction membership" || result.name === "retaliation message retention") {
     return result.changedRows > 0;
   }
 

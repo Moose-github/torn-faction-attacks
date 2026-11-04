@@ -1,6 +1,7 @@
 import { type DiscordAllowedMentions } from "./discord";
 import { Env } from "./types";
 import { discordAlertByKey } from "./discordAlerts";
+import { readBackgroundSetting } from "./backgroundReadScope";
 
 type DiscordAlertMentionRow = {
   subscription_type: string;
@@ -13,6 +14,10 @@ export type DiscordAlertMentions = {
 };
 
 export async function readDiscordAlertMentions(env: Env, alertKey: string): Promise<DiscordAlertMentions> {
+  return readBackgroundSetting(env, `alert-mentions:${alertKey}`, () => loadDiscordAlertMentions(env, alertKey));
+}
+
+async function loadDiscordAlertMentions(env: Env, alertKey: string): Promise<DiscordAlertMentions> {
   const adminResult = await env.DB.prepare(
     `
     SELECT subscription_type, discord_id

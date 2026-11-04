@@ -17,6 +17,7 @@ const databases = [];
 afterEach(() => { databases.splice(0).forEach(db => db.close()); vi.clearAllMocks(); });
 
 function database(schema) {
+  const executed = [];
   const sqlite = new DatabaseSync(":memory:");
   databases.push(sqlite);
   sqlite.exec("PRAGMA foreign_keys=ON;");
@@ -25,6 +26,8 @@ function database(schema) {
     constructor(sql, values = []) { this.sql = sql; this.values = values; }
     bind(...values) { return new Statement(this.sql, values); }
     execute() {
+      expect(this.values.length).toBeLessThanOrEqual(100);
+      executed.push(this.sql);
       const before = sqlite.prepare("SELECT total_changes() AS n").get().n;
       const results = sqlite.prepare(this.sql).all(...this.values);
       return { success: true, results, meta: { changes: sqlite.prepare("SELECT total_changes() AS n").get().n - before } };
@@ -33,7 +36,7 @@ function database(schema) {
     async run() { return this.execute(); }
     async first() { return this.execute().results[0] ?? null; }
   }
-  return { sqlite, prepare: sql => new Statement(sql), async batch(statements) {
+  return { sqlite, executed, prepare: sql => new Statement(sql), async batch(statements) {
     sqlite.exec("BEGIN");
     try { const result = statements.map(s => s.execute()); sqlite.exec("COMMIT"); return result; }
     catch (error) { sqlite.exec("ROLLBACK"); throw error; }
@@ -53,6 +56,26 @@ async function ingest(env) {
 }
 
 describe("separate stock database", () => {
+  it("stores every stock in three queries per 35-stock minute and preserves corrections and history", async () => {
+    const env = environment();
+    const stocks = Array.from({ length: 35 }, (_, i) => ({ id: i + 1, name: `Stock ${i}`, acronym: `S${i}`,
+      current_price: 100 + i, market_cap: 100000, total_shares: 1000, investors: 10 }));
+    vi.mocked(fetchTrackedTornJson).mockResolvedValue({ stocks });
+    const time = Date.UTC(2026, 10, 4, 4, 0);
+    const count = () => env.STOCK_DB.executed.filter(sql => sql.includes("INSERT INTO stock_price_snapshots")).length;
+    expect((await refreshTornStockMarketMinute(env, time)).status).toBe("ok");
+    expect(count()).toBe(3);
+    expect(env.STOCK_DB.sqlite.prepare("SELECT COUNT(*) AS n FROM stock_price_snapshots").get().n).toBe(35);
+    stocks[0].current_price = 150;
+    stocks[0].market_cap = null;
+    expect((await refreshTornStockMarketMinute(env, time)).status).toBe("ok");
+    expect(count()).toBe(6);
+    expect(env.STOCK_DB.sqlite.prepare("SELECT * FROM stock_price_snapshots WHERE stock_id=1").get())
+      .toMatchObject({ price: 150, market_cap: 100000 });
+    expect((await refreshTornStockMarketMinute(env, time + 60000)).status).toBe("ok");
+    expect(count()).toBe(9);
+    expect(env.STOCK_DB.sqlite.prepare("SELECT COUNT(*) AS n FROM stock_price_snapshots").get().n).toBe(70);
+  });
   it("ingests into stock storage while keeping API coordination and sync state in core", async () => {
     const env = environment();
     expect((await ingest(env)).status).toBe("ok");

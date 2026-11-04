@@ -7,6 +7,7 @@ import { readDiscordAlertMentions } from "./discordMentions";
 import { syncRetaliationDiscordBoard } from "./retaliations";
 import { ExternalApiError } from "./external/http";
 import { ingestRecentFactionAttacks } from "./ingestion";
+import { cleanupRetaliationMessages } from "./retaliationDiscordMessages";
 
 vi.mock("./discord", () => ({ createDiscordBotMessage: vi.fn(), editDiscordBotMessage: vi.fn() }));
 vi.mock("./discordAlertSettings", () => ({ isDiscordAlertEnabled: vi.fn() }));
@@ -63,6 +64,17 @@ beforeEach(() => {
 afterEach(() => { db.sqlite.close(); vi.useRealTimers(); vi.restoreAllMocks(); });
 
 describe("individual retaliation message lifecycle", () => {
+  it("retention deletes only finalized messages older than a day beyond expiry", async () => {
+    const insert = db.sqlite.prepare(`INSERT INTO retaliation_discord_messages
+      (opening_attack_id, expires_at, finalized_at) VALUES (?, ?, ?)`);
+    insert.run(1, now - 86401, now - 86400);
+    insert.run(2, now - 86400, now - 86400);
+    insert.run(3, now - 90000, null);
+    expect(await cleanupRetaliationMessages(db.env, now)).toBe(1);
+    expect(state(1)).toBeUndefined();
+    expect(state(2)).toBeDefined();
+    expect(state(3)).toBeDefined();
+  });
   it("posts each opening once, including two from the same target and more than ten opportunities", async () => {
     for (let id = 1; id <= 55; id++) opening(id, id < 3 ? 200 : 200 + id);
     await sync();
@@ -94,6 +106,8 @@ describe("individual retaliation message lifecycle", () => {
     expect(createDiscordBotMessage).toHaveBeenCalledTimes(1);
     expect(editDiscordBotMessage).toHaveBeenCalledTimes(3);
     time(87000); await sync();
+    expect(state(1)).toBeDefined(); // Fast updates leave retention to maintenance.
+    await cleanupRetaliationMessages(db.env, now);
     expect(state(1)).toBeUndefined();
   });
 

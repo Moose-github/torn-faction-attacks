@@ -42,7 +42,7 @@ import {
 } from "./syncLatches";
 import {
   markDepartedHomeFactionMembers,
-  upsertHomeFactionMemberRoster,
+  upsertHomeFactionMemberRosters,
   validMemberIds,
 } from "./homeFactionRoster";
 import { hasSyncState, readSyncTimestamp, upsertSyncTimestamp } from "./syncState";
@@ -478,8 +478,9 @@ export async function refreshHomeFactionMembers(env: Env): Promise<TornFactionMe
   const previousPollAt = await readSyncTimestamp(env, HOME_STATUS_CHECKED_AT);
   const existingById = new Map(existingRows.map((row) => [row.member_id, row]));
 
-  await env.DB.batch(
-    members.flatMap((member) => {
+  await env.DB.batch([
+    ...upsertHomeFactionMemberRosters(env, members),
+    ...members.map((member) => {
       const statusSnapshot = buildMemberStatusSnapshot(
         member,
         existingById.get(member.id) ?? null,
@@ -496,12 +497,9 @@ export async function refreshHomeFactionMembers(env: Env): Promise<TornFactionMe
         is_revivable: boolToInt(effectiveRevivableStatus(member) ?? false) ?? 0,
         ...statusSnapshot,
       };
-      return [
-        upsertHomeFactionMemberRoster(env, member),
-        upsertMemberLiveStatus(env, HOME_MEMBER_LIVE_STATUS_TABLE, snapshot),
-      ];
+      return upsertMemberLiveStatus(env, HOME_MEMBER_LIVE_STATUS_TABLE, snapshot);
     }),
-  );
+  ]);
 
   await markDepartedHomeFactionMembers(env, validMemberIds(members));
   await upsertSyncTimestamp(env, HOME_STATUS_CHECKED_AT, fetchedAt);

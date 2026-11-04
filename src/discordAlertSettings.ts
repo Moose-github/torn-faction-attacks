@@ -1,4 +1,5 @@
 import { readJsonObject } from "./backend/request";
+import { readBackgroundSetting } from "./backgroundReadScope";
 import { DISCORD_ALERTS, discordAlertByKey } from "../shared/discordAlertCatalog";
 import { legacyDiscordAlertSettings, legacyShopAlertKey } from "../shared/discordAlertSettingsCompatibility";
 import type { AdminDiscordAlertSettingsResponse, DiscordAlertSetting, DiscordAlertRouteSummary } from "../shared/discordAlertSettings";
@@ -138,7 +139,8 @@ export async function updateAdminDiscordAlertSettingsFromRequest(request: Reques
 }
 
 export async function isDiscordAlertEnabled(env: Env, alertKey: DiscordAlertKey): Promise<boolean> {
-  return (await readConfiguredAlertSetting(env, alertConfig(alertKey))).enabled;
+  return (await readBackgroundSetting(env, `alert-setting:${alertKey}`,
+    () => readConfiguredAlertSetting(env, alertConfig(alertKey)))).enabled;
 }
 
 export async function isEnemyPushAlertEnabled(env: Env): Promise<boolean> {

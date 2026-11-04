@@ -1,13 +1,18 @@
 import { HOME_FACTION_ID } from "./constants";
 import { Env, TornFactionMember } from "./types";
-import { d1Changes, finiteNumber } from "./utils";
+import { chunkArray, d1Changes, finiteNumber } from "./utils";
 
 // Shared by every job that syncs the home roster from a Torn member list, so
 // the upsert and departure rules cannot drift between callers.
 
 /** Upserts a current home member, writing only when its roster fields changed. */
 export function upsertHomeFactionMemberRoster(env: Env, member: TornFactionMember): D1PreparedStatement {
-  return env.DB.prepare(
+  return upsertHomeFactionMemberRosters(env, [member])[0];
+}
+
+/** Six bindings per member; keep each statement below D1's 100-binding limit. */
+export function upsertHomeFactionMemberRosters(env: Env, members: TornFactionMember[]): D1PreparedStatement[] {
+  return chunkArray(members, 16).map((batch) => env.DB.prepare(
     `
     INSERT INTO home_faction_members (
       member_id,
@@ -20,7 +25,7 @@ export function upsertHomeFactionMemberRoster(env: Env, member: TornFactionMembe
       current_join_date,
       updated_at
     )
-    VALUES (?, ?, ?, ?, ?, ?, 1, date('now'), unixepoch())
+    VALUES ${batch.map(() => "(?, ?, ?, ?, ?, ?, 1, date('now'), unixepoch())").join(",")}
     ON CONFLICT(member_id) DO UPDATE SET
       faction_id = excluded.faction_id,
       name = excluded.name,
@@ -41,14 +46,14 @@ export function upsertHomeFactionMemberRoster(env: Env, member: TornFactionMembe
       OR (home_faction_members.current_join_date IS NULL AND excluded.current_join_date IS NOT NULL)
       OR home_faction_members.is_current IS NOT 1
     `,
-  ).bind(
+  ).bind(...batch.flatMap((member) => [
     member.id,
     HOME_FACTION_ID,
     member.name,
     finiteNumber(member.level),
     member.position ?? null,
     finiteNumber(member.days_in_faction),
-  );
+  ])));
 }
 
 export function validMemberIds(members: TornFactionMember[]): number[] {

@@ -5,6 +5,7 @@ import { discordNotificationChannelTargetId, readConfiguredDiscordNotificationCh
 import { ExternalApiError } from "./external/http";
 import type { Env } from "./types";
 import { d1Changes, nowSeconds } from "./utils";
+import { createBackgroundReadScope } from "./backgroundReadScope";
 
 type MessageState = {
   opening_attack_id: number;
@@ -28,11 +29,8 @@ const LEASE_SECONDS = 60;
 export async function syncRetaliationMessages(
   env: Env, opportunities: OpportunityMessage[], checkedAt: number,
 ): Promise<{ edited: boolean; pending: boolean }> {
+  env = createBackgroundReadScope(env);
   let edited = false, pending = false;
-  // Keep a tombstone through the opening's entire discovery window so a finished
-  // opportunity cannot be posted again. No Discord references remain in it.
-  await env.DB.prepare(`DELETE FROM retaliation_discord_messages
-    WHERE finalized_at IS NOT NULL AND expires_at < ?`).bind(checkedAt - 86400).run();
 
   for (const opportunity of opportunities) {
     const id = opportunity.openingAttackId;
@@ -112,6 +110,14 @@ export async function syncRetaliationMessages(
     }
   }
   return { edited, pending };
+}
+
+/** Quarter-hour maintenance, separate from time-sensitive message updates. */
+export async function cleanupRetaliationMessages(env: Env, now = nowSeconds()): Promise<number> {
+  // Keep tombstones for a day beyond expiry to prevent rediscovery/reposting.
+  const result = await env.DB.prepare(`DELETE FROM retaliation_discord_messages
+    WHERE finalized_at IS NOT NULL AND expires_at < ?`).bind(now - 86400).run();
+  return d1Changes(result);
 }
 
 async function finalizeMessage(env: Env, id: number, leaseToken: string, now: number): Promise<void> {
