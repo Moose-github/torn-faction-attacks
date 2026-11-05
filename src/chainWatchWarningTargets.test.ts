@@ -148,7 +148,7 @@ describe("background target links", () => {
       { type: 2, style: 5, label: "Backup 1234", url: "https://www.torn.com/page.php?sid=attack&user2ID=1234" },
     ] }]);
     expect(fetchChainWatchTargets).toHaveBeenCalledOnce();
-    expect(background).toHaveLength(3);
+    expect(background).toHaveLength(4); // Threshold history and follow-ups for each alarm.
     expect(linkEdits()).toHaveLength(1);
   });
 
@@ -174,7 +174,7 @@ describe("background target links", () => {
   it("does not launch a lookup when warning delivery is skipped", async () => {
     vi.mocked(deliverChainWatchWarningAlert).mockResolvedValue({ status: "skipped", reason: "disabled" });
     await fire();
-    expect(background).toHaveLength(1); // Threshold history still records muted alerts.
+    expect(background).toHaveLength(2); // Threshold history still records muted alerts, plus follow-ups.
     expect(fetchChainWatchTargets).not.toHaveBeenCalled();
   });
 });

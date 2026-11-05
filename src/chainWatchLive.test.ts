@@ -3,7 +3,7 @@ import { chainWatchDatabase } from "../scripts/chain-watch-test-database.mjs";
 import { createWatch, setWatchFinish } from "./chainWatchSchedule";
 import { watchUtc } from "../shared/chainWatchSchedule";
 import { HOME_FACTION_ID } from "./constants";
-import { CHAIN_WATCH_DROP_RETRY_SECONDS, getChainWatchLive, handleChainWatchAlarm, readChainWatchState, readLatestQualifyingChainHit, refreshActiveChainWatchFromStoredAttacks, refreshChainWatch, runChainWatchCron } from "./chainWatch";
+import { CHAIN_WATCH_DROP_RETRY_SECONDS, getChainWatchLive, handleChainWatchAlarm, readChainWatchState, readLatestQualifyingChainHit, reconcileChainWatchActivity, refreshActiveChainWatchFromStoredAttacks, refreshChainWatch, runChainWatchCron } from "./chainWatch";
 import { readChainWatchDemand } from "./chainWatchDemand";
 import { setManualChainProtection } from "./chainWatch";
 import { getChainWatchForWar, setChainWatchEnabledForWar } from "./chainWatchWar";
@@ -107,6 +107,253 @@ function beforeObservationSave(beforeSave: (values: unknown[]) => Promise<void>)
   });
 }
 
+describe("inactive chain monitoring", () => {
+  const saved = () => db.sqlite.prepare(`SELECT enabled, timer_version, inactive_alarm_synced_version
+    FROM faction_chain_watch_state WHERE faction_id = ?`).get(HOME_FACTION_ID);
+  // The snapshot is already read when the stop is prepared, so this write wins the race.
+  const beforeStopUpdate = (concurrentWrite: string) => {
+    const prepare = db.env.DB.prepare.bind(db.env.DB);
+    let pending = true;
+    vi.spyOn(db.env.DB, "prepare").mockImplementation(sql => {
+      if (pending && sql.includes("SET enabled = 0, timer_version = timer_version + 1")) {
+        pending = false;
+        db.sqlite.exec(concurrentWrite);
+      }
+      return prepare(sql);
+    });
+  };
+
+  it("retries a stop that lost to an observation instead of acting on ended demand", async () => {
+    await hit(1, start - 20); advance(start);
+    vi.mocked(fetchTrackedTornJson).mockResolvedValue({ chain: { current: 150, timeout: 280 } });
+    await setManualChainProtection(db.env, true);
+    expect((await readChainWatchState(db.env))!.scheduled_alarm_stage).toBe("warning_60");
+    db.sqlite.prepare("UPDATE faction_chain_watch_state SET manual_enabled = 0 WHERE faction_id = ?").run(HOME_FACTION_ID);
+    const version = (await readChainWatchState(db.env))!.timer_version;
+    vi.mocked(fetchTrackedTornJson).mockResolvedValue({ chain: { current: 150, timeout: 60 } });
+    advance(start + 220);
+    beforeStopUpdate("UPDATE faction_chain_watch_state SET timer_version = timer_version + 1");
+    await handleChainWatchAlarm(db.env, HOME_FACTION_ID);
+    const state = await readChainWatchState(db.env);
+    expect(state).toMatchObject({ warning_60_sent_at: null, scheduled_alarm_at: null });
+    expect(saved()).toMatchObject({ enabled: 0, timer_version: version + 2, inactive_alarm_synced_version: version + 2 });
+  });
+
+  it("stays active when a stop lost to restored demand", async () => {
+    await hit(1, start - 20); advance(start);
+    await setManualChainProtection(db.env, true);
+    db.sqlite.prepare("UPDATE faction_chain_watch_state SET manual_enabled = 0 WHERE faction_id = ?").run(HOME_FACTION_ID);
+    const version = (await readChainWatchState(db.env))!.timer_version;
+    alarm.syncFaction.mockClear();
+    beforeStopUpdate("UPDATE faction_chain_watch_state SET manual_enabled = 1, timer_version = timer_version + 1");
+    expect(await reconcileChainWatchActivity(db.env, start)).toBe(true);
+    expect(saved()).toMatchObject({ enabled: 1, timer_version: version + 1 });
+    expect(alarm.syncFaction).not.toHaveBeenCalled();
+  });
+
+  it("bootstraps once, then checks demand with one read and no RPCs or writes", async () => {
+    await tick();
+    expect(alarm.syncFaction).toHaveBeenCalledTimes(1);
+    expect(saved()).toMatchObject({ enabled: 0, timer_version: 0, inactive_alarm_synced_version: 0 });
+    const queries = vi.spyOn(db.env.DB, "prepare");
+    const before = db.sqlite.prepare("SELECT total_changes() AS n").get()!.n;
+    alarm.syncFaction.mockClear();
+    for (let minute = 1; minute <= 15; minute++) await tick(start + minute * 60);
+    expect(queries).toHaveBeenCalledTimes(15);
+    expect(db.sqlite.prepare("SELECT total_changes() AS n").get()!.n).toBe(before);
+    expect(alarm.syncFaction).not.toHaveBeenCalled();
+    expect(fetchTrackedTornJson).not.toHaveBeenCalled();
+    expect(upsertDiscordAlertMessage).not.toHaveBeenCalled();
+    const plan = db.sqlite.prepare(`EXPLAIN QUERY PLAN ${queries.mock.calls[0][0]}`)
+      .all(HOME_FACTION_ID, "attacks", start) as Array<{ detail: string }>;
+    expect(plan.some(row => /SEARCH s USING INTEGER PRIMARY KEY/.test(row.detail))).toBe(true);
+    expect(plan.some(row => /SEARCH chain_watch_schedules USING INDEX/.test(row.detail))).toBe(true);
+    expect(plan.some(row => /SEARCH chain_watch_warning_cycles USING INDEX/.test(row.detail))).toBe(true);
+  });
+
+  it("reconciles an existing inactive monitor once after upgrade", async () => {
+    await tick();
+    db.sqlite.exec("UPDATE faction_chain_watch_state SET inactive_alarm_synced_version = NULL");
+    alarm.syncFaction.mockClear();
+    await tick(start + 60);
+    await tick(start + 120);
+    expect(alarm.syncFaction).toHaveBeenCalledTimes(1);
+    expect(saved()).toMatchObject({ inactive_alarm_synced_version: 0 });
+  });
+
+  it("retries failed shutdown synchronization even though monitoring is already disabled", async () => {
+    await hit(1, start - 20); advance(start);
+    await setManualChainProtection(db.env, true);
+    alarm.syncFaction.mockRejectedValueOnce(new Error("RPC unavailable"));
+    await expect(setManualChainProtection(db.env, false)).rejects.toThrow("RPC unavailable");
+    expect(saved()).toMatchObject({ enabled: 0, inactive_alarm_synced_version: null });
+    alarm.syncFaction.mockClear();
+    await tick(start + 60);
+    expect(saved()!.inactive_alarm_synced_version).toBe(saved()!.timer_version);
+    await tick(start + 120);
+    expect(alarm.syncFaction).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not acknowledge a concurrent restart or its subsequent shutdown with an old RPC", async () => {
+    const entered = gate(), complete = gate();
+    alarm.syncFaction.mockImplementationOnce(async () => { entered.resolve(); await complete.promise; });
+    const stopping = tick();
+    await entered.promise;
+    await hit(1, start - 20);
+    await setManualChainProtection(db.env, true);
+    const activeVersion = saved()!.timer_version;
+    complete.resolve();
+    await stopping;
+    expect(saved()).toMatchObject({ enabled: 1, timer_version: activeVersion, inactive_alarm_synced_version: null });
+    expect((await readChainWatchState(db.env))!.scheduled_alarm_at).toBeGreaterThan(start);
+    alarm.syncFaction.mockClear();
+    await setManualChainProtection(db.env, false);
+    expect(alarm.syncFaction).toHaveBeenCalledTimes(1);
+    expect(saved()!.inactive_alarm_synced_version).toBe(saved()!.timer_version);
+    expect(saved()!.timer_version).not.toBe(activeVersion);
+  });
+
+  it("retries pending warning cleanup without repeatedly cancelling the alarm", async () => {
+    await tick();
+    db.sqlite.prepare(`INSERT INTO chain_watch_warning_cycles
+      (faction_id, reset_at, timeout_at, chain_length, warning_message_id, warning_channel_id, outcome_text)
+      VALUES (?, ?, ?, 150, 'warning', 'channel', 'Chain saved by Alice')`)
+      .run(HOME_FACTION_ID, start - 300, start);
+    vi.mocked(editWatchDiscordMessage).mockResolvedValueOnce({ status: "failed", error: new Error("Discord unavailable") });
+    alarm.syncFaction.mockClear();
+    await tick(start + 60);
+    expect(db.sqlite.prepare("SELECT last_error FROM chain_watch_warning_cycles").get()!.last_error).toBe("Discord unavailable");
+    await tick(start + 120);
+    expect(editWatchDiscordMessage).toHaveBeenCalledTimes(2);
+    expect(db.sqlite.prepare("SELECT edited_message_id, last_error FROM chain_watch_warning_cycles").get())
+      .toEqual({ edited_message_id: "warning", last_error: null });
+    const queries = vi.spyOn(db.env.DB, "prepare");
+    await tick(start + 180);
+    expect(queries).toHaveBeenCalledTimes(1);
+    expect(alarm.syncFaction).not.toHaveBeenCalled();
+  });
+});
+
+describe("warnings outrank other chain monitor work", () => {
+  const warningKeys = () => vi.mocked(upsertDiscordAlertMessage).mock.calls.map(call => call[1]);
+  // A hit 20 seconds before the start: warning_60 is due at start + 220.
+  async function armedMonitor() {
+    await hit(1, start - 20); advance(start);
+    vi.mocked(fetchTrackedTornJson).mockResolvedValue({ chain: { current: 150, timeout: 280 } });
+    await setManualChainProtection(db.env, true);
+    expect((await readChainWatchState(db.env))!.scheduled_alarm_stage).toBe("warning_60");
+    vi.mocked(upsertDiscordAlertMessage).mockClear();
+    vi.mocked(fetchTrackedTornJson).mockClear().mockResolvedValue({ chain: { current: 150, timeout: 60 } });
+    advance(start + 220);
+  }
+  const expectWarningSentAndCriticalArmed = async () => {
+    expect(warningKeys()).toContain("chain_watch_warning");
+    expect(await readChainWatchState(db.env)).toMatchObject({ warning_60_sent_at: start + 220,
+      scheduled_alarm_stage: "warning_30", scheduled_alarm_at: start + 250 });
+  };
+
+  it("sends a warning and arms the critical while Discord cleanup is hung", async () => {
+    await armedMonitor();
+    db.sqlite.prepare(`INSERT INTO chain_watch_warning_cycles
+      (faction_id, reset_at, timeout_at, chain_length, warning_message_id, warning_channel_id, outcome_text)
+      VALUES (?, ?, ?, 120, 'old-warning', 'channel', 'Chain saved by Alice')`)
+      .run(HOME_FACTION_ID, start - 1000, start - 700);
+    const release = gate();
+    vi.mocked(editWatchDiscordMessage).mockImplementation(async () => {
+      await release.promise;
+      return { status: "success", value: undefined };
+    });
+    const background: Promise<void>[] = [];
+    await handleChainWatchAlarm(db.env, HOME_FACTION_ID, task => { background.push(task); });
+    await expectWarningSentAndCriticalArmed();
+    release.resolve();
+    await Promise.all(background);
+    expect(db.sqlite.prepare("SELECT edited_message_id FROM chain_watch_warning_cycles").get())
+      .toEqual({ edited_message_id: "old-warning" });
+  });
+
+  it("sends a warning without waiting for a status edit after a live timer correction", async () => {
+    await armedMonitor();
+    vi.mocked(fetchTrackedTornJson).mockResolvedValue({ chain: { current: 150, timeout: 50 } });
+    const release = gate();
+    vi.mocked(upsertDiscordAlertMessage).mockImplementation(async (_env, key) => {
+      if (key === "chain_watch") await release.promise;
+      return "message";
+    });
+    const background: Promise<void>[] = [];
+    await handleChainWatchAlarm(db.env, HOME_FACTION_ID, task => { background.push(task); });
+    expect(warningKeys()).toContain("chain_watch_warning");
+    expect((await readChainWatchState(db.env))!.warning_60_sent_at).toBe(start + 220);
+    release.resolve();
+    await Promise.all(background);
+    expect(warningKeys()).toContain("chain_watch");
+  });
+
+  it("warns from the known timer when the live Torn check hangs past its deadline", async () => {
+    await armedMonitor();
+    vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"], now: (start + 220) * 1000 });
+    vi.mocked(fetchTrackedTornJson).mockImplementation(() => new Promise(() => {}));
+    const alarmDone = handleChainWatchAlarm(db.env, HOME_FACTION_ID);
+    await vi.waitFor(() => expect(fetchTrackedTornJson).toHaveBeenCalled());
+    expect(warningKeys()).not.toContain("chain_watch_warning");
+    await vi.advanceTimersByTimeAsync(3_000);
+    await alarmDone;
+    await expectWarningSentAndCriticalArmed();
+  });
+
+  it("calls Torn once for a due warning when no stored hit backs the timer", async () => {
+    advance(start);
+    vi.mocked(fetchTrackedTornJson).mockResolvedValue({ chain: { current: 150, timeout: 280 } });
+    await setManualChainProtection(db.env, true);
+    expect((await readChainWatchState(db.env))!.scheduled_alarm_stage).toBe("warning_60");
+    vi.mocked(fetchTrackedTornJson).mockClear().mockResolvedValue({ chain: { current: 150, timeout: 60 } });
+    advance(start + 220);
+    await handleChainWatchAlarm(db.env, HOME_FACTION_ID);
+    expect(fetchTrackedTornJson).toHaveBeenCalledTimes(1);
+    expect((await readChainWatchState(db.env))!.warning_60_sent_at).toBe(start + 220);
+  });
+
+  it("still checks Torn when a late alarm's timer has expired, so a saved chain rearms at once", async () => {
+    advance(start);
+    vi.mocked(fetchTrackedTornJson).mockResolvedValue({ chain: { current: 150, timeout: 280 } });
+    await setManualChainProtection(db.env, true);
+    expect((await readChainWatchState(db.env))!.scheduled_alarm_stage).toBe("warning_60");
+    vi.mocked(fetchTrackedTornJson).mockClear().mockResolvedValue({ chain: { current: 151, timeout: 250 } });
+    advance(start + 290);
+    await handleChainWatchAlarm(db.env, HOME_FACTION_ID);
+    expect(fetchTrackedTornJson).toHaveBeenCalledTimes(1);
+    expect(await readChainWatchState(db.env)).toMatchObject({ current_chain: 151, timeout_at: start + 540,
+      scheduled_alarm_stage: "warning_60", scheduled_alarm_at: start + 480 });
+  });
+
+  it("still updates the status card when arming the alarm fails, and reports the failure", async () => {
+    await watch();
+    await hit(1, start - 20);
+    alarm.syncFaction.mockRejectedValueOnce(new Error("RPC unavailable"));
+    await expect(tick()).rejects.toThrow("RPC unavailable");
+    const call = vi.mocked(upsertDiscordAlertMessage).mock.calls.find(([, key]) => key === "chain_watch")!;
+    expect(call[5]).toMatchObject({ nonce: expect.any(String) });
+    expect((await readChainWatchState(db.env))!.discord_message_id).toBe("message");
+  });
+
+  it("arms the warning alarm before a hung status edit on the minute cron", async () => {
+    await watch();
+    await hit(1, start - 20);
+    const reached = gate(), release = gate();
+    vi.mocked(upsertDiscordAlertMessage).mockImplementationOnce(async () => {
+      reached.resolve();
+      await release.promise;
+      return "message";
+    });
+    const cron = tick();
+    await reached.promise;
+    expect((await readChainWatchState(db.env))!.scheduled_alarm_stage).toBe("warning_60");
+    expect(alarm.syncFaction).toHaveBeenCalled();
+    release.resolve();
+    await cron;
+  });
+});
+
 describe("independent faction chain monitor", () => {
   it("defaults manual protection off, and starts and stops it without a war or watch", async () => {
     expect(await readChainWatchDemand(db.env)).toMatchObject({ active: false, manual_enabled: false });
@@ -164,7 +411,7 @@ describe("independent faction chain monitor", () => {
     await watch();
     await hit(1, start - 20);
     await tick(start - 1);
-    expect(await readChainWatchState(db.env)).toBeNull();
+    expect(await readChainWatchState(db.env)).toMatchObject({ enabled: 0, current_chain: null, scheduled_alarm_at: null });
     expect(fetchTrackedTornJson).not.toHaveBeenCalled();
     await tick();
     expect(await readChainWatchState(db.env)).toMatchObject({ faction_id: HOME_FACTION_ID, enabled: 1,
@@ -1295,7 +1542,7 @@ describe("assigned watcher alert mentions", () => {
       expect(call.slice(0, 3)).toEqual([db.env, remaining ? key : "chain_watch", remaining ? null : "message"]);
       expect(call[3]).toMatch(new RegExp(`<@999999> <@&888888> <@${aliceId}>$`));
       expect(call[4]).toEqual({ users: ["999999", aliceId], roles: ["888888"] });
-      expect(call[5]).toEqual(remaining ? { cardColor: color } : { cardColor: color, editOnly: true });
+      expect(call[5]).toEqual(remaining ? { cardColor: color } : { cardColor: color, editOnly: true, timeoutMs: 10_000 });
       expect((await readChainWatchState(db.env))?.discord_message_id).toBe(remaining ? "message" : null);
     }
     expect(configured.allowedMentions.users).toEqual(["999999"]);

@@ -11,6 +11,7 @@ import {
   discordNotificationChannelTargetId,
   readConfiguredDiscordNotificationChannel,
 } from "./discordNotificationChannels";
+import { ExternalApiError } from "./external/http";
 import type { Env } from "./types";
 
 type DiscordAlertDeliveryOptions = {
@@ -19,6 +20,9 @@ type DiscordAlertDeliveryOptions = {
   embeds?: DiscordEmbed[];
   cardColor?: number;
   editOnly?: boolean;
+  timeoutMs?: number;
+  /** Post a replacement only for a deleted message. A timed-out edit may still have applied. */
+  replaceMissingOnly?: boolean;
 };
 
 type DiscordAlertAttachment = {
@@ -103,6 +107,7 @@ export async function upsertDiscordAlertMessage(
       return existingMessageId;
     } catch (err: any) {
       if (options?.editOnly) throw err;
+      if (options?.replaceMissingOnly && !(err instanceof ExternalApiError && err.status === 404)) throw err;
       console.warn(`Discord bot alert edit failed for ${alertKey}; creating a new bot message:`, err?.message || err);
     }
   }

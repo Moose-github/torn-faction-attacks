@@ -56,6 +56,19 @@ describe("chain watch Discord delivery outcomes", () => {
     expect(body.components[2]).toEqual(actionRows[0]);
   });
 
+  it("fails a hung warning post after five seconds so the alarm can retry it", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      fetcher.mockImplementation((_url: string, init: RequestInit) => new Promise((_, reject) => {
+        init.signal?.addEventListener("abort", () => reject(new Error("aborted")));
+      }));
+      const delivery = deliverChainWatchWarningAlert(env, { message: "Warning" }, 0xffa500, "chain_watch_warning", "warning");
+      await vi.waitFor(() => expect(fetcher).toHaveBeenCalled());
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(await delivery).toEqual({ status: "failed", error: expect.any(Error) });
+    } finally { vi.useRealTimers(); }
+  });
+
   it("does not record warning delivery when disabled, unrouted or failed", async () => {
     const send = () => deliverChainWatchWarningAlert(env, { message: "Warning" }, 0xffa500, "chain_watch_warning", "warning");
     vi.mocked(isDiscordAlertEnabled).mockResolvedValueOnce(false);
@@ -72,7 +85,7 @@ describe("chain watch Discord delivery outcomes", () => {
     const options = { message: "Chain Watch DROPPED", allowedMentions: { users: [], roles: [] } };
     await deliverChainWatchDroppedStatus(env, "old-id", options, 0x3498db);
     expect(upsertDiscordAlertMessage).toHaveBeenCalledWith(env, "chain_watch", "old-id", options.message,
-      options.allowedMentions, { cardColor: 0x3498db, editOnly: true });
+      options.allowedMentions, { cardColor: 0x3498db, editOnly: true, timeoutMs: 10_000 });
   });
 
   it("returns the delivered ID and preserves a stable nonce on retries", async () => {
@@ -117,7 +130,60 @@ describe("chain watch Discord delivery outcomes", () => {
     expect(await deliverChainWatchAlert(env, null, options, 0xffa500, "chain_watch_warning"))
       .toEqual({ status: "success", value: "alert-id" });
     expect(upsertDiscordAlertMessage).toHaveBeenCalledWith(env, "chain_watch_warning", null, options.message,
-      options.allowedMentions, { cardColor: 0xffa500 });
+      options.allowedMentions, { cardColor: 0xffa500, timeoutMs: 10_000, replaceMissingOnly: true });
     expect(readDiscordAlertMentions).not.toHaveBeenCalled();
+  });
+});
+
+describe("chain watch status cards", () => {
+  const paths = () => fetcher.mock.calls.map(call => call[1].method);
+  beforeEach(async () => {
+    const actual = await vi.importActual<typeof import("./discordAlertDelivery")>("./discordAlertDelivery");
+    vi.mocked(upsertDiscordAlertMessage).mockImplementation(actual.upsertDiscordAlertMessage);
+  });
+
+  it("fails a hung edit after ten seconds without posting a second card", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      fetcher.mockImplementation((_url: string, init: RequestInit) => new Promise((_, reject) => {
+        init.signal?.addEventListener("abort", () => reject(new Error("aborted")));
+      }));
+      const delivery = deliverChainWatchAlert(env, "card", "Status");
+      await vi.waitFor(() => expect(fetcher).toHaveBeenCalled());
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(await delivery).toEqual({ status: "failed", error: expect.any(Error) });
+      expect(paths()).toEqual(["PATCH"]);
+    } finally { vi.useRealTimers(); }
+  });
+
+  it("keeps the card when Discord fails an edit", async () => {
+    fetcher.mockImplementation(async () => Response.json({}, { status: 503 }));
+    expect(await deliverChainWatchAlert(env, "card", "Status")).toEqual({ status: "failed", error: expect.any(Error) });
+    expect(paths()).toEqual(["PATCH"]);
+  });
+
+  it("replaces a deleted card without reusing a nonce", async () => {
+    fetcher.mockImplementationOnce(async () => Response.json({}, { status: 404 }));
+    expect(await deliverChainWatchAlert(env, "card", "Status", undefined, undefined, "chain-status:1:100"))
+      .toEqual({ status: "success", value: "message-id" });
+    expect(paths()).toEqual(["PATCH", "POST"]);
+    expect(JSON.parse(fetcher.mock.calls[1][1].body)).not.toHaveProperty("nonce");
+  });
+
+  it("gives concurrent first posts for one timer the same nonce", async () => {
+    const post = (key: string) => deliverChainWatchAlert(env, null, "Status", undefined, undefined, key);
+    await post("chain-status:1:100");
+    await post("chain-status:1:100");
+    await post("chain-status:1:200");
+    const bodies = fetcher.mock.calls.map(call => JSON.parse(call[1].body));
+    expect(bodies[0]).toMatchObject({ nonce: expect.any(String), enforce_nonce: true });
+    expect(bodies[1].nonce).toBe(bodies[0].nonce);
+    expect(bodies[2].nonce).not.toBe(bodies[0].nonce);
+  });
+
+  it("leaves the fallback alone for other alerts", async () => {
+    fetcher.mockImplementationOnce(async () => Response.json({}, { status: 503 }));
+    expect(await upsertDiscordAlertMessage(env, "chain_watch", "card", "Other alert")).toBe("message-id");
+    expect(paths()).toEqual(["PATCH", "POST"]);
   });
 });

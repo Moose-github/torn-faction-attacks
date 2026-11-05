@@ -8,6 +8,9 @@ import { deleteDiscordBotMessage, patchDiscordBotJson, postDiscordBotJsonAndRead
 import { ExternalApiError } from "./external/http";
 import type { Env } from "./types";
 
+const WARNING_POST_TIMEOUT_MS = 5_000;
+const STATUS_TIMEOUT_MS = 10_000;
+
 type DeliveryResult<T> = { status: "success"; value: T } | { status: "failed"; error: Error };
 export type WatchDeliveryResult<T, Reason extends string = "disabled" | "no_route" | "not_found"> = DeliveryResult<T> |
   { status: "skipped"; reason: Reason };
@@ -66,6 +69,7 @@ export async function deliverChainWatchAlert(
   options: string | { message: string; allowedMentions?: DiscordAllowedMentions },
   cardColor?: number,
   alertKey: DiscordAlertKey = DISCORD_ALERT_KEYS.chainWatch,
+  nonceKey?: string,
 ): Promise<WatchDeliveryResult<string, "disabled" | "no_route">> {
   try {
     if (!await isDiscordAlertEnabled(env, alertKey)) return { status: "skipped", reason: "disabled" };
@@ -73,7 +77,11 @@ export async function deliverChainWatchAlert(
     const mentions = typeof options === "string" ? await readDiscordAlertMentions(env, alertKey) : null;
     const message = typeof options === "string" ? formatDiscordAlertMessage(options, mentions!.messageSuffix) : options.message;
     const allowedMentions = typeof options === "string" ? mentions!.allowedMentions ?? { users: [], roles: [] } : options.allowedMentions;
-    const messageId = await upsertDiscordAlertMessage(env, alertKey, existingMessageId, message, allowedMentions, { cardColor });
+    // A timeout must not leave a second card. Retries and concurrent first posts share
+    // a nonce; a replacement for a deleted message omits it so Discord cannot return the old one.
+    const nonce = nonceKey && !existingMessageId ? await messageNonce(nonceKey) : undefined;
+    const messageId = await upsertDiscordAlertMessage(env, alertKey, existingMessageId, message, allowedMentions,
+      { cardColor, timeoutMs: STATUS_TIMEOUT_MS, replaceMissingOnly: true, ...(nonce ? { nonce } : {}) });
     return messageId ? { status: "success", value: messageId } : { status: "skipped", reason: "no_route" };
   } catch (error) { return failed(error); }
 }
@@ -88,7 +96,8 @@ export async function deliverChainWatchWarningAlert(
     if (!route) return { status: "skipped", reason: "no_route" };
     const channelId = discordNotificationChannelTargetId(route);
     const messageId = await createDiscordBotMessage(env, channelId, options.message, options.allowedMentions,
-      { cardColor, nonce: await messageNonce(nonceKey), actionRows: options.actionRows });
+      // A hung request must fail into the alarm's retry. The nonce prevents a second post.
+      { cardColor, nonce: await messageNonce(nonceKey), actionRows: options.actionRows, timeoutMs: WARNING_POST_TIMEOUT_MS });
     if (!messageId) throw new Error("Discord did not return a chain warning message ID");
     return { status: "success", value: { messageId, channelId } };
   } catch (error) { return failed(error); }
@@ -103,7 +112,7 @@ export async function deliverChainWatchDroppedStatus(
 ): Promise<WatchDeliveryResult<string, "no_route">> {
   try {
     const updatedId = await upsertDiscordAlertMessage(env, DISCORD_ALERT_KEYS.chainWatch,
-      messageId, options.message, options.allowedMentions, { cardColor, editOnly: true });
+      messageId, options.message, options.allowedMentions, { cardColor, editOnly: true, timeoutMs: STATUS_TIMEOUT_MS });
     return updatedId ? { status: "success", value: updatedId } : { status: "skipped", reason: "no_route" };
   } catch (error) { return failed(error); }
 }

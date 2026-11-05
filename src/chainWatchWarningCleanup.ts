@@ -62,10 +62,13 @@ async function resolveOutcome(env: Env, cycle: WarningCycle, state: ChainWatchSt
     ? `Chain length ${cycle.chain_length} was dropped` : null;
 }
 
+export const PENDING_CHAIN_WATCH_WARNING_SQL = `(outcome_text IS NULL
+  OR edited_message_id IS NOT COALESCE(critical_message_id, warning_message_id)
+  OR (critical_message_id IS NOT NULL AND warning_message_id IS NOT NULL AND warning_deleted_at IS NULL))`;
+
 export async function reconcileChainWatchWarningMessages(env: Env, state: ChainWatchStateRow | null, now: number): Promise<void> {
   const pending = await env.DB.prepare(`SELECT * FROM chain_watch_warning_cycles WHERE faction_id = ? AND
-    (outcome_text IS NULL OR edited_message_id IS NOT COALESCE(critical_message_id, warning_message_id)
-      OR (critical_message_id IS NOT NULL AND warning_message_id IS NOT NULL AND warning_deleted_at IS NULL))`)
+    ${PENDING_CHAIN_WATCH_WARNING_SQL}`)
     .bind(HOME_FACTION_ID).all<WarningCycle>();
   for (const candidate of pending.results) {
     const token = crypto.randomUUID();

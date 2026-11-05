@@ -17,7 +17,7 @@ import { fetchTrackedTornJson } from "./external/torn";
 import { withTornKeyPool } from "./tornKeyPool";
 import { Env } from "./types";
 import { finiteNumber, json, nowSeconds } from "./utils";
-import { readChainWatchDemand } from "./chainWatchDemand";
+import { readChainWatchActivity, readChainWatchDemand, type ChainWatchActivity } from "./chainWatchDemand";
 import type { ChainWatchLiveResponse } from "../shared/chainWatchLive";
 import { WATCH_HOUR } from "../shared/chainWatchSchedule";
 
@@ -34,6 +34,9 @@ const CHAIN_WATCH_WARNING_COLOR = 0xffa500;
 const CHAIN_WATCH_CRITICAL_COLOR = 0xff0000;
 const CHAIN_WATCH_DROP_COLOR = 0x3498db;
 const CHAIN_WATCH_OBSERVATION_ATTEMPTS = 3;
+// A critical has 30 seconds. Confirmation refines a warning but must not consume
+// that window; after this deadline the known timer decides.
+const CHAIN_WATCH_WARNING_LIVE_CHECK_MS = 3_000;
 
 class ChainWatchObservationConflict extends Error {}
 
@@ -112,16 +115,38 @@ export async function ensureChainWatchState(env: Env): Promise<void> {
 
 // A watch and a war can request the same monitor. Neither owns its state or alarm.
 export async function reconcileChainWatchActivity(env: Env, checkedAt = nowSeconds()): Promise<boolean> {
-  const existing = await readChainWatchState(env);
-  const demand = await readChainWatchDemand(env, checkedAt);
+  return reconcileChainWatchActivitySnapshot(env, checkedAt, await readChainWatchActivity(env, checkedAt));
+}
+
+async function reconcileChainWatchActivitySnapshot(env: Env, checkedAt: number, activity: ChainWatchActivity): Promise<boolean> {
+  const { state: existing, demand } = activity;
   if (!demand.active) {
-    if (existing?.enabled === 1) {
+    if (!existing) {
+      // Bootstrap a durable acknowledgment even if this faction never had a watch.
+      // Reread demand after creating the row in case activation raced this call.
+      await ensureChainWatchState(env);
+      return reconcileChainWatchActivitySnapshot(env, checkedAt, await readChainWatchActivity(env, checkedAt));
+    }
+    let inactiveVersion = existing.timer_version;
+    if (existing.enabled === 1 || existing.scheduled_alarm_at !== null || existing.scheduled_alarm_stage !== null) {
       const stopped = await env.DB.prepare(`UPDATE faction_chain_watch_state SET enabled = 0, timer_version = timer_version + 1,
         scheduled_alarm_stage = NULL, scheduled_alarm_at = NULL, updated_at = ? WHERE faction_id = ? AND timer_version = ? RETURNING *`)
         .bind(checkedAt, HOME_FACTION_ID, existing.timer_version).first<ChainWatchStateRow>();
-      if (stopped) await syncChainWatchStoppedDiscordMessage(env, stopped, checkedAt);
+      // Observations also bump the version, so a lost update does not mean demand
+      // returned. Decide again, or an alarm could alert for a finished watch.
+      if (!stopped) return reconcileChainWatchActivitySnapshot(env, checkedAt, await readChainWatchActivity(env, checkedAt));
+      inactiveVersion = stopped.timer_version;
+      await syncChainWatchStoppedDiscordMessage(env, stopped, checkedAt);
+    } else if (existing.inactive_alarm_synced_version === inactiveVersion) {
+      return false;
     }
     await cancelChainWatchAlarm(env, HOME_FACTION_ID);
+    // A failed RPC leaves this pending. A concurrent restart/stop changes the
+    // version, so an old completion can never acknowledge its cancellation.
+    await env.DB.prepare(`UPDATE faction_chain_watch_state SET inactive_alarm_synced_version = ?
+      WHERE faction_id = ? AND enabled = 0 AND timer_version = ?
+        AND scheduled_alarm_at IS NULL AND scheduled_alarm_stage IS NULL`)
+      .bind(inactiveVersion, HOME_FACTION_ID, inactiveVersion).run();
     return false;
   }
   await ensureChainWatchState(env);
@@ -132,15 +157,18 @@ export async function reconcileChainWatchActivity(env: Env, checkedAt = nowSecon
 
 export async function runChainWatchCron(env: Env, scheduledTime: number): Promise<void> {
   const checkedAt = Math.max(Math.floor(scheduledTime / 1000), nowSeconds());
+  const activity = await readChainWatchActivity(env, checkedAt);
   let refreshed = false;
   try {
-    if (await reconcileChainWatchActivity(env, checkedAt)) {
+    if (await reconcileChainWatchActivitySnapshot(env, checkedAt, activity)) {
       await refreshChainWatch(env, checkedAt);
       refreshed = true;
     }
   } finally {
     // Finished watches and a failing live refresh must not strand cleanup.
-    if (!refreshed) await reconcileChainWatchWarningMessages(env, await readChainWatchState(env), checkedAt);
+    if (!refreshed && (activity.pendingCleanup || activity.demand.active || activity.state?.enabled === 1)) {
+      await reconcileChainWatchWarningMessages(env, await readChainWatchState(env), checkedAt);
+    }
   }
 }
 
@@ -301,10 +329,8 @@ export async function refreshActiveChainWatchFromStoredAttacks(
   return retryChainWatchObservation(env, checkedAt, async (existing, observedAt) => {
     const observation = await observeStoredChainWatch(env, observedAt);
     if (!observation) return existing;
-    let saved = await saveChainWatchObservation(env, HOME_FACTION_ID, existing, observation, observedAt);
-    saved = await syncChainWatchStatusDiscordMessage(env, existing, saved, observedAt);
-    await scheduleChainWatchAlarmForState(env, saved, observedAt);
-    return saved;
+    const saved = await saveChainWatchObservation(env, HOME_FACTION_ID, existing, observation, observedAt);
+    return armAlarmThenSyncStatus(env, existing, saved, observedAt);
   });
 }
 
@@ -369,23 +395,38 @@ export function chainWatchWarningAlertKey(stage: "warning_60" | "warning_30"): D
 export async function refreshChainWatch(
   env: Env,
   checkedAt: number,
-  options: { scheduleAlarm?: boolean; confirmDrop?: boolean; syncStatus?: boolean } = {},
+  options: { scheduleAlarm?: boolean; confirmDrop?: boolean; syncStatus?: boolean; cleanup?: boolean; storedOnly?: boolean } = {},
 ): Promise<ChainWatchStateRow | null> {
   return retryChainWatchObservation(env, checkedAt, async (existing, observedAt) => {
-    const observation = await observeChainWatch(env, observedAt, existing, {
-      confirmDrop: options.confirmDrop ?? false,
-    });
-    let saved = await saveChainWatchObservation(env, HOME_FACTION_ID, existing, observation, observedAt);
-    if (options.syncStatus !== false) saved = await syncChainWatchStatusDiscordMessage(env, existing, saved, observedAt);
+    const observation = options.storedOnly
+      ? await observeStoredChainWatch(env, observedAt)
+      : await observeChainWatch(env, observedAt, existing, { confirmDrop: options.confirmDrop ?? false });
+    if (!observation) return existing;
+    const saved = await saveChainWatchObservation(env, HOME_FACTION_ID, existing, observation, observedAt);
+    return armAlarmThenSyncStatus(env, existing, saved, observedAt, options);
+  }, options);
+}
+
+async function armAlarmThenSyncStatus(
+  env: Env, previous: ChainWatchStateRow | null, saved: ChainWatchStateRow, observedAt: number,
+  options: { scheduleAlarm?: boolean; syncStatus?: boolean } = {},
+): Promise<ChainWatchStateRow> {
+  let synced = saved;
+  try {
+    // Arm the warning before any status I/O so a slow Discord cannot postpone it.
     if (options.scheduleAlarm !== false) await scheduleChainWatchAlarmForState(env, saved, observedAt);
-    return saved;
-  });
+  } finally {
+    // The next tick sees no change to report, so a failed arm must not cost this update.
+    if (options.syncStatus !== false) synced = await syncChainWatchStatusDiscordMessage(env, previous, saved, observedAt);
+  }
+  return synced;
 }
 
 async function retryChainWatchObservation(
   env: Env,
   checkedAt: number,
   observeAndSave: (state: ChainWatchStateRow | null, observedAt: number) => Promise<ChainWatchStateRow | null>,
+  options: { cleanup?: boolean } = {},
 ): Promise<ChainWatchStateRow | null> {
   for (let attempt = 0; attempt < CHAIN_WATCH_OBSERVATION_ATTEMPTS; attempt++) {
     const state = await readChainWatchState(env);
@@ -398,7 +439,7 @@ async function retryChainWatchObservation(
     const observedAt = attempt === 0 ? checkedAt : Math.max(checkedAt, nowSeconds());
     try {
       const saved = await observeAndSave(state, observedAt);
-      await reconcileChainWatchWarningMessages(env, await readChainWatchState(env), observedAt);
+      if (options.cleanup !== false) await reconcileChainWatchWarningMessages(env, await readChainWatchState(env), observedAt);
       return saved;
     } catch (error) {
       if (!(error instanceof ChainWatchObservationConflict)) throw error;
@@ -511,36 +552,43 @@ export async function handleChainWatchAlarm(
     return;
   }
 
-  const state = await refreshChainWatch(env, now, {
-    scheduleAlarm: false,
-    // Updating the ordinary status card must not hold up a due critical or the
-    // cleanup of a warning whose timer has already been saved.
-    syncStatus: false,
-    confirmDrop: stateBefore.scheduled_alarm_stage === "drop",
-  });
-  if (!state || state.enabled !== 1) {
-    await cancelChainWatchAlarm(env, factionId);
-    return;
-  }
-
-  const changedReset =
-    state.current_chain !== stateBefore.current_chain ||
-    state.reset_at !== stateBefore.reset_at ||
-    state.timeout_at !== stateBefore.timeout_at;
-  if (changedReset) {
-    await scheduleChainWatchAlarmForState(env, state, now);
-    await syncChainWatchStatusDiscordMessage(env, stateBefore, state, now);
-    return;
-  }
-
   const thresholdJobs: ChainWatchThresholdEventJob[] = [];
   const captureThreshold = (job: ChainWatchThresholdEventJob) => { thresholdJobs.push(job); };
+  // Warnings outrank everything else here. Status edits and message cleanup wait on
+  // Discord, so they start only after the alert is sent and the next alarm is armed.
+  const followUps: Array<() => Promise<void>> = [];
+  const stage = stateBefore.scheduled_alarm_stage;
+  let targetJob: ChainWatchWarningTargetJob | undefined;
   try {
-    let targetJob: ChainWatchWarningTargetJob | undefined;
-    if (stateBefore.scheduled_alarm_stage === "warning_60") {
-      targetJob = await sendWarningIfDue(env, state, "warning_60", now, captureThreshold);
-    } else if (stateBefore.scheduled_alarm_stage === "warning_30") {
-      targetJob = await sendWarningIfDue(env, state, "warning_30", now, captureThreshold);
+    const state = await refreshChainWatch(env, now, {
+      scheduleAlarm: false, syncStatus: false, cleanup: false,
+      // A due warning makes its own live check, so never pay for Torn twice. A late
+      // alarm is not due and has no such check: Torn must still reveal a saved chain.
+      storedOnly: stage !== "drop" && stage !== null && chainWatchWarningDue(stateBefore, stage, now),
+      confirmDrop: stage === "drop",
+    });
+    if (!state || state.enabled !== 1) {
+      await cancelChainWatchAlarm(env, factionId);
+      return;
+    }
+
+    const changedReset =
+      state.current_chain !== stateBefore.current_chain ||
+      state.reset_at !== stateBefore.reset_at ||
+      state.timeout_at !== stateBefore.timeout_at;
+    if (changedReset) {
+      await scheduleChainWatchAlarmForState(env, state, now);
+      followUps.push(async () => { await syncChainWatchStatusDiscordMessage(env, stateBefore, state, now); });
+      return;
+    }
+
+    if (stage === "warning_60" || stage === "warning_30") {
+      targetJob = await sendWarningIfDue(env, state, stage, now, captureThreshold, previous => {
+        followUps.push(async () => {
+          const latest = await readChainWatchState(env);
+          if (latest) await syncChainWatchStatusDiscordMessage(env, previous, latest, now);
+        });
+      });
     } else {
       await sendDroppedIfDue(env, state, now);
     }
@@ -549,14 +597,35 @@ export async function handleChainWatchAlarm(
     if (updated) {
       await scheduleChainWatchAlarmForState(env, updated, now);
     }
-    // The original alert and next alarm are complete before any target work starts.
-    // The Durable Object retains the task; never await it on the warning path.
-    if (targetJob && waitUntil) waitUntil(enrichChainWatchWarningTargets(env, targetJob));
   } finally {
     // Also retain recording after a failed Discord attempt. Logging must never
     // delay delivery, next-alarm scheduling or propagation of delivery failures.
     if (waitUntil) for (const job of thresholdJobs) waitUntil(recordChainWatchThresholdEvents(env, job));
+    // The original alert and next alarm are complete before any target work starts.
+    const job = targetJob;
+    if (job && waitUntil) followUps.push(() => enrichChainWatchWarningTargets(env, job));
+    const finishing = runChainWatchAlarmFollowUps(followUps, async () => {
+      await reconcileChainWatchWarningMessages(env, await readChainWatchState(env), now);
+    });
+    // Never await this with a Durable Object: one slow edit could hold up the next stage.
+    if (waitUntil) waitUntil(finishing);
+    else await finishing;
   }
+}
+
+// Cleanup goes first: target links yield to a busy cleanup lease rather than wait,
+// and a saved warning must clear ahead of a slow status edit or target lookup.
+async function runChainWatchAlarmFollowUps(followUps: Array<() => Promise<void>>, cleanup: () => Promise<void>): Promise<void> {
+  const attempt = async (task: () => Promise<void>) => {
+    try {
+      await task();
+    } catch (err: any) {
+      // The minute cron retries cleanup and status. Never replace a delivery failure.
+      console.warn("Chain Watch alarm follow-up failed:", err?.message || String(err));
+    }
+  };
+  await attempt(cleanup);
+  await Promise.all(followUps.map(attempt));
 }
 
 async function sendWarningIfDue(
@@ -565,6 +634,7 @@ async function sendWarningIfDue(
   stage: "warning_60" | "warning_30",
   sentAt: number,
   captureThreshold: (job: ChainWatchThresholdEventJob) => void,
+  onLiveChange: (previous: ChainWatchStateRow) => void,
 ): Promise<ChainWatchWarningTargetJob | undefined> {
   const warningColumn = stage === "warning_60" ? "warning_60_sent_at" : "warning_30_sent_at";
   if (!chainWatchWarningDue(state, stage, sentAt)) return;
@@ -579,7 +649,7 @@ async function sendWarningIfDue(
       chainLength: Number(confirmed.current_chain), observedAt,
     };
     captureThreshold(thresholdJob);
-  });
+  }, onLiveChange);
   // Only positive live evidence (a later timer or an ended chain) cancels a
   // warning. A failed, incomplete or backwards live check is not evidence the
   // chain was saved, so warn from the known timer rather than hold the alert.
@@ -606,10 +676,7 @@ async function sendWarningIfDue(
     `chain-warning:${confirmedState.faction_id}:${confirmedState.reset_at}:${stage}`,
   );
   await requireChainWatchAlertDelivery(env, confirmedState, delivery, sentAt);
-  if (delivery.status === "success") {
-    await recordChainWatchWarning(env, confirmedState, stage, delivery.value);
-    await reconcileChainWatchWarningMessages(env, await readChainWatchState(env), sentAt);
-  }
+  if (delivery.status === "success") await recordChainWatchWarning(env, confirmedState, stage, delivery.value);
 
   await env.DB.prepare(
     `
@@ -658,11 +725,22 @@ async function confirmChainWatchWarningWithLiveChain(
   stage: "warning_60" | "warning_30",
   checkedAt: number,
   onConfirmed: (state: ChainWatchStateRow, observedAt: number) => void,
+  onLiveChange: (previous: ChainWatchStateRow) => void,
 ): Promise<ChainWatchStateRow | null> {
   return retryChainWatchObservation(env, checkedAt, async (state, observedAt) => {
     if (!chainWatchWarningDue(state, stage, observedAt)) return null;
-    return observeChainWatchWarning(env, state, observedAt, onConfirmed);
+    return observeChainWatchWarning(env, state, observedAt, onConfirmed, onLiveChange);
+  }, { cleanup: false });
+}
+
+function readTornChainForWarning(env: Env, checkedAt: number, state: ChainWatchStateRow) {
+  let timer!: ReturnType<typeof setTimeout>;
+  // This also bounds the key pool's D1 work and retries, which the fetch timeout does not.
+  const deadline = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`Torn chain check exceeded ${CHAIN_WATCH_WARNING_LIVE_CHECK_MS} ms.`)), CHAIN_WATCH_WARNING_LIVE_CHECK_MS);
   });
+  return Promise.race([readTornChain(env, checkedAt, state, CHAIN_WATCH_WARNING_LIVE_CHECK_MS), deadline])
+    .finally(() => clearTimeout(timer));
 }
 
 async function observeChainWatchWarning(
@@ -670,8 +748,9 @@ async function observeChainWatchWarning(
   state: ChainWatchStateRow,
   checkedAt: number,
   onConfirmed: (state: ChainWatchStateRow, observedAt: number) => void,
+  onLiveChange: (previous: ChainWatchStateRow) => void,
 ): Promise<ChainWatchStateRow | null> {
-  const live = await readTornChain(env, checkedAt, state).catch((err: any) => ({
+  const live = await readTornChainForWarning(env, checkedAt, state).catch((err: any) => ({
     error: err?.message || String(err),
     chain: null,
   }));
@@ -706,7 +785,7 @@ async function observeChainWatchWarning(
   const chainDiffers = live.chain.current !== Number(state.current_chain ?? 0);
 
   if (timeoutDiffers || chainDiffers) {
-    let updated = await saveLiveChainWarningObservation(env, state, {
+    const updated = await saveLiveChainWarningObservation(env, state, {
       source: "live_confirm",
       currentChain: live.chain.current,
       resetAt: liveResetAt,
@@ -715,8 +794,7 @@ async function observeChainWatchWarning(
       lastError: null,
     }, checkedAt);
     onConfirmed(updated, checkedAt);
-    await reconcileChainWatchWarningMessages(env, updated, checkedAt);
-    updated = await syncChainWatchStatusDiscordMessage(env, state, updated, checkedAt);
+    onLiveChange(state);
 
     return timeoutMovedLater ? null : updated;
   }
@@ -760,6 +838,7 @@ async function sendDroppedIfDue(
     env, null, message,
     CHAIN_WATCH_DROP_COLOR,
     DISCORD_ALERT_KEYS.chainWatchDrop,
+    `chain-drop:${state.faction_id}:${state.reset_at}`,
   );
   await requireChainWatchAlertDelivery(env, state, delivery, sentAt);
 
@@ -1071,6 +1150,7 @@ async function readTornChain(
   env: Env,
   now: number,
   existing: ChainWatchStateRow | null,
+  timeoutMs = 10_000,
 ): Promise<{ chain: ParsedTornChain | null; error: string | null }> {
   const data = await withTornKeyPool(env, {
     feature: "war_live_data",
@@ -1086,7 +1166,7 @@ async function readTornChain(
       {
         feature: "chain-watch:chain",
         keySource,
-        timeoutMs: 10_000,
+        timeoutMs,
       },
       {
         service: "Torn chain",
@@ -1147,6 +1227,9 @@ async function syncChainWatchStatusDiscordMessage(
     env,
     state.discord_message_id,
     chainWatchStatusMessage(state, checkedAt),
+    undefined,
+    undefined,
+    `chain-status:${state.faction_id}:${state.reset_at}`,
   );
 
   if (delivery.status === "failed") console.warn("Chain Watch Discord status update failed:", delivery.error.message);
