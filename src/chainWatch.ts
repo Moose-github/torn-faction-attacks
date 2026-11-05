@@ -1,4 +1,5 @@
 import {
+  CHAIN_WATCH_ALERT_MIN_CHAIN,
   HOME_FACTION_ID,
   POSITIVE_ATTACK_RESULTS,
   POSITIVE_RESULTS_SQL,
@@ -24,7 +25,8 @@ import { WATCH_HOUR } from "../shared/chainWatchSchedule";
 export const CHAIN_WATCH_TIMEOUT_SECONDS = 5 * 60;
 export const CHAIN_WATCH_WARNING_60_OFFSET_SECONDS = 4 * 60;
 export const CHAIN_WATCH_WARNING_30_OFFSET_SECONDS = 4 * 60 + 30;
-export const CHAIN_WATCH_ALERT_MIN_CHAIN = 100;
+export { CHAIN_WATCH_ALERT_MIN_CHAIN };
+const CHAIN_WATCH_NO_MENTIONS: DiscordAllowedMentions = { users: [], roles: [] };
 export const CHAIN_WATCH_DROP_RETRY_SECONDS = 15;
 
 const CHAIN_WATCH_MAX_ERROR_LENGTH = 240;
@@ -590,7 +592,7 @@ export async function handleChainWatchAlarm(
     }
 
     if (stage === "warning_60" || stage === "warning_30") {
-      targetJob = await sendWarningIfDue(env, state, stage, now, captureThreshold, previous => {
+      targetJob = await sendWarningIfDue(env, state, stage, now, activity.demand.attended, captureThreshold, previous => {
         followUps.push(async () => {
           const latest = await readChainWatchState(env);
           if (latest) await syncChainWatchStatusDiscordMessage(env, previous, latest, now);
@@ -640,6 +642,7 @@ async function sendWarningIfDue(
   state: ChainWatchStateRow,
   stage: "warning_60" | "warning_30",
   sentAt: number,
+  attended: boolean,
   captureThreshold: (job: ChainWatchThresholdEventJob) => void,
   onLiveChange: (previous: ChainWatchStateRow) => void,
 ): Promise<ChainWatchWarningTargetJob | undefined> {
@@ -670,7 +673,7 @@ async function sendWarningIfDue(
       currentChain: Number(confirmedState.current_chain),
       timeoutAt: confirmedState.timeout_at,
       lastHit: confirmedState,
-    }, thresholdJob);
+    }, attended, thresholdJob);
   // Reuse the 60-second lookup so the critical posts with links rather than
   // waiting for a second search during its last 30 seconds.
   const cachedTargets = stage === "warning_30" ? await readCachedCriticalTargets(env, confirmedState) : [];
@@ -1231,10 +1234,12 @@ async function syncChainWatchStatusDiscordMessage(
     return state;
   }
 
+  const statusMessage = chainWatchStatusMessage(state, checkedAt);
+  const { attended } = await readChainWatchDemand(env, checkedAt);
   const delivery = await deliverChainWatchAlert(
     env,
     state.discord_message_id,
-    chainWatchStatusMessage(state, checkedAt),
+    attended ? statusMessage : { message: statusMessage, allowedMentions: CHAIN_WATCH_NO_MENTIONS },
     undefined,
     undefined,
     `chain-status:${state.faction_id}:${state.reset_at}`,
@@ -1292,7 +1297,8 @@ async function syncChainWatchStoppedDiscordMessage(
   const delivery = await deliverChainWatchAlert(
     env,
     state.discord_message_id,
-    chainWatchStoppedMessage(),
+    // Stopping only updates an existing card, and may follow an unattended chain.
+    { message: chainWatchStoppedMessage(), allowedMentions: CHAIN_WATCH_NO_MENTIONS },
   );
   if (delivery.status === "failed") console.warn("Chain Watch Discord stopped update failed:", delivery.error.message);
 
@@ -1358,9 +1364,10 @@ async function chainWatchWarningDiscordMessage(
     timeoutAt: number;
     lastHit: ChainWatchStateRow | ChainWatchAttackRow | null;
   },
+  attended: boolean,
   thresholdJob?: ChainWatchThresholdEventJob,
 ): Promise<{ message: string; allowedMentions?: DiscordAllowedMentions }> {
-  return chainWatchAlertDiscordMessage(env, chainWatchWarningAlertKey(options.stage), chainWatchWarningMessage(options), thresholdJob);
+  return chainWatchAlertDiscordMessage(env, chainWatchWarningAlertKey(options.stage), chainWatchWarningMessage(options), attended, thresholdJob);
 }
 
 async function chainWatchDroppedDiscordMessage(
@@ -1371,10 +1378,18 @@ async function chainWatchDroppedDiscordMessage(
     lastHit: ChainWatchStateRow | ChainWatchAttackRow | null;
   },
 ): Promise<{ message: string; allowedMentions?: DiscordAllowedMentions }> {
-  return chainWatchAlertDiscordMessage(env, DISCORD_ALERT_KEYS.chainWatchDrop, chainWatchDroppedMessage(options));
+  const { attended } = await readChainWatchDemand(env);
+  return chainWatchAlertDiscordMessage(env, DISCORD_ALERT_KEYS.chainWatchDrop, chainWatchDroppedMessage(options), attended);
 }
 
-async function chainWatchAlertDiscordMessage(env: Env, alertKey: DiscordAlertKey, message: string, thresholdJob?: ChainWatchThresholdEventJob) {
+async function chainWatchAlertDiscordMessage(
+  env: Env, alertKey: DiscordAlertKey, message: string, attended: boolean, thresholdJob?: ChainWatchThresholdEventJob,
+) {
+  if (!attended) {
+    // No watch means no slot to record, so skip that lookup as well as the mentions.
+    if (thresholdJob) thresholdJob.assignment = null;
+    return { message, allowedMentions: CHAIN_WATCH_NO_MENTIONS };
+  }
   const mentions = await readDiscordAlertMentions(env, alertKey);
   const watcherId = await readCurrentChainWatcherDiscordId(env, thresholdJob);
   const allowedMentions = mentions.allowedMentions ?? { users: [], roles: [] };

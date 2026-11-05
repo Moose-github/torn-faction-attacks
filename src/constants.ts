@@ -17,6 +17,7 @@ export const RETALIATION_WINDOW_SECONDS = 5 * 60;
 
 // Hardcoded for now to keep the reporting model focused on your faction.
 export const HOME_FACTION_ID = 8803;
+export const CHAIN_WATCH_ALERT_MIN_CHAIN = 100;
 
 // Explicit allowlist so odd/unknown future result values do not get counted as wins.
 export const POSITIVE_ATTACK_RESULTS = [

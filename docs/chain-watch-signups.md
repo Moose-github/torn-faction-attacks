@@ -212,6 +212,14 @@ legacy monitor's message ID and warning markers. Legacy per-war alarms retire
 after the Worker upgrade; the next ingestion tick schedules the faction alarm.
 The old state table remains available for historical war reads.
 
+## Unattended chains
+
+Any chain above 100 starts the shared monitor by itself, once its latest hit has been
+ingested, and keeps it running until 15 minutes after the last stored hit. If no watch,
+war, event, or manual protection is requesting monitoring, its warnings, status card,
+and drop alert still post, but mention nobody. Mentions return as soon as one of those
+requests monitoring.
+
 ## Manual chain protection
 
 Admin Controls → Discord includes a persistent **Protect any active chain** switch.

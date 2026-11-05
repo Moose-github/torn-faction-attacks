@@ -81,6 +81,8 @@ async function hit(id: number, at: number, options: { warId?: number; chain?: nu
       options.target ?? 999, options.result ?? "Hospitalized", options.chain ?? 150, options.warId ?? null).run();
 }
 async function tick(now = start) { advance(now); await runChainWatchCron(db.env, now * 1000); }
+// A recent hit above 100 requests monitoring itself, so explicit stops need it gone.
+function forgetHits() { db.sqlite.exec("DELETE FROM attacks"); }
 
 function gate() {
   let resolve!: () => void;
@@ -132,6 +134,7 @@ describe("inactive chain monitoring", () => {
     const version = (await readChainWatchState(db.env))!.timer_version;
     vi.mocked(fetchTrackedTornJson).mockResolvedValue({ chain: { current: 150, timeout: 60 } });
     advance(start + 220);
+    forgetHits();
     beforeStopUpdate("UPDATE faction_chain_watch_state SET timer_version = timer_version + 1");
     await handleChainWatchAlarm(db.env, HOME_FACTION_ID);
     const state = await readChainWatchState(db.env);
@@ -145,6 +148,7 @@ describe("inactive chain monitoring", () => {
     db.sqlite.prepare("UPDATE faction_chain_watch_state SET manual_enabled = 0 WHERE faction_id = ?").run(HOME_FACTION_ID);
     const version = (await readChainWatchState(db.env))!.timer_version;
     alarm.syncFaction.mockClear();
+    forgetHits();
     beforeStopUpdate("UPDATE faction_chain_watch_state SET manual_enabled = 1, timer_version = timer_version + 1");
     expect(await reconcileChainWatchActivity(db.env, start)).toBe(true);
     expect(saved()).toMatchObject({ enabled: 1, timer_version: version + 1 });
@@ -182,7 +186,7 @@ describe("inactive chain monitoring", () => {
   });
 
   it("retries failed shutdown synchronization even though monitoring is already disabled", async () => {
-    await hit(1, start - 20); advance(start);
+    await hit(1, start - 20, { chain: 50 }); advance(start);
     await setManualChainProtection(db.env, true);
     alarm.syncFaction.mockRejectedValueOnce(new Error("RPC unavailable"));
     await expect(setManualChainProtection(db.env, false)).rejects.toThrow("RPC unavailable");
@@ -207,6 +211,7 @@ describe("inactive chain monitoring", () => {
     expect(saved()).toMatchObject({ enabled: 1, timer_version: activeVersion, inactive_alarm_synced_version: null });
     expect((await readChainWatchState(db.env))!.scheduled_alarm_at).toBeGreaterThan(start);
     alarm.syncFaction.mockClear();
+    forgetHits();
     await setManualChainProtection(db.env, false);
     expect(alarm.syncFaction).toHaveBeenCalledTimes(1);
     expect(saved()!.inactive_alarm_synced_version).toBe(saved()!.timer_version);
@@ -231,6 +236,115 @@ describe("inactive chain monitoring", () => {
     await tick(start + 180);
     expect(queries).toHaveBeenCalledTimes(1);
     expect(alarm.syncFaction).not.toHaveBeenCalled();
+  });
+});
+
+describe("unattended chains", () => {
+  const subscribers = { messageSuffix: "<@999999> <@&888888>", allowedMentions: { users: ["999999"], roles: ["888888"] } };
+  const posts = (key?: string) => vi.mocked(upsertDiscordAlertMessage).mock.calls.filter(call => !key || call[1] === key);
+  const expectNobodyMentioned = () => {
+    for (const call of posts()) {
+      expect(call[3]).not.toMatch(/<@/);
+      expect(call[4]).toEqual({ users: [], roles: [] });
+    }
+  };
+  const live = (current: number, timeout: number) => vi.mocked(fetchTrackedTornJson).mockResolvedValue({ chain: { current, timeout } });
+  beforeEach(() => { vi.mocked(readDiscordAlertMentions).mockResolvedValue(subscribers); });
+
+  it.each([[100, false], [101, true]])("with no watch, a stored chain of %s sets monitoring to %s", async (chain, active) => {
+    await hit(1, start - 20, { chain });
+    await tick();
+    expect(await readChainWatchDemand(db.env)).toMatchObject({ active, attended: false, watch_id: null, war_id: null });
+    expect((await readChainWatchState(db.env))?.enabled).toBe(active ? 1 : 0);
+    expect((await readChainWatchState(db.env))?.scheduled_alarm_at).toBe(active ? start + 220 : null);
+  });
+
+  it("sends the status card, warning, critical and drop alert without mentioning anyone", async () => {
+    await hit(1, start - 20);
+    live(150, 280);
+    await tick();
+    expect(posts("chain_watch")).toHaveLength(1);
+    live(150, 60); advance(start + 220);
+    await handleChainWatchAlarm(db.env, HOME_FACTION_ID);
+    expect(posts("chain_watch_warning")).toHaveLength(1);
+    live(150, 30); advance(start + 250);
+    await handleChainWatchAlarm(db.env, HOME_FACTION_ID);
+    expect(posts("chain_watch_critical")).toHaveLength(1);
+    live(0, 0); advance(start + 280);
+    await handleChainWatchAlarm(db.env, HOME_FACTION_ID);
+    expect((await readChainWatchState(db.env))!.drop_sent_at).toBe(start + 280);
+    expect(posts("chain_watch").length).toBeGreaterThan(1);
+    expectNobodyMentioned();
+    expect(readDiscordAlertMentions).not.toHaveBeenCalled();
+  });
+
+  it("drops mentions but keeps warning when a watch ends during a chain", async () => {
+    await watch(start + 3600); await hit(1, start - 20); await tick();
+    await hit(2, start + 3590); await tick(start + 3600);
+    expect((await readChainWatchState(db.env))!.enabled).toBe(1);
+    vi.mocked(upsertDiscordAlertMessage).mockClear();
+    live(150, 60); advance(start + 3830);
+    await handleChainWatchAlarm(db.env, HOME_FACTION_ID);
+    expect(posts("chain_watch_warning")).toHaveLength(1);
+    expectNobodyMentioned();
+  });
+
+  it("mentions people as soon as a watch covers a running chain", async () => {
+    await hit(1, start - 20); await tick();
+    await watch();
+    vi.mocked(upsertDiscordAlertMessage).mockClear();
+    live(150, 60); advance(start + 220);
+    await handleChainWatchAlarm(db.env, HOME_FACTION_ID);
+    const [call] = posts("chain_watch_warning");
+    expect(call[3]).toContain("<@999999> <@&888888>");
+    expect(call[4]).toEqual(subscribers.allowedMentions);
+  });
+
+  it.each(["war", "manual"])("keeps mentions for %s protection with no watch", async source => {
+    if (source === "war") await war();
+    await hit(1, start - 20); advance(start);
+    live(150, 280);
+    if (source === "manual") await setManualChainProtection(db.env, true); else await tick();
+    vi.mocked(upsertDiscordAlertMessage).mockClear();
+    live(150, 60); advance(start + 220);
+    await handleChainWatchAlarm(db.env, HOME_FACTION_ID);
+    expect(posts("chain_watch_warning")[0][3]).toContain("<@999999>");
+  });
+
+  it("stops 15 minutes after the last stored hit, then returns to one idle query", async () => {
+    await hit(1, start - 20); await tick();
+    await tick(start + 879);
+    expect((await readChainWatchState(db.env))!.enabled).toBe(1);
+    await tick(start + 880);
+    expect((await readChainWatchState(db.env))!.enabled).toBe(0);
+    expectNobodyMentioned();
+    const queries = vi.spyOn(db.env.DB, "prepare");
+    await tick(start + 941);
+    await tick(start + 942);
+    expect(queries).toHaveBeenCalledTimes(2);
+    expect(queries.mock.calls.every(([sql]) => sql.includes("WITH inputs"))).toBe(true);
+  });
+
+  it("updates a stopped card without mentioning anyone", async () => {
+    await hit(1, start - 20); await tick();
+    forgetHits();
+    await tick(start + 60);
+    expect((await readChainWatchState(db.env))!.enabled).toBe(0);
+    expect(posts("chain_watch").at(-1)![3]).toBe("Chain Watch stopped.");
+    expectNobodyMentioned();
+  });
+
+  it("stops at once when a new chain below the threshold replaces it", async () => {
+    await hit(1, start - 20); await tick();
+    await hit(2, start + 400, { chain: 1 }); await tick(start + 400);
+    expect((await readChainWatchState(db.env))!.enabled).toBe(0);
+  });
+
+  it("reports unattended monitoring to the dashboard", async () => {
+    await hit(1, start - 20); await tick();
+    const body = await (await getChainWatchLive(db.env)).json() as { demand: unknown; computed: { active: boolean } };
+    expect(body.demand).toEqual({ active: true, attended: false, manual_enabled: false, watch_id: null, war_id: null });
+    expect(body.computed.active).toBe(true);
   });
 });
 
@@ -418,10 +532,11 @@ describe("independent faction chain monitor", () => {
     expect(await readChainWatchDemand(db.env)).toMatchObject({ active: false, manual_enabled: false });
     await hit(1, start - 20, { chain: 1512 }); advance(start);
     await setManualChainProtection(db.env, true);
-    expect(await readChainWatchDemand(db.env)).toEqual({ active: true, manual_enabled: true, watch_id: null, war_id: null });
+    expect(await readChainWatchDemand(db.env)).toEqual({ active: true, attended: true, manual_enabled: true, watch_id: null, war_id: null });
     expect(await readChainWatchState(db.env)).toMatchObject({ enabled: 1, current_chain: 1512, scheduled_alarm_at: start + 220 });
     await tick(start + 1);
     expect((await readChainWatchDemand(db.env)).manual_enabled).toBe(true);
+    forgetHits();
     await setManualChainProtection(db.env, false);
     expect(await readChainWatchState(db.env)).toMatchObject({ enabled: 0, scheduled_alarm_at: null });
   });
@@ -446,7 +561,7 @@ describe("independent faction chain monitor", () => {
     await setManualChainProtection(db.env, true);
     await setChainWatchEnabledForWar(db.env, 1, false);
     await hit(2, start + 3590); await tick(start + 3600);
-    expect(await readChainWatchDemand(db.env)).toEqual({ active: true, manual_enabled: true, watch_id: null, war_id: null });
+    expect(await readChainWatchDemand(db.env)).toEqual({ active: true, attended: true, manual_enabled: true, watch_id: null, war_id: null });
     expect(await readChainWatchState(db.env)).toMatchObject({ enabled: 1, last_hit_id: 2 });
   });
 
@@ -468,24 +583,26 @@ describe("independent faction chain monitor", () => {
 
   it("starts exactly at the watch start with no war, using the existing attack feed", async () => {
     await watch();
-    await hit(1, start - 20);
+    await hit(1, start - 20, { chain: 50 });
     await tick(start - 1);
     expect(await readChainWatchState(db.env)).toMatchObject({ enabled: 0, current_chain: null, scheduled_alarm_at: null });
     expect(fetchTrackedTornJson).not.toHaveBeenCalled();
+    await hit(2, start - 10);
     await tick();
     expect(await readChainWatchState(db.env)).toMatchObject({ faction_id: HOME_FACTION_ID, enabled: 1,
-      source: "stored", current_chain: 150, last_hit_id: 1, timeout_at: start + 280 });
+      source: "stored", current_chain: 150, last_hit_id: 2, timeout_at: start + 290 });
     expect(getByName).toHaveBeenCalledWith(`chain-watch-weur:faction:${HOME_FACTION_ID}`, { locationHint: "weur" });
     expect(getByName.mock.calls.every(call => (call as unknown[])[1] !== undefined)).toBe(true);
     expect(alarm.syncFaction).toHaveBeenLastCalledWith(HOME_FACTION_ID);
-    expect((await readChainWatchState(db.env))?.scheduled_alarm_at).toBe(start + 220);
+    expect((await readChainWatchState(db.env))?.scheduled_alarm_at).toBe(start + 230);
     expect(fetchTrackedTornJson).not.toHaveBeenCalled();
   });
 
   it("retains war-only monitoring as an optional consumer", async () => {
     await war(); await hit(1, start - 10); await tick();
-    expect(await readChainWatchDemand(db.env)).toEqual({ active: true, manual_enabled: false, watch_id: null, war_id: 1 });
+    expect(await readChainWatchDemand(db.env)).toEqual({ active: true, attended: true, manual_enabled: false, watch_id: null, war_id: 1 });
     expect(await readChainWatchState(db.env)).toMatchObject({ enabled: 1, current_chain: 150 });
+    forgetHits();
     await setChainWatchEnabledForWar(db.env, 1, false);
     expect(await readChainWatchState(db.env)).toMatchObject({ enabled: 0, scheduled_alarm_at: null });
   });
@@ -539,7 +656,7 @@ describe("independent faction chain monitor", () => {
     await war(2);
     await hit(2, start + 3590);
     await tick(start + 3600);
-    expect(await readChainWatchDemand(db.env)).toEqual({ active: true, manual_enabled: false, watch_id: null, war_id: 2 });
+    expect(await readChainWatchDemand(db.env)).toEqual({ active: true, attended: true, manual_enabled: false, watch_id: null, war_id: 2 });
     expect((await readChainWatchState(db.env))?.enabled).toBe(1);
   });
 
@@ -713,6 +830,7 @@ describe("versioned chain timers", () => {
   it.each([false, true])("discards an in-flight observation when the monitor stops (restart: %s)", async restart => {
     await war(); await hit(1, start); await tick();
     vi.mocked(fetchTrackedTornJson).mockImplementationOnce(async () => {
+      forgetHits();
       await setChainWatchEnabledForWar(db.env, 1, false);
       if (restart) await setChainWatchEnabledForWar(db.env, 1, true);
       return { chain: { current: 149, timeout: 10 } };

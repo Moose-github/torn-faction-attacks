@@ -14,7 +14,7 @@ export function chainWatchLiveDisplay(data: ChainWatchLiveResponse | null, now: 
     detail = "Live updates are temporarily unavailable. Sign-ups are still available.";
   } else if (data && !data.demand.active) {
     status = "Stopped";
-    detail = "Monitoring starts with manual protection, a scheduled watch, or an enabled war or event.";
+    detail = "Monitoring starts with manual protection, a scheduled watch, an enabled war or event, or any chain above 100.";
   } else if (data && (!data.computed.active || !state || checkedAge === null)) {
     status = "Starting";
     detail = "Waiting for the monitor's first update.";
@@ -39,8 +39,9 @@ export function chainWatchLiveDisplay(data: ChainWatchLiveResponse | null, now: 
       status = data.computed.alert_eligible && remaining !== null && remaining <= 30 ? "Critical"
         : data.computed.alert_eligible && remaining !== null && remaining <= 60 ? "Warning" : "Monitoring";
       tone = status === "Critical" ? "critical" : status === "Warning" ? "warning" : "live";
-      detail = data.computed.alert_eligible ? "Warnings at 60 and 30 seconds remaining."
-        : "Warnings begin when the chain is above 100.";
+      detail = !data.computed.alert_eligible ? "Warnings begin when the chain is above 100."
+        : data.demand.attended ? "Warnings at 60 and 30 seconds remaining."
+        : "Warnings at 60 and 30 seconds remaining, without mentions because no watch, war or manual protection is active.";
       countdown = remaining === null ? "Unknown" : `${Math.floor(remaining / 60)}:${String(remaining % 60).padStart(2, "0")}`;
     }
   }
