@@ -149,6 +149,7 @@ async function reconcileChainWatchActivitySnapshot(env: Env, checkedAt: number, 
       .bind(inactiveVersion, HOME_FACTION_ID, inactiveVersion).run();
     return false;
   }
+  if (existing?.enabled === 1) return true;
   await ensureChainWatchState(env);
   await env.DB.prepare("UPDATE faction_chain_watch_state SET enabled = 1, timer_version = timer_version + 1 WHERE faction_id = ? AND enabled = 0 AND timer_version = ?")
     .bind(HOME_FACTION_ID, existing?.timer_version ?? 0).run();
@@ -395,7 +396,7 @@ export function chainWatchWarningAlertKey(stage: "warning_60" | "warning_30"): D
 export async function refreshChainWatch(
   env: Env,
   checkedAt: number,
-  options: { scheduleAlarm?: boolean; confirmDrop?: boolean; syncStatus?: boolean; cleanup?: boolean; storedOnly?: boolean } = {},
+  options: { scheduleAlarm?: boolean; confirmDrop?: boolean; syncStatus?: boolean; cleanup?: boolean; storedOnly?: boolean; state?: ChainWatchStateRow } = {},
 ): Promise<ChainWatchStateRow | null> {
   return retryChainWatchObservation(env, checkedAt, async (existing, observedAt) => {
     const observation = options.storedOnly
@@ -426,10 +427,12 @@ async function retryChainWatchObservation(
   env: Env,
   checkedAt: number,
   observeAndSave: (state: ChainWatchStateRow | null, observedAt: number) => Promise<ChainWatchStateRow | null>,
-  options: { cleanup?: boolean } = {},
+  // A caller's just-read state saves a round trip. Saves check timer_version, so a
+  // stale copy only costs a conflict, and that retry reads fresh state.
+  options: { cleanup?: boolean; state?: ChainWatchStateRow } = {},
 ): Promise<ChainWatchStateRow | null> {
   for (let attempt = 0; attempt < CHAIN_WATCH_OBSERVATION_ATTEMPTS; attempt++) {
-    const state = await readChainWatchState(env);
+    const state = attempt === 0 && options.state ? options.state : await readChainWatchState(env);
     if (state && state.enabled !== 1) {
       await cancelChainWatchAlarm(env, HOME_FACTION_ID);
       return state;
@@ -544,8 +547,10 @@ export async function handleChainWatchAlarm(
 ): Promise<void> {
   if (factionId !== HOME_FACTION_ID) return;
   const now = nowSeconds();
-  if (!await reconcileChainWatchActivity(env, now)) return;
-  const stateBefore = await readChainWatchState(env);
+  const activity = await readChainWatchActivity(env, now);
+  if (!await reconcileChainWatchActivitySnapshot(env, now, activity)) return;
+  // Every query here delays a warning, so reuse this read unless the monitor just started.
+  const stateBefore = activity.state?.enabled === 1 ? activity.state : await readChainWatchState(env);
 
   if (!stateBefore || stateBefore.enabled !== 1 || stateBefore.scheduled_alarm_stage === null) {
     await cancelChainWatchAlarm(env, factionId);
@@ -561,7 +566,7 @@ export async function handleChainWatchAlarm(
   let targetJob: ChainWatchWarningTargetJob | undefined;
   try {
     const state = await refreshChainWatch(env, now, {
-      scheduleAlarm: false, syncStatus: false, cleanup: false,
+      scheduleAlarm: false, syncStatus: false, cleanup: false, state: stateBefore,
       // A due warning makes its own live check, so never pay for Torn twice. A late
       // alarm is not due and has no such check: Torn must still reveal a saved chain.
       storedOnly: stage !== "drop" && stage !== null && chainWatchWarningDue(stateBefore, stage, now),
@@ -640,7 +645,7 @@ async function sendWarningIfDue(
   if (!chainWatchWarningDue(state, stage, sentAt)) return;
 
   let thresholdJob: ChainWatchThresholdEventJob | undefined;
-  const confirmedState = await confirmChainWatchWarningWithLiveChain(env, stage, sentAt, (confirmed, observedAt) => {
+  const confirmedState = await confirmChainWatchWarningWithLiveChain(env, state, stage, sentAt, (confirmed, observedAt) => {
     if (confirmed.enabled !== 1 || confirmed.source !== "live_confirm" || confirmed.last_error !== null ||
       confirmed.reset_at === null || confirmed.timeout_at === null || !chainWatchAlertEligible(confirmed.current_chain) ||
       confirmed.timeout_at <= observedAt || confirmed.timeout_at - 60 > observedAt) return;
@@ -722,6 +727,7 @@ function chainWatchWarningDue(
 
 async function confirmChainWatchWarningWithLiveChain(
   env: Env,
+  initialState: ChainWatchStateRow,
   stage: "warning_60" | "warning_30",
   checkedAt: number,
   onConfirmed: (state: ChainWatchStateRow, observedAt: number) => void,
@@ -730,7 +736,7 @@ async function confirmChainWatchWarningWithLiveChain(
   return retryChainWatchObservation(env, checkedAt, async (state, observedAt) => {
     if (!chainWatchWarningDue(state, stage, observedAt)) return null;
     return observeChainWatchWarning(env, state, observedAt, onConfirmed, onLiveChange);
-  }, { cleanup: false });
+  }, { cleanup: false, state: initialState });
 }
 
 function readTornChainForWarning(env: Env, checkedAt: number, state: ChainWatchStateRow) {

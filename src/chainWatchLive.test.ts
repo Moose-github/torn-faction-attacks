@@ -252,6 +252,65 @@ describe("warnings outrank other chain monitor work", () => {
       scheduled_alarm_stage: "warning_30", scheduled_alarm_at: start + 250 });
   };
 
+  it.each([["warning_60", 220, 60, 6], ["warning_30", 250, 30, 7]] as const)("keeps %s to a minimal set of queries before posting", async (stage, offset, remaining, limit) => {
+    await armedMonitor();
+    if (stage === "warning_30") await handleChainWatchAlarm(db.env, HOME_FACTION_ID);
+    advance(start + offset);
+    vi.mocked(fetchTrackedTornJson).mockResolvedValue({ chain: { current: 150, timeout: remaining } });
+    const statements: string[] = [];
+    let beforePost = -1;
+    const prepare = db.env.DB.prepare.bind(db.env.DB);
+    vi.spyOn(db.env.DB, "prepare").mockImplementation(sql => { statements.push(sql); return prepare(sql); });
+    vi.mocked(upsertDiscordAlertMessage).mockClear().mockImplementationOnce(async () => {
+      beforePost = statements.length;
+      return "message";
+    });
+    await handleChainWatchAlarm(db.env, HOME_FACTION_ID);
+    expect(warningKeys()[0]).toBe(stage === "warning_60" ? "chain_watch_warning" : "chain_watch_critical");
+    const sent = statements.slice(0, beforePost);
+    expect(sent.length).toBeLessThanOrEqual(limit);
+    // The only full state read before posting is the guard against a hit during the live check.
+    expect(sent.filter(sql => sql.includes("SELECT * FROM faction_chain_watch_state"))).toHaveLength(1);
+    expect(sent.some(sql => sql.includes("SET enabled = 1"))).toBe(false);
+    expect(sent.some(sql => sql.includes("DO NOTHING"))).toBe(false);
+  });
+
+  it("does not warn from reused state when a hit lands during the live check", async () => {
+    await armedMonitor();
+    vi.mocked(fetchTrackedTornJson).mockImplementationOnce(async () => {
+      db.sqlite.prepare(`UPDATE faction_chain_watch_state SET timer_version = timer_version + 1,
+        current_chain = 151, reset_at = ?, timeout_at = ?, scheduled_alarm_stage = NULL, scheduled_alarm_at = NULL
+        WHERE faction_id = ?`).run(start + 215, start + 515, HOME_FACTION_ID);
+      return { chain: { current: 151, timeout: 295 } };
+    });
+    await handleChainWatchAlarm(db.env, HOME_FACTION_ID);
+    expect(warningKeys()).not.toContain("chain_watch_warning");
+    expect(await readChainWatchState(db.env)).toMatchObject({ current_chain: 151, warning_60_sent_at: null,
+      scheduled_alarm_stage: "warning_60", scheduled_alarm_at: start + 455 });
+  });
+
+  it("does not warn from reused state when the monitor stops during the live check", async () => {
+    await armedMonitor();
+    vi.mocked(fetchTrackedTornJson).mockImplementationOnce(async () => {
+      db.sqlite.prepare(`UPDATE faction_chain_watch_state SET enabled = 0, timer_version = timer_version + 1,
+        scheduled_alarm_stage = NULL, scheduled_alarm_at = NULL WHERE faction_id = ?`).run(HOME_FACTION_ID);
+      return { chain: { current: 150, timeout: 60 } };
+    });
+    await handleChainWatchAlarm(db.env, HOME_FACTION_ID);
+    expect(warningKeys()).not.toContain("chain_watch_warning");
+    expect((await readChainWatchState(db.env))!.enabled).toBe(0);
+  });
+
+  it("does not warn from reused state when another alarm run already sent it", async () => {
+    await armedMonitor();
+    vi.mocked(fetchTrackedTornJson).mockImplementationOnce(async () => {
+      db.sqlite.prepare("UPDATE faction_chain_watch_state SET warning_60_sent_at = ? WHERE faction_id = ?").run(start + 220, HOME_FACTION_ID);
+      return { chain: { current: 150, timeout: 60 } };
+    });
+    await handleChainWatchAlarm(db.env, HOME_FACTION_ID);
+    expect(warningKeys()).not.toContain("chain_watch_warning");
+  });
+
   it("sends a warning and arms the critical while Discord cleanup is hung", async () => {
     await armedMonitor();
     db.sqlite.prepare(`INSERT INTO chain_watch_warning_cycles
