@@ -13,12 +13,12 @@ describe("Torn API usage rollups", () => {
     const insertStatements = statements.filter((statement) => statement.sql.includes("INSERT INTO torn_api_usage_rollup_15m"));
     const syncStatement = statements.find((statement) => statement.sql.includes("INSERT INTO sync_state"));
 
-    expect(deleteStatement?.binds).toEqual([900, 1_710_000, 1_800_000, 1_710_000, 1_800_000]);
+    expect(deleteStatement).toBeUndefined();
     expect(insertStatements).toHaveLength(1);
     expect(insertStatements[0].binds).toEqual([900, 1_710_000, 1_800_000]);
     expect(syncStatement?.binds).toEqual(["torn_api_usage_rollup_15m", 1_800_000]);
     expect(result).toMatchObject({
-      writeStatements: 3,
+      writeStatements: 2,
       details: {
         start_at: 1_710_000,
         end_at: 1_800_000,

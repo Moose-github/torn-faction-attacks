@@ -82,7 +82,7 @@ it("does not rewrite unchanged summaries; only the checkpoint changes on the nex
   const before = rows();
   clock += 900;
   const next = await refresh(now + 900);
-  expect(next).toMatchObject({ changedRows: 1, details: { upserted_rows: 0, deleted_rows: 0 } });
+  expect(next).toMatchObject({ changedRows: 1, details: { upserted_rows: 0 } });
   expect(rows()).toEqual(before);
   expect((await refresh(now + 900)).changedRows).toBe(0);
 });
@@ -93,14 +93,14 @@ it("incorporates late logs and changes only their bucket's three summaries", asy
   clock += 900;
   call(now - 850, "stocks", "torn/stocks", "key_pool:a", 429, 200);
   const result = await refresh(now + 900);
-  expect(result.details).toMatchObject({ upserted_rows: 3, deleted_rows: 0 });
+  expect(result.details).toMatchObject({ upserted_rows: 3 });
   expect(rows().filter(row => row.bucket_start === now - 900)).toEqual(expect.arrayContaining([
     expect.objectContaining({ group_type: "feature", requests: 2, errors: 1, rate_limited: 1, total_duration_ms: 300, max_duration_ms: 200 }),
   ]));
   expect(rows().filter(row => row.bucket_start === now - 1800).every(row => row.updated_at === now)).toBe(true);
 });
 
-it("removes disappeared groups and corrects smaller aggregates without touching older summaries", async () => {
+it("corrects smaller aggregates and keeps groups whose logs were removed by hand", async () => {
   call(now - 20000, "old");
   const removed = call(now - 900, "removed", "old/endpoint", "key_pool:old");
   call(now - 900); const other = call(now - 899);
@@ -108,16 +108,24 @@ it("removes disappeared groups and corrects smaller aggregates without touching 
   db.prepare("DELETE FROM torn_api_call_log WHERE id IN (?,?)").run(removed, other);
   clock += 900;
   const result = await refresh(now + 900);
-  expect(result.details).toMatchObject({ deleted_rows: 3, upserted_rows: 3 });
-  expect(rows().filter(row => row.bucket_start === now - 900)).toHaveLength(3);
+  expect(result.details).toMatchObject({ upserted_rows: 3 });
+  const bucket = rows().filter(row => row.bucket_start === now - 900);
+  expect(bucket.filter(row => row.group_value === "stocks")).toEqual([expect.objectContaining({ requests: 1 })]);
+  expect(bucket.filter(row => row.group_value === "removed")).toEqual([expect.objectContaining({ requests: 1 })]);
   expect(rows().filter(row => row.group_value === "old")).toHaveLength(1);
-  db.exec("DELETE FROM torn_api_call_log");
-  const empty = await refresh(now + 900);
-  expect(empty.details.deleted_rows).toBe(3);
-  expect(rows()).toHaveLength(3); // older, outside the refresh window
 });
 
-it.each([1, 2])("rolls back aggregate changes and retains the checkpoint when batch step %i fails", async step => {
+it("only re-reads the recent overlap on a normal run", async () => {
+  await refresh();
+  clock += 900;
+  const result = await refresh(now + 900);
+  expect(result.details.start_at).toBe(now - 1800);
+  call(now - 1801); // Older than the overlap, which no real call can be.
+  clock += 900;
+  expect((await refresh(now + 1800)).details.upserted_rows).toBe(0);
+});
+
+it.each([0, 1])("rolls back aggregate changes and retains the checkpoint when batch step %i fails", async step => {
   call(now - 900); await refresh();
   const before = rows();
   call(now - 800);
@@ -134,6 +142,6 @@ it("catches up after a missed run using the existing bounded overlap", async () 
   call(now - 900); await refresh();
   call(now + 1800);
   const caughtUp = await refresh(now + 10800);
-  expect(caughtUp.details.start_at).toBe(now - 7200);
+  expect(caughtUp.details.start_at).toBe(now - 1800);
   expect(rows().some(row => row.bucket_start === now + 1800)).toBe(true);
 });

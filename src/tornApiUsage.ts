@@ -63,7 +63,8 @@ type TornApiUsageCallRow = {
 const DEFAULT_USAGE_WINDOWS_SECONDS = [60, 5 * 60, 60 * 60, 24 * 60 * 60];
 const MAX_ERROR_LENGTH = 240;
 const API_USAGE_ROLLUP_BUCKET_SECONDS = 15 * 60;
-const API_USAGE_ROLLUP_OVERLAP_SECONDS = 2 * 60 * 60;
+// A log is written when its call ends, so it is only ever as late as that call.
+const API_USAGE_ROLLUP_OVERLAP_SECONDS = 30 * 60;
 const API_USAGE_ROLLUP_INITIAL_LOOKBACK_SECONDS = 25 * 60 * 60;
 const API_USAGE_ROLLUP_STATE_NAME = "torn_api_usage_rollup_15m";
 
@@ -252,20 +253,11 @@ export async function refreshTornApiUsageRollups(
     )
     : API_USAGE_ROLLUP_INITIAL_LOOKBACK_SECONDS;
   const startAt = rollupBucketStart(Math.max(0, now - lookbackSeconds));
-  const endBucket = rollupBucketStart(now);
 
-  // Publish one consistent refresh, including removal of groups whose source
-  // logs disappeared. A failure must not leave a hole or advance the checkpoint.
-  const [upsertResult, deleteResult, checkpointResult] = await env.DB.batch([
+  // Publish the refresh and checkpoint together. A failure must not leave a hole
+  // or advance the checkpoint. Logs outlive this window, so groups never need removing.
+  const [upsertResult, checkpointResult] = await env.DB.batch([
     prepareRollupUpsert(env, startAt, now),
-    env.DB.prepare(`
-      ${API_USAGE_GROUPED_CALLS}
-      DELETE FROM torn_api_usage_rollup_15m
-      WHERE bucket_start >= ? AND bucket_start <= ?
-        AND (bucket_start, group_type, group_value) NOT IN (
-          SELECT bucket_start, group_type, group_value FROM grouped_calls
-        )
-    `).bind(API_USAGE_ROLLUP_BUCKET_SECONDS, startAt, now, startAt, endBucket),
     env.DB.prepare(`
       INSERT INTO sync_state (name, last_started, updated_at)
       VALUES (?, ?, CURRENT_TIMESTAMP)
@@ -276,17 +268,15 @@ export async function refreshTornApiUsageRollups(
     `).bind(API_USAGE_ROLLUP_STATE_NAME, now),
   ]);
 
-  const deletedRows = d1Changes(deleteResult);
   const upsertedRows = d1Changes(upsertResult);
 
   return {
-    writeStatements: 3,
-    changedRows: deletedRows + upsertedRows + d1Changes(checkpointResult),
+    writeStatements: 2,
+    changedRows: upsertedRows + d1Changes(checkpointResult),
     details: {
       start_at: startAt,
       end_at: now,
       bucket_seconds: API_USAGE_ROLLUP_BUCKET_SECONDS,
-      deleted_rows: deletedRows,
       upserted_rows: upsertedRows,
     },
   };
