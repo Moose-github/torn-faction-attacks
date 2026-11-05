@@ -28,7 +28,9 @@ export const CHAIN_WATCH_ALERT_MIN_CHAIN = 100;
 export const CHAIN_WATCH_DROP_RETRY_SECONDS = 15;
 
 const CHAIN_WATCH_MAX_ERROR_LENGTH = 240;
-const CHAIN_WATCH_ALARM_NAME_PREFIX = "chain-watch";
+// A location hint only applies when an object is created, hence the new name. The
+// previous object ran in Singapore, at about 195ms per query to D1 in Western Europe.
+const CHAIN_WATCH_ALARM_NAME_PREFIX = "chain-watch-weur";
 const CHAIN_WATCH_LIVE_TIMEOUT_DRIFT_SECONDS = 5;
 const CHAIN_WATCH_WARNING_COLOR = 0xffa500;
 const CHAIN_WATCH_CRITICAL_COLOR = 0xff0000;
@@ -1306,7 +1308,7 @@ export async function readChainWatchState(env: Env): Promise<ChainWatchStateRow 
 }
 
 function chainWatchAlarmStub(env: Env, factionId: number): ChainWatchAlarmStub {
-  return env.CHAIN_WATCH_ALARMS.getByName(`${CHAIN_WATCH_ALARM_NAME_PREFIX}:faction:${factionId}`) as ChainWatchAlarmStub;
+  return env.CHAIN_WATCH_ALARMS.getByName(`${CHAIN_WATCH_ALARM_NAME_PREFIX}:faction:${factionId}`, { locationHint: "weur" }) as ChainWatchAlarmStub;
 }
 
 async function cancelChainWatchAlarm(env: Env, factionId: number): Promise<void> {

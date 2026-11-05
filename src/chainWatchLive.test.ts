@@ -475,7 +475,8 @@ describe("independent faction chain monitor", () => {
     await tick();
     expect(await readChainWatchState(db.env)).toMatchObject({ faction_id: HOME_FACTION_ID, enabled: 1,
       source: "stored", current_chain: 150, last_hit_id: 1, timeout_at: start + 280 });
-    expect(getByName).toHaveBeenCalledWith(`chain-watch:faction:${HOME_FACTION_ID}`);
+    expect(getByName).toHaveBeenCalledWith(`chain-watch-weur:faction:${HOME_FACTION_ID}`, { locationHint: "weur" });
+    expect(getByName.mock.calls.every(call => (call as unknown[])[1] !== undefined)).toBe(true);
     expect(alarm.syncFaction).toHaveBeenLastCalledWith(HOME_FACTION_ID);
     expect((await readChainWatchState(db.env))?.scheduled_alarm_at).toBe(start + 220);
     expect(fetchTrackedTornJson).not.toHaveBeenCalled();
