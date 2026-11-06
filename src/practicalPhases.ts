@@ -97,12 +97,18 @@ export async function reconcilePracticalPhaseStats(env: Env, warId: number): Pro
 
 type PhaseScoreRow = { id: number; at: number; respect_gain: number };
 
+// An attack never ends before it starts, so the lower bound on
+// COALESCE(ended, started) only restates started >= ?. It lets the index on
+// that expression scan this war's hits instead of every home hit (about 85k).
+export const PHASE_SCORE_ROWS_SQL = `SELECT id, COALESCE(ended, started) AS at, respect_gain FROM attacks
+  WHERE attacker_faction_id = ? AND defender_faction_id = ? AND started >= ?
+    AND COALESCE(ended, started) >= ? AND COALESCE(ended, started) <= ? AND respect_gain > 0
+  ORDER BY COALESCE(ended, started), id`;
+
 async function readPhaseScoreRows(env: Env, war: PhaseWar, through: number): Promise<PhaseScoreRow[]> {
-  return (await env.DB.prepare(`SELECT id, COALESCE(ended, started) AS at, respect_gain FROM attacks
-    WHERE attacker_faction_id = ? AND defender_faction_id = ? AND started >= ?
-      AND COALESCE(ended, started) <= ? AND respect_gain > 0
-    ORDER BY COALESCE(ended, started), id`).bind(HOME_FACTION_ID, war.enemy_faction_id,
-      war.official_start_time ?? war.practical_start_time, through).all<PhaseScoreRow>()).results ?? [];
+  const start = war.official_start_time ?? war.practical_start_time;
+  return (await env.DB.prepare(PHASE_SCORE_ROWS_SQL).bind(HOME_FACTION_ID, war.enemy_faction_id,
+    start, start, through).all<PhaseScoreRow>()).results ?? [];
 }
 
 function phaseScoreMatches(total: number, score: number | null): boolean {

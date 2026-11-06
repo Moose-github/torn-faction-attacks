@@ -190,43 +190,46 @@ async function readWarSummaryById(env: Env, warId: number): Promise<unknown | nu
     .first();
 }
 
+// Unary + keeps the faction term out of index selection. Otherwise the event
+// branch of tracker_attacks scans every successful home hit (about 76k rows)
+// instead of the small chain-bonus partial indexes on war_id and event_id.
+export const WAR_CHAIN_BONUSES_SQL = `
+  SELECT
+    a.id,
+    a.started,
+    a.attacker_id,
+    a.attacker_name,
+    a.attacker_faction_id,
+    a.attacker_faction_name,
+    a.defender_id,
+    a.defender_name,
+    a.defender_faction_id,
+    a.defender_faction_name,
+    a.result,
+    a.chain,
+    a.respect_gain,
+    a.respect_loss,
+    NULL AS adjusted_respect_gain,
+    NULL AS respect_removed
+  FROM tracker_attacks a
+  JOIN wars w ON w.id = a.war_id
+  WHERE a.war_id = ?
+    AND +a.attacker_faction_id = ${HOME_FACTION_ID}
+    AND ${OUTGOING_ACTION_WINDOW_SQL}
+    AND (w.enemy_faction_id IS NULL OR a.defender_faction_id = w.enemy_faction_id)
+    AND a.result IN (${POSITIVE_RESULTS_SQL})
+    AND a.chain IN (${CHAIN_BONUS_HITS_SQL})
+  ORDER BY a.chain DESC, a.started ASC
+  LIMIT ?
+`;
+
 export async function getWarChainBonusesForWar(url: URL, env: Env): Promise<Response> {
   try {
     const limit = parseLimit(url.searchParams.get("limit"), 25, 100);
     const war = await readWarFromUrl<WarIdentityRow>(url, env, { select: "id, name" });
     if (war instanceof Response) return war;
 
-    const chainBonuses = await env.DB.prepare(
-      `
-      SELECT
-        a.id,
-        a.started,
-        a.attacker_id,
-        a.attacker_name,
-        a.attacker_faction_id,
-        a.attacker_faction_name,
-        a.defender_id,
-        a.defender_name,
-        a.defender_faction_id,
-        a.defender_faction_name,
-        a.result,
-        a.chain,
-        a.respect_gain,
-        a.respect_loss,
-        NULL AS adjusted_respect_gain,
-        NULL AS respect_removed
-      FROM tracker_attacks a
-      JOIN wars w ON w.id = a.war_id
-      WHERE a.war_id = ?
-        AND a.attacker_faction_id = ${HOME_FACTION_ID}
-        AND ${OUTGOING_ACTION_WINDOW_SQL}
-        AND (w.enemy_faction_id IS NULL OR a.defender_faction_id = w.enemy_faction_id)
-        AND a.result IN (${POSITIVE_RESULTS_SQL})
-        AND a.chain IN (${CHAIN_BONUS_HITS_SQL})
-      ORDER BY a.chain DESC, a.started ASC
-      LIMIT ?
-      `,
-    )
+    const chainBonuses = await env.DB.prepare(WAR_CHAIN_BONUSES_SQL)
       .bind(war.id, limit)
       .all();
 

@@ -300,6 +300,35 @@ describe("travel observations during faction refresh", () => {
     expect(upsertMemberLiveStatus).not.toHaveBeenCalled();
   });
 
+  it("skips the home live status write when a poll finds no change", async () => {
+    vi.mocked(readHomeScouting).mockResolvedValue([{ ...previousTraveler(now - 600), faction_id: 8803, status_state: "Okay" }]);
+    await refreshHomeFactionMembers(env);
+    expect(upsertMemberLiveStatus).toHaveBeenCalledTimes(1);
+    const snapshot = vi.mocked(upsertMemberLiveStatus).mock.calls[0][2];
+    vi.mocked(readHomeScouting).mockResolvedValue([{ ...previousTraveler(now - 600), ...snapshot, faction_id: 8803 }]);
+    vi.mocked(upsertMemberLiveStatus).mockClear();
+    vi.setSystemTime((now + 60) * 1000);
+
+    await refreshHomeFactionMembers(env);
+
+    expect(upsertMemberLiveStatus).not.toHaveBeenCalled();
+    expect(upsertSyncTimestamp).toHaveBeenCalledWith(env, "home_faction_status_checked_at", now + 60);
+  });
+
+  it("rewrites only the enemy live status when only the status changed", async () => {
+    vi.mocked(readEnemyScouting).mockResolvedValue([{ ...previousTraveler(now - 600), last_action_timestamp: now - 900 }]);
+    const sql = () => vi.mocked(env.DB.prepare).mock.calls.map(([query]) => String(query));
+    vi.mocked(env.DB.prepare).mockClear();
+
+    const result = await refreshTrackedFactionMemberStatuses(env, 123, now - 60, {
+      members: [{ ...member, last_action: { status: "Online", timestamp: now - 30 } } as TornFactionMember],
+    });
+
+    expect(result.updatedMembers).toBe(1);
+    expect(upsertMemberLiveStatus).toHaveBeenCalledTimes(1);
+    expect(sql().some((query) => query.includes("INSERT INTO enemy_faction_members"))).toBe(false);
+  });
+
   it("discards known departure bounds once the flight and grace period have expired", async () => {
     const previous = previousTraveler(now - flightSeconds - 301);
     vi.mocked(readEnemyScouting).mockResolvedValue([{

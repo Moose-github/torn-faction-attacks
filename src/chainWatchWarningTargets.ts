@@ -112,24 +112,33 @@ export async function enrichChainWatchWarningTargets(env: Env, job: ChainWatchWa
   }
 }
 
-async function warningStillActive(env: Env, job: ChainWatchWarningTargetJob, token: string | null = null): Promise<boolean> {
-  const now = nowSeconds();
-  if (now >= job.timeoutAt) return false;
-  const prefix = job.stage === "warning_60" ? "warning" : "critical";
-  const row = await env.DB.prepare(`SELECT c.faction_id FROM chain_watch_warning_cycles c
+// The saving-attack check binds the job's faction, reset and chain values
+// (equal to c's, which the outer query requires) rather than reading them from
+// c. Correlated to c, SQLite could only bound the hit time from above and
+// scanned every successful home hit, about 76k rows, before each link edit.
+export function warningStillActiveSql(stage: ChainWatchWarningTargetJob["stage"]): string {
+  const prefix = stage === "warning_60" ? "warning" : "critical";
+  return `SELECT c.faction_id FROM chain_watch_warning_cycles c
     JOIN faction_chain_watch_state s ON s.faction_id = c.faction_id
     WHERE c.faction_id = ? AND c.reset_at = ? AND c.timeout_at = ? AND c.chain_length = ?
       AND c.${prefix}_message_id = ? AND c.${prefix}_channel_id = ? AND c.outcome_text IS NULL
       AND s.enabled = 1 AND s.source != 'dropped' AND s.timer_version = ?
       AND s.reset_at = c.reset_at AND s.timeout_at = c.timeout_at AND s.current_chain = c.chain_length
       AND s.timeout_at > ? AND s.drop_sent_at IS NULL
-      ${job.stage === "warning_60" ? "AND c.warning_deleted_at IS NULL AND c.critical_message_id IS NULL AND s.warning_30_sent_at IS NULL" : ""}
+      ${stage === "warning_60" ?"AND c.warning_deleted_at IS NULL AND c.critical_message_id IS NULL AND s.warning_30_sent_at IS NULL" : ""}
       AND (? IS NULL OR (c.lease_token = ? AND c.lease_until > ?))
-      AND NOT EXISTS (SELECT 1 FROM attacks a WHERE a.attacker_faction_id = c.faction_id
-        AND (a.defender_faction_id IS NULL OR a.defender_faction_id != c.faction_id)
-        AND a.result IN (${POSITIVE_RESULTS_SQL}) AND a.chain > 0 AND a.chain != c.chain_length
-        AND COALESCE(a.ended, a.started) > c.reset_at AND COALESCE(a.ended, a.started) <= ?)`)
+      AND NOT EXISTS (SELECT 1 FROM attacks a WHERE a.attacker_faction_id = ?
+        AND (a.defender_faction_id IS NULL OR a.defender_faction_id != ?)
+        AND a.result IN (${POSITIVE_RESULTS_SQL}) AND a.chain > 0 AND a.chain != ?
+        AND COALESCE(a.ended, a.started) > ? AND COALESCE(a.ended, a.started) <= ?)`;
+}
+
+async function warningStillActive(env: Env, job: ChainWatchWarningTargetJob, token: string | null = null): Promise<boolean> {
+  const now = nowSeconds();
+  if (now >= job.timeoutAt) return false;
+  const row = await env.DB.prepare(warningStillActiveSql(job.stage))
     .bind(job.factionId, job.resetAt, job.timeoutAt, job.chainLength, job.messageId, job.channelId,
-      job.timerVersion, now, token, token, now, now).first();
+      job.timerVersion, now, token, token, now,
+      job.factionId, job.factionId, job.chainLength, job.resetAt, now).first();
   return row !== null;
 }

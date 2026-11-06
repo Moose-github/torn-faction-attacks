@@ -85,6 +85,7 @@ import {
   ENEMY_MEMBER_LIVE_STATUS_TABLE,
   HOME_MEMBER_LIVE_STATUS_TABLE,
   upsertMemberLiveStatus,
+  type MemberLiveStatusSnapshot,
 } from "./memberLiveStatus";
 export {
   readCurrentScoutingWar,
@@ -480,10 +481,13 @@ export async function refreshHomeFactionMembers(env: Env): Promise<TornFactionMe
 
   await env.DB.batch([
     ...upsertHomeFactionMemberRosters(env, members),
-    ...members.map((member) => {
+    // Live status changes are rare outside wars, so skip rows that would be
+    // rewritten unchanged. home_faction_status_checked_at records the poll.
+    ...members.flatMap((member) => {
+      const existing = existingById.get(member.id) ?? null;
       const statusSnapshot = buildMemberStatusSnapshot(
         member,
-        existingById.get(member.id) ?? null,
+        existing,
         previousPollAt || null,
         fetchedAt,
       );
@@ -497,7 +501,8 @@ export async function refreshHomeFactionMembers(env: Env): Promise<TornFactionMe
         is_revivable: boolToInt(effectiveRevivableStatus(member) ?? false) ?? 0,
         ...statusSnapshot,
       };
-      return upsertMemberLiveStatus(env, HOME_MEMBER_LIVE_STATUS_TABLE, snapshot);
+      if (existing && !memberLiveStatusChanged(existing, snapshot)) return [];
+      return [upsertMemberLiveStatus(env, HOME_MEMBER_LIVE_STATUS_TABLE, snapshot)];
     }),
   ]);
 
@@ -562,13 +567,10 @@ export async function refreshEnemyFactionMemberStatuses(
   for (const member of members) {
     const existing = existingById.get(member.id) ?? null;
     const next = buildEnemyMemberSnapshot(member, factionId, existing, previousPollAt, fetchedAt);
-    if (!existing || enemyMemberSnapshotChanged(existing, next)) {
-      updatedMembers += 1;
-      statements.push(
-        upsertEnemyMemberRosterSnapshot(env, next),
-        upsertMemberLiveStatus(env, ENEMY_MEMBER_LIVE_STATUS_TABLE, next),
-      );
-    }
+    const changes = enemyMemberSnapshotChanges(existing, next);
+    if (changes.roster || changes.liveStatus) updatedMembers += 1;
+    if (changes.roster) statements.push(upsertEnemyMemberRosterSnapshot(env, next));
+    if (changes.liveStatus) statements.push(upsertMemberLiveStatus(env, ENEMY_MEMBER_LIVE_STATUS_TABLE, next));
   }
   statements.push(upsertEnemyPushSnapshot(env, pushSnapshot));
   statements.push(upsertWarControlSnapshot(env, controlSnapshot));
@@ -635,13 +637,10 @@ export async function refreshTrackedFactionMemberStatuses(
   for (const member of members) {
     const existing = existingById.get(member.id) ?? null;
     const next = buildEnemyMemberSnapshot(member, factionId, existing, previousPollAt, fetchedAt);
-    if (!existing || enemyMemberSnapshotChanged(existing, next)) {
-      updatedMembers += 1;
-      statements.push(
-        upsertEnemyMemberRosterSnapshot(env, next),
-        upsertMemberLiveStatus(env, ENEMY_MEMBER_LIVE_STATUS_TABLE, next),
-      );
-    }
+    const changes = enemyMemberSnapshotChanges(existing, next);
+    if (changes.roster || changes.liveStatus) updatedMembers += 1;
+    if (changes.roster) statements.push(upsertEnemyMemberRosterSnapshot(env, next));
+    if (changes.liveStatus) statements.push(upsertMemberLiveStatus(env, ENEMY_MEMBER_LIVE_STATUS_TABLE, next));
   }
 
   const memberIds = members.map((member) => member.id);
@@ -1019,7 +1018,22 @@ function buildMemberStatusSnapshot(
   };
 }
 
-function enemyMemberSnapshotChanged(
+// Roster and live status are separate rows. Status changes every minute during
+// a war while the roster rarely does, so each row is only rewritten when its
+// own fields change (as the home roster already does). A missing live row
+// reads back as nulls and so always counts as changed.
+export function enemyMemberSnapshotChanges(
+  previous: EnemyFactionMemberRow | null,
+  next: EnemyMemberSnapshot,
+): { roster: boolean; liveStatus: boolean } {
+  if (!previous) return { roster: true, liveStatus: true };
+  return {
+    roster: enemyMemberRosterChanged(previous, next),
+    liveStatus: memberLiveStatusChanged(previous, next),
+  };
+}
+
+function enemyMemberRosterChanged(
   previous: EnemyFactionMemberRow,
   next: EnemyMemberSnapshot,
 ): boolean {
@@ -1031,7 +1045,16 @@ function enemyMemberSnapshotChanged(
     previous.days_in_faction !== next.days_in_faction ||
     previous.company_type !== next.company_type ||
     previous.company_rating !== next.company_rating ||
-    previous.company_id !== next.company_id ||
+    previous.company_id !== next.company_id
+  );
+}
+
+function memberLiveStatusChanged(
+  previous: EnemyFactionMemberRow,
+  next: MemberLiveStatusSnapshot,
+): boolean {
+  return (
+    previous.faction_id !== next.faction_id ||
     previous.is_revivable !== next.is_revivable ||
     previous.status_state !== next.status_state ||
     previous.status_description !== next.status_description ||
