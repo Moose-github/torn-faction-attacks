@@ -5,6 +5,7 @@ import { DISCORD_ALERT_CHANNEL_ROUTES } from "./discordAlerts";
 export const CHAIN_WATCH_COMMANDS_PUBLIC_FOR_TESTING = true;
 
 export const DISCORD_COMMAND_NAMES = {
+  balance: "bal",
   bot: "bot",
   alerts: "alerts",
   alertChannels: "alert-channels",
@@ -59,6 +60,11 @@ export function discordApplicationCommands(): DiscordApplicationCommand[] {
     .map((alert) => ({ name: alert.name, value: alert.key }));
 
   return [
+    {
+      name: DISCORD_COMMAND_NAMES.balance,
+      description: "Privately show your faction money balance",
+      dm_permission: false,
+    },
     {
       name: DISCORD_COMMAND_NAMES.war,
       description: "View your ongoing war stats",

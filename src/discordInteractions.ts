@@ -2,6 +2,7 @@ import { isRecord } from "./backend/request";
 import { readChainWatchLive } from "./chainWatch";
 import { completeDeferredWatchInteraction, deferredWatchResponse, handleWatchInteraction, isWatchInteraction } from "./chainWatchScheduleDiscord";
 import { DISCORD_COMMAND_NAMES, DISCORD_COMPONENT_IDS } from "./discordCommands";
+import { balanceResponse, completeDeferredBalanceInteraction, isBalanceInteraction } from "./discordBalance";
 import { completeDeferredWarMeInteraction, isWarMeInteraction, warMeResponse } from "./discordWarStats";
 import {
   DISCORD_ALERT_CHANNEL_ROUTES,
@@ -234,6 +235,10 @@ export async function handleDiscordInteractions(request: Request, env: Env, ctx?
   }
 
   try {
+    if (ctx && interaction.application_id && interaction.token && isBalanceInteraction(interaction)) {
+      ctx.waitUntil(completeDeferredBalanceInteraction(interaction, env));
+      return json({ type: 5, data: { flags: DISCORD_FLAG_EPHEMERAL } });
+    }
     if (ctx && interaction.application_id && interaction.token && isWarMeInteraction(interaction)) {
       ctx.waitUntil(completeDeferredWarMeInteraction(interaction, env));
       return json({ type: 5, data: { flags: DISCORD_FLAG_EPHEMERAL } });
@@ -326,6 +331,7 @@ async function routeDiscordCommand(
   }
 
   if (isWarMeInteraction(interaction)) return warMeResponse(interaction, env);
+  if (isBalanceInteraction(interaction)) return balanceResponse(interaction, env);
 
   if (command === DISCORD_COMMAND_NAMES.alerts) {
     return alertsResponse(interaction, subcommand, env);
@@ -544,6 +550,7 @@ function botHelpResponse(): DiscordInteractionResponse {
       {
         title: "Butt Dashboard Bot",
         description: [
+          "`/bal` - privately show your faction money balance",
           "`/war me` - privately show your ongoing war attacks and respect",
           "`/lookup player_id` - look up a Torn player",
           "`/alerts list` - available alert subscriptions",

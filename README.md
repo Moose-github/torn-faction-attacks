@@ -405,6 +405,28 @@ removes the corresponding assignment on the next check. Missing links, unavailab
 bot configuration, or failed Discord checks return no assignments without blocking
 ordinary login. These roles are resolved live; no database migration is required.
 
+## Discord: `/bal`
+
+In the configured faction Discord server, `/bal` returns an ephemeral reply
+containing only the caller's faction money balance, for example `$1,234,567`.
+The caller is resolved through the stored Discord-to-Torn member link and must
+be a current home faction member. The command accepts no player ID. Missing or
+ambiguous links and unavailable balances produce private explanatory messages.
+
+The Worker calls `GET https://api.torn.com/v2/faction/balance?cat=current` with
+the server's `TORN_API_KEY`, which needs limited access and faction API access
+permissions ([Torn API documentation](https://www.torn.com/swagger.php#/Faction/getMyFactionBalance)).
+It selects only the linked member's `money`; faction totals, other members,
+usernames, and points are never included in the Discord reply. The API payload
+is not stored. Discord receives an immediate ephemeral acknowledgement, then
+the same private reply is edited when the lookup finishes.
+
+After deploying the Worker, run `npm run discord:commands:guild` (or
+`npm run discord:commands:global` if using global registration) to publish `/bal`.
+The Worker requires `DISCORD_PUBLIC_KEY` and `DISCORD_GUILD_ID`; registration
+requires `DISCORD_BOT_TOKEN` and `DISCORD_APPLICATION_ID`, plus `DISCORD_GUILD_ID`
+for guild registration. No database migration is needed for this command.
+
 ## Discord: `/war me`
 
 In the configured faction Discord server, `/war me` privately shows the caller's
