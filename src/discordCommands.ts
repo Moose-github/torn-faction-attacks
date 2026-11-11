@@ -1,5 +1,3 @@
-import { DISCORD_ALERT_CHANNEL_ROUTES } from "./discordAlerts";
-
 // TEMPORARY: public creation/setfinish for testing. Set false and redeploy the
 // Worker + re-register commands to restore server-administrator access.
 export const CHAIN_WATCH_COMMANDS_PUBLIC_FOR_TESTING = true;
@@ -8,7 +6,6 @@ export const DISCORD_COMMAND_NAMES = {
   balance: "bal",
   bot: "bot",
   alerts: "alerts",
-  alertChannels: "alert-channels",
   lookup: "lookup",
   chainWatch: "chain-watch",
   war: "war",
@@ -29,7 +26,6 @@ export const DISCORD_COMMAND_OPTION_TYPES = {
   subCommand: 1,
   string: 3,
   integer: 4,
-  channel: 7,
 } as const;
 
 export type DiscordApplicationCommand = {
@@ -48,17 +44,10 @@ type DiscordCommandOption = {
   min_value?: number;
   max_value?: number;
   autocomplete?: boolean;
-  choices?: Array<{
-    name: string;
-    value: string;
-  }>;
   options?: DiscordCommandOption[];
 };
 
 export function discordApplicationCommands(): DiscordApplicationCommand[] {
-  const notificationAlertChoices = DISCORD_ALERT_CHANNEL_ROUTES
-    .map((alert) => ({ name: alert.name, value: alert.key }));
-
   return [
     {
       name: DISCORD_COMMAND_NAMES.balance,
@@ -121,67 +110,6 @@ export function discordApplicationCommands(): DiscordApplicationCommand[] {
           type: DISCORD_COMMAND_OPTION_TYPES.subCommand,
           name: "manage",
           description: "Manage your alert subscriptions with a dropdown",
-        },
-      ],
-    },
-    {
-      name: DISCORD_COMMAND_NAMES.alertChannels,
-      description: "Configure Discord alert delivery channels",
-      default_member_permissions: "32",
-      dm_permission: false,
-      options: [
-        {
-          type: DISCORD_COMMAND_OPTION_TYPES.subCommand,
-          name: "list",
-          description: "Show configured alert delivery channels",
-        },
-        {
-          type: DISCORD_COMMAND_OPTION_TYPES.subCommand,
-          name: "set",
-          description: "Send an alert type to a channel",
-          options: [
-            {
-              type: DISCORD_COMMAND_OPTION_TYPES.string,
-              name: "alert",
-              description: "Alert to route",
-              required: true,
-              choices: notificationAlertChoices,
-            },
-            {
-              type: DISCORD_COMMAND_OPTION_TYPES.channel,
-              name: "channel",
-              description: "Channel for this alert",
-              required: true,
-            },
-          ],
-        },
-        {
-          type: DISCORD_COMMAND_OPTION_TYPES.subCommand,
-          name: "unset",
-          description: "Remove an alert channel route",
-          options: [
-            {
-              type: DISCORD_COMMAND_OPTION_TYPES.string,
-              name: "alert",
-              description: "Alert route to remove",
-              required: true,
-              choices: notificationAlertChoices,
-            },
-          ],
-        },
-        {
-          type: DISCORD_COMMAND_OPTION_TYPES.subCommand,
-          name: "test",
-          description: "Send a test message to a configured alert channel",
-          options: [
-            {
-              type: DISCORD_COMMAND_OPTION_TYPES.string,
-              name: "alert",
-              description: "Alert route to test",
-              required: true,
-              choices: notificationAlertChoices,
-            },
-          ],
         },
       ],
     },

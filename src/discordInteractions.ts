@@ -5,13 +5,9 @@ import { DISCORD_COMMAND_NAMES, DISCORD_COMPONENT_IDS } from "./discordCommands"
 import { balanceResponse, completeDeferredBalanceInteraction, isBalanceInteraction } from "./discordBalance";
 import { completeDeferredWarMeInteraction, isWarMeInteraction, warMeResponse } from "./discordWarStats";
 import {
-  DISCORD_ALERT_CHANNEL_ROUTES,
-  DISCORD_ALERT_KEYS,
   DISCORD_ALERTS,
-  discordAlertRouteByKey,
 } from "./discordAlerts";
 import { readSubscribableDiscordAlerts } from "./discordSubscriptionSettings";
-import { createDiscordBotMessage } from "./discord";
 import {
   readDiscordMemberAlertSubscriptionsForDiscordUser,
   updateDiscordMemberAlertSubscription,
@@ -19,22 +15,12 @@ import {
   type DiscordMemberAlertSubscriptionsResponse,
 } from "./discordMemberAlertSubscriptions";
 import {
-  discordNotificationChannelTargetId,
-  listDiscordNotificationChannels,
-  readDiscordNotificationChannel,
-  readDiscordNotificationGuildId,
-  setDiscordNotificationChannel,
-  unsetDiscordNotificationChannel,
-  type DiscordNotificationChannel,
-} from "./discordNotificationChannels";
-import {
   formatTravelTrackerSections,
   travelCounts,
   type DiscordTravelRow,
 } from "./discordTravelFormatting";
 import { Env, WarRow, WarSummaryRow } from "./types";
 import { json, nowSeconds, parseLimit } from "./utils";
-import { syncRetaliationDiscordBoard } from "./retaliations";
 import {
   lookupTornPlayer,
   type PlayerLookupDailyAverage,
@@ -335,10 +321,6 @@ async function routeDiscordCommand(
 
   if (command === DISCORD_COMMAND_NAMES.alerts) {
     return alertsResponse(interaction, subcommand, env);
-  }
-
-  if (command === DISCORD_COMMAND_NAMES.alertChannels) {
-    return alertChannelsResponse(interaction, env, subcommand);
   }
 
   if (command === DISCORD_COMMAND_NAMES.lookup) {
@@ -706,172 +688,6 @@ async function submitAlertSubscriptionsResponse(
       },
     ],
     components: [],
-  });
-}
-
-async function alertChannelsResponse(
-  interaction: DiscordInteraction,
-  env: Env,
-  subcommand: DiscordOption | null,
-): Promise<DiscordInteractionResponse> {
-  const discordUserId = interactionDiscordUserId(interaction);
-  if (!discordUserId) {
-    return ephemeralMessage("Discord did not include your user ID with this interaction.");
-  }
-
-  const guildId = interaction.guild_id;
-  if (!guildId) {
-    return ephemeralMessage("Alert channel routing can only be configured inside a Discord server.");
-  }
-
-  const configuredGuildId = readDiscordNotificationGuildId(env);
-  if (!configuredGuildId) {
-    return ephemeralMessage("Alert channel routing requires DISCORD_GUILD_ID to be configured.");
-  }
-
-  if (guildId !== configuredGuildId) {
-    return ephemeralMessage("Alert channel routing is only enabled for the configured Discord server.");
-  }
-
-  if (subcommand?.name === "list") {
-    return alertChannelsListResponse(await listDiscordNotificationChannels(env, guildId));
-  }
-
-  if (subcommand?.name === "set") {
-    const alert = alertOption(subcommand);
-    if (!alert) {
-      return ephemeralMessage("That alert is not available for channel routing.");
-    }
-    const channelId = optionString(subcommand, "channel");
-    if (!channelId || !/^\d{5,32}$/.test(channelId)) {
-      return ephemeralMessage("Choose a valid Discord channel for this alert route.");
-    }
-
-    const route = await setDiscordNotificationChannel(env, {
-      guildId,
-      alertKey: alert.key,
-      channelId,
-      updatedByDiscordId: discordUserId,
-    });
-    if (alert.key === DISCORD_ALERT_KEYS.retaliationBoard) {
-      await syncRetaliationBoardAfterRouteChange(env);
-    }
-    return discordMessageResponse(DISCORD_RESPONSE_CHANNEL_MESSAGE, {
-      flags: DISCORD_FLAG_EPHEMERAL,
-      embeds: [
-        {
-          title: "Alert channel route saved",
-          description: `**${route.alertName}** will be sent to ${discordChannelMention(route.channelId)}.`,
-          color: BOT_COLOR,
-        },
-      ],
-    });
-  }
-
-  if (subcommand?.name === "unset") {
-    const alert = alertOption(subcommand);
-    if (!alert) {
-      return ephemeralMessage("That alert is not available for channel routing.");
-    }
-
-    await unsetDiscordNotificationChannel(env, guildId, alert.key);
-    if (alert.key === DISCORD_ALERT_KEYS.retaliationBoard) {
-      await syncRetaliationBoardAfterRouteChange(env);
-    }
-    return discordMessageResponse(DISCORD_RESPONSE_CHANNEL_MESSAGE, {
-      flags: DISCORD_FLAG_EPHEMERAL,
-      embeds: [
-        {
-          title: "Alert channel route removed",
-          description: `**${alert.name}** no longer has a bot delivery channel configured.`,
-          color: WARNING_COLOR,
-        },
-      ],
-    });
-  }
-
-  if (subcommand?.name === "test") {
-    const alert = alertOption(subcommand);
-    if (!alert) {
-      return ephemeralMessage("That alert is not available for channel routing.");
-    }
-
-    const route = await readDiscordNotificationChannel(env, guildId, alert.key);
-    if (!route) {
-      return ephemeralMessage(`No channel route is configured for **${alert.name}**.`);
-    }
-
-    await createDiscordBotMessage(
-      env,
-      discordNotificationChannelTargetId(route),
-      `Discord alert route test: ${alert.name}`,
-      { users: [], roles: [] },
-      {
-        embeds: [
-          {
-            title: "Discord alert route test",
-            description: `This channel is configured for **${alert.name}** alerts.`,
-            color: BOT_COLOR,
-          },
-        ],
-      },
-    );
-
-    return discordMessageResponse(DISCORD_RESPONSE_CHANNEL_MESSAGE, {
-      flags: DISCORD_FLAG_EPHEMERAL,
-      embeds: [
-        {
-          title: "Test alert sent",
-          description: `Sent a test message to ${discordChannelMention(discordNotificationChannelTargetId(route))} for **${route.alertName}**.`,
-          color: BOT_COLOR,
-        },
-      ],
-    });
-  }
-
-  return ephemeralMessage("Use `/alert-channels list`, `set`, `unset`, or `test`.");
-}
-
-async function syncRetaliationBoardAfterRouteChange(env: Env): Promise<void> {
-  try {
-    await syncRetaliationDiscordBoard(env, nowSeconds());
-  } catch (err: any) {
-    console.warn("Retaliation board route-change sync failed:", err?.message || err);
-  }
-}
-
-function alertChannelsListResponse(routes: DiscordNotificationChannel[]): DiscordInteractionResponse {
-  const routesByAlertKey = new Map(routes.map((route) => [route.alertKey, route]));
-  const unsetAlertNames: string[] = [];
-  const fields: NonNullable<DiscordEmbed["fields"]> = DISCORD_ALERT_CHANNEL_ROUTES.flatMap((alert) => {
-    const route = routesByAlertKey.get(alert.key);
-    if (!route) {
-      unsetAlertNames.push(alert.name);
-      return [];
-    }
-
-    return [{
-      name: alert.name,
-      value: discordChannelMention(discordNotificationChannelTargetId(route)),
-    }];
-  });
-  if (unsetAlertNames.length > 0) {
-    fields.push({
-      name: "Unset",
-      value: unsetAlertNames.join("\n"),
-    });
-  }
-
-  return discordMessageResponse(DISCORD_RESPONSE_CHANNEL_MESSAGE, {
-    flags: DISCORD_FLAG_EPHEMERAL,
-    embeds: [
-      {
-        title: "Alert channel routes",
-        description: "Configured bot delivery channels for this server.",
-        color: BOT_COLOR,
-        fields,
-      },
-    ],
   });
 }
 
@@ -1434,29 +1250,15 @@ function idOrUnknown(value: unknown): string {
   return Number.isInteger(parsed) && parsed > 0 ? String(parsed) : "Unknown";
 }
 
-function optionString(option: DiscordOption, name: string): string | null {
-  const value = option.options?.find((item) => item.name === name)?.value;
-  return typeof value === "string" ? value : null;
-}
-
 function optionInteger(options: DiscordOption[], name: string): number | null {
   const value = options.find((item) => item.name === name)?.value;
   const parsed = typeof value === "number" ? value : Number(value);
   return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
 }
 
-function alertOption(option: DiscordOption): typeof DISCORD_ALERT_CHANNEL_ROUTES[number] | null {
-  const alertKey = optionString(option, "alert") ?? "";
-  return discordAlertRouteByKey(alertKey);
-}
-
 function interactionDiscordUserId(interaction: DiscordInteraction): string | null {
   const userId = interaction.member?.user?.id ?? interaction.user?.id ?? "";
   return /^\d{5,32}$/.test(userId) ? userId : null;
-}
-
-function discordChannelMention(channelId: string): string {
-  return `<#${channelId}>`;
 }
 
 function cleanMemberName(name: string | null, id: number): string {
