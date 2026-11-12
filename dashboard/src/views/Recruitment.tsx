@@ -87,7 +87,6 @@ export function Recruitment({ isAdmin }: { isAdmin: boolean }) {
 
   const scan = status?.scan;
   const currentPageCount = results ? Math.max(1, Math.ceil(results.total / 50)) : 1;
-  const estimatedMinutes = status?.keys.calls_per_minute ? Math.ceil(2006 / status.keys.calls_per_minute) : null;
   return <div className="recruitment-page">
     <section className="panel recruitment-intro">
       <div><p className="eyebrow">Company tools</p><h2><Users size={25} /> Recruitment</h2>
@@ -96,28 +95,19 @@ export function Recruitment({ isAdmin }: { isAdmin: boolean }) {
     </section>
     {error && <div className="panel recruitment-error" role="alert">{error}</div>}
     {notice && <div className="panel" role="status">{notice}</div>}
-      <section className="panel">
-        <div className="recruitment-heading"><h3>Work-stat database</h3><span className={`recruitment-state ${scan?.status ?? ''}`}>{scan?.status ?? 'Loading'}</span></div>
-        <p>Scans run only when started manually. The cutoff follows total stats, not a fixed leaderboard position.</p>
-        <dl className="recruitment-metrics">
-          <div><dt>Positions scanned</dt><dd>{number(scan?.next_offset ?? 0)}</dd></div>
-          <div><dt>Records saved this scan</dt><dd>{number(scan?.players_saved ?? 0)}</dd></div>
-          <div><dt>API calls used</dt><dd>{number(scan?.calls_used ?? 0)}</dd></div>
-          <div><dt>Last work-stat total</dt><dd>{scan?.last_value == null ? '—' : number(scan.last_value)}</dd></div>
-        </dl>
-        <p className="recruitment-muted">{status ? `${status.keys.available} of ${status.keys.total} eligible pool keys available · Up to ${status.keys.calls_per_minute} calls/minute` : 'Checking key availability…'}</p>
-        <p className="recruitment-muted">10 calls per key per rolling minute. Fallback excluded. Shared key limits and cooldowns also apply.</p>
-        {scan?.status === 'idle' && <p>Initial estimate: 2,006 calls{estimatedMinutes ? `, about ${estimatedMinutes} minutes` : ''}. Actual duration depends on key availability and Torn response times.</p>}
-        {scan?.started_at && <p className="recruitment-muted">Started {dateTime(scan.started_at)}{scan.finished_at ? ` · Finished ${dateTime(scan.finished_at)}` : ''}</p>}
-        {scan?.last_error && <p className="recruitment-warning" role="status">{scan.last_error}</p>}
-        {scan?.status === 'running' && <p role="status">{scan.retry_at > Date.now() / 1000 ? `Retry after ${dateTime(scan.retry_at)}.` : status?.keys.available === 0 ? 'Waiting for available pool keys.' : 'Collecting pages in the background. Progress is saved after each page.'}</p>}
-        {isAdmin && scan && <div className="recruitment-actions">
+    {isAdmin && <section className="panel recruitment-scan">
+      <div className="recruitment-scan-row">
+        <div className="recruitment-scan-title"><h3>Work-stat database</h3><span className={`recruitment-state ${scan?.status ?? ''}`}>{scan?.status ?? 'Loading'}</span></div>
+        {scan && <div className="recruitment-actions">
           {['idle','completed'].includes(scan.status) && <button className="panel-action-button primary-action" disabled={busy || !status?.keys.available || scan.lease_until > Date.now()/1000} onClick={() => void control('start')}><RefreshCw size={16}/>{scan.status === 'idle' ? 'Start HOF scan' : 'Refresh HOF database'}</button>}
           {scan.status === 'running' && <button className="panel-action-button" disabled={busy} onClick={() => void control('pause')}><Pause size={16}/>Pause scan</button>}
           {['paused','failed'].includes(scan.status) && <button className="panel-action-button primary-action" disabled={busy} onClick={() => void control('resume')}><Play size={16}/>Resume scan</button>}
         </div>}
-        {!isAdmin && <p className="recruitment-muted">An administrator can start, pause or resume a scan.</p>}
-      </section>
+      </div>
+      <p className="recruitment-muted">{number(scan?.players_saved ?? 0)} saved · {number(scan?.calls_used ?? 0)} API calls · {status?.keys.available ?? 0} keys available · 10 calls/key/min · Fallback excluded{scan?.finished_at ? ` · Finished ${dateTime(scan.finished_at)}` : ''}</p>
+      {scan?.last_error && <p className="recruitment-warning" role="status">{scan.last_error}</p>}
+      {scan?.status === 'running' && (scan.retry_at > Date.now() / 1000 || status?.keys.available === 0) && <p className="recruitment-muted" role="status">{scan.retry_at > Date.now() / 1000 ? `Retry after ${dateTime(scan.retry_at)}.` : 'Waiting for available pool keys.'}</p>}
+    </section>}
     <section className="panel">
       <div className="recruitment-heading"><h3>Candidates</h3>{isAdmin
         ? <button className="panel-action-button" onClick={() => void refreshCandidates()} disabled={refreshingCandidates}><RefreshCw size={16}/>{refreshingCandidates ? 'Refreshing…' : 'Refresh candidates'}</button>
