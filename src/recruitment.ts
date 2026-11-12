@@ -21,13 +21,25 @@ export function parseRecruitmentHof(data: unknown, offset: number) {
   const players: HofPlayer[] = [];
   const ids = new Set<number>();
   let previous = Number.MAX_SAFE_INTEGER;
+  let previousPosition = 0;
   for (const [index, value] of data.hof.entries()) {
-    if (!isRecord(value) || !nonnegative(value.id) || value.id === 0 || ids.has(value.id)
-      || typeof value.username !== 'string' || !value.username.trim() || value.username.length > 100
-      || !nonnegative(value.value) || value.value > previous || value.position !== offset + index + 1) {
-      throw new RecruitmentInputError('HOF data or page order was unexpected. Resume will retry the same page.');
-    }
-    ids.add(value.id); previous = value.value;
+    const reject = (reason: string): never => {
+      throw new RecruitmentInputError(`HOF offset ${offset}, row ${index + 1}: ${reason}. Saved progress retained.`);
+    };
+    if (!isRecord(value)) reject('invalid player record');
+    if (!nonnegative(value.id) || value.id === 0) reject('invalid player ID');
+    if (ids.has(value.id)) reject(`duplicate player ID ${value.id}`);
+    if (typeof value.username !== 'string' || !value.username.trim() || value.username.length > 100) reject('invalid username');
+    if (!nonnegative(value.value)) reject('invalid work-stat total');
+    if (value.value > previous) reject(`work-stat total increased from ${previous} to ${value.value}`);
+    if (!nonnegative(value.position) || value.position === 0) reject('invalid HOF position');
+    // HOF uses competition ranks: equal totals can share a position, including
+    // a tie that began on the previous page. Offsets count rows, not ranks.
+    const expectedPosition = offset + index + 1;
+    const tiedPosition = index === 0 ? value.position <= expectedPosition
+      : value.position === previousPosition && value.value === previous;
+    if (value.position !== expectedPosition && !tiedPosition) reject(`expected position ${expectedPosition} or a tied rank, received ${value.position}`);
+    ids.add(value.id); previous = value.value; previousPosition = value.position;
     players.push({ player_id: value.id, username: value.username, total_work_stats: value.value, hof_position: value.position as number });
   }
   const next = data._metadata.links.next;

@@ -32,6 +32,8 @@ function hof(offset = 0, values = Array(100).fill(200000), hasNext = true) {
   return { hof: values.map((value, i) => ({ id: offset + i + 1, username: 'Player' + (offset+i+1), value, position: offset+i+1 })),
     _metadata: { links: { next: hasNext ? `https://api.torn.com/v2/torn/hof?cat=workstats&limit=100&offset=${offset+100}&key=do-not-save` : null } } };
 }
+// Captured offset-1000 response, with player identities replaced and key-free links.
+const tiedHofPage = JSON.parse(readFileSync(new URL('./fixtures/recruitment-hof-tied-ranks.json', import.meta.url), 'utf8'));
 function key(id: string, label = id, owner = Number(id.replace(/\D/g,'')) || 1) {
   db.prepare(`INSERT INTO torn_api_keys(id,label,encrypted_key,key_fingerprint,owner_torn_user_id,status,allowed_features_json,
     max_requests_per_minute,created_at,updated_at) VALUES(?,?,?,?,?,'active','[]',75,?,?)`).run(id,label,'test-'+id,id,owner,now,now);
@@ -79,6 +81,30 @@ beforeEach(() => {
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); db.close(); });
 
 describe('HOF parsing and checkpoint safety', () => {
+  it('accepts the reported page with shared position 1070 and keeps the next row offset', () => {
+    const page = parseRecruitmentHof(tiedHofPage,1000);
+    expect(page).toMatchObject({complete:false,nextOffset:1100});
+    expect(page.players).toHaveLength(100);
+    expect(page.players.slice(69,72).map(p => [p.hof_position,p.total_work_stats])).toEqual([
+      [1070,833151],[1070,833151],[1072,833075],
+    ]);
+  });
+  it('accepts ties spanning pages and continues past a full page tied at the cutoff', () => {
+    const data = hof(1000,Array(100).fill(100000));
+    data.hof.forEach(player => { player.position=999; });
+    expect(parseRecruitmentHof(data,1000)).toMatchObject({complete:false,nextOffset:1100});
+    const final = hof(1100,[100000,99999],false);
+    final.hof[0].position=999;
+    expect(parseRecruitmentHof(final,1100)).toMatchObject({complete:true,nextOffset:1102});
+    expect(parseRecruitmentHof(final,1100).players).toHaveLength(1);
+  });
+  it('rejects shared ranks for different totals and invalid rank jumps', () => {
+    const data = hof(1000,[200000,199999],false);
+    data.hof[1].position=1001;
+    expect(() => parseRecruitmentHof(data,1000)).toThrow('row 2');
+    data.hof[1].position=1003;
+    expect(() => parseRecruitmentHof(data,1000)).toThrow('row 2');
+  });
   it('keeps the inclusive cutoff and continues past a full page tied at 100,000', () => {
     expect(parseRecruitmentHof(hof(0, Array(100).fill(100000)), 0).complete).toBe(false);
     const page = parseRecruitmentHof(hof(100, [100001,100000,99999], false),100);
@@ -104,6 +130,31 @@ describe('HOF parsing and checkpoint safety', () => {
     expect(db.prepare('SELECT COUNT(*) AS n FROM recruitment_scan_stats').get()!.n).toBe(100);
     expect(JSON.stringify(db.prepare('SELECT * FROM recruitment_scan').get())).not.toContain('do-not-save');
   });
+  it('identifies the rejected row and field without exposing raw response strings', () => {
+    const data = hof(1000);
+    data.hof[4].position = 1003;
+    expect(() => parseRecruitmentHof(data,1000)).toThrow('HOF offset 1000, row 5: expected position 1005 or a tied rank, received 1003');
+    data.hof[4].position = 1005;
+    data.hof[4].value = 200001;
+    expect(() => parseRecruitmentHof(data,1000)).toThrow('HOF offset 1000, row 5: work-stat total increased from 200000 to 200001');
+    const malformed = {...data, hof:[{...data.hof[0], value:'secret upstream text'}]};
+    expect(() => parseRecruitmentHof(malformed,1000)).toThrow('HOF offset 1000, row 1: invalid work-stat total. Saved progress retained.');
+  });
+  it('retains the checkpoint and staged records when a later page fails validation', async () => {
+    const scan = await running();
+    for (let offset=0;offset<1000;offset+=100) {
+      await saveRecruitmentPage(env,await readRecruitmentScan(env),hof(offset),now);
+    }
+    const invalid = hof(1000);
+    invalid.hof[10].position = 1012;
+    await expect(saveRecruitmentPage(env,await readRecruitmentScan(env),invalid,now)).rejects.toThrow('offset 1000, row 11');
+    expect(await readRecruitmentScan(env)).toMatchObject({next_offset:1000,players_saved:1000,pages_saved:10});
+    expect(db.prepare('SELECT COUNT(*) AS n FROM recruitment_scan_stats').get()!.n).toBe(1000);
+    await controlRecruitmentScan(env,'pause',scan.run_id,now);
+    await controlRecruitmentScan(env,'resume',scan.run_id,now);
+    await saveRecruitmentPage(env,await readRecruitmentScan(env),hof(1000),now);
+    expect(await readRecruitmentScan(env)).toMatchObject({next_offset:1100,players_saved:1100,pages_saved:11});
+  });
   it('rolls the stats and offset back together on a storage failure', async () => {
     const scan = await running();
     db.exec("CREATE TRIGGER fail_checkpoint BEFORE UPDATE OF next_offset ON recruitment_scan BEGIN SELECT RAISE(ABORT,'disk error'); END");
@@ -121,6 +172,21 @@ describe('HOF parsing and checkpoint safety', () => {
 });
 
 describe('pool limits and scanner lifecycle', () => {
+  it('resumes the failed offset-1000 scan with the reported tied ranks and publishes all saved work', async () => {
+    key('k1');
+    const scan = await running();
+    for(let offset=0;offset<1000;offset+=100) {
+      await saveRecruitmentPage(env,await readRecruitmentScan(env),hof(offset,Array(100).fill(900000)),now);
+    }
+    db.exec("UPDATE recruitment_scan SET status='failed',lease_until=0");
+    await controlRecruitmentScan(env,'resume',scan.run_id,now);
+    vi.mocked(fetchTrackedTornJson).mockResolvedValueOnce(tiedHofPage).mockResolvedValueOnce(hof(1100,[99999],false));
+    await runRecruitmentTick(env);
+    expect(await readRecruitmentScan(env)).toMatchObject({status:'completed',next_offset:1101,players_saved:1100,calls_used:2});
+    expect(vi.mocked(fetchTrackedTornJson).mock.calls.map(call => new URL(String(call[1])).searchParams.get('offset'))).toEqual(['1000','1100']);
+    expect(db.prepare('SELECT COUNT(*) AS n FROM recruitment_work_stats').get()!.n).toBe(1100);
+    expect(db.prepare('SELECT hof_position FROM recruitment_work_stats WHERE player_id IN (1070,1071)').all()).toEqual([{hof_position:1070},{hof_position:1070}]);
+  });
   it('uses all active submitted keys, excludes named Fallback and never loads the environment key', async () => {
     key('k1'); key('k2',' Fallback '); key('k3','Fallback key'); key('k4'); key('k5');
     db.exec("UPDATE torn_api_keys SET status='disabled' WHERE id='k4'");
