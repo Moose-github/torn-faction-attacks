@@ -3,15 +3,15 @@ import { DatabaseSync, type SQLInputValue } from 'node:sqlite';
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 import { controlRecruitmentScan, parseRecruitmentHof, readRecruitmentScan, recruitmentCandidates,
   reserveRecruitmentCall, runRecruitmentTick, saveRecruitmentPage } from '../src/recruitment';
-import { importRecruitmentSnapshot, parseRecruitmentSnapshot } from '../src/recruitmentSnapshot';
+import { saveRecruitmentSnapshot, parseRecruitmentSnapshot, refreshRecruitmentSnapshot } from '../src/recruitmentSnapshot';
 import { readRecruitmentKeys } from '../src/recruitmentKeys';
 import { routeRecruitmentApi } from '../src/http/recruitmentRoutes';
-import { fetchTrackedTornJson } from '../src/external/torn';
+import { fetchTrackedTornJson, fetchTrackedTornResponse } from '../src/external/torn';
 import type { Env } from '../src/types';
 import type { TornKeyPoolCandidate } from '../src/tornKeyPool';
 import type { RouteContext } from '../src/http/context';
 
-vi.mock('../src/external/torn', () => ({ fetchTrackedTornJson: vi.fn() }));
+vi.mock('../src/external/torn', () => ({ fetchTrackedTornJson: vi.fn(), fetchTrackedTornResponse: vi.fn() }));
 vi.mock('../src/tornKeyPool', async importOriginal => ({ ...await importOriginal<object>(), decryptTornApiKey: vi.fn(async value => value) }));
 vi.mock('../src/auth', () => ({
   requireMember: vi.fn(async (req: Request) => req.headers.get('Authorization') ? null : Response.json({error:'Unauthorized'}, {status:401})),
@@ -44,6 +44,7 @@ beforeEach(() => {
   vi.spyOn(Date, 'now').mockImplementation(() => now*1000);
   db = new DatabaseSync(':memory:');
   db.exec('PRAGMA foreign_keys=ON');
+  db.exec(readFileSync(new URL('../migrations/0002_create_torn_attack_tables.sql', import.meta.url), 'utf8'));
   db.exec(readFileSync(new URL('../migrations/0120_create_torn_key_pool.sql', import.meta.url), 'utf8'));
   db.exec(readFileSync(new URL('../migrations/0210_create_recruitment.sql', import.meta.url), 'utf8'));
   class Statement {
@@ -185,7 +186,7 @@ describe('pool limits and scanner lifecycle', () => {
   });
 });
 
-describe('snapshot imports and local matching', () => {
+describe('snapshot refreshes and local matching', () => {
   it('handles CSV quoting, city jobs, directors, unemployment and fed exclusions', () => {
     const parsed=parseRecruitmentSnapshot(csv);
     expect(parsed).toMatchObject({total_players:6,unemployed:1,city_jobs:2,excluded_fed:1});
@@ -196,7 +197,7 @@ describe('snapshot imports and local matching', () => {
   });
   it('joins by ID, uses current names, keeps unknowns explicit and filters without Torn calls', async () => {
     const scan=await running(); await saveRecruitmentPage(env,scan,hof(0,[200000,100000,99999],false),now);
-    await importRecruitmentSnapshot(env,csv,'2026-11-12',now);
+    await saveRecruitmentSnapshot(env,csv,'2026-11-12',now);
     const matched=await recruitmentCandidates(env,new URLSearchParams());
     expect(matched).toMatchObject({total:2,matched:2,unknown:1});
     expect(matched.candidates.map(p=>p.username)).toEqual(['Alice','Bob']);
@@ -204,13 +205,61 @@ describe('snapshot imports and local matching', () => {
     expect(unknown.candidates[0]).toMatchObject({player_id:6,total_work_stats:null});
     expect((await recruitmentCandidates(env,new URLSearchParams({job:'unemployed',min:'150000'}))).total).toBe(1);
     expect(fetchTrackedTornJson).not.toHaveBeenCalled();
+    expect(fetchTrackedTornResponse).not.toHaveBeenCalled();
   });
-  it('keeps the old snapshot visible if an import fails and rejects older snapshots taking over', async () => {
-    const original=await importRecruitmentSnapshot(env,csv,'2026-11-12',now);
+  it('keeps the old snapshot visible if saving fails and rejects older snapshots taking over', async () => {
+    const original=await saveRecruitmentSnapshot(env,csv,'2026-11-12',now);
     db.exec("CREATE TRIGGER fail_snapshot BEFORE INSERT ON recruitment_snapshot_players WHEN NEW.player_id=99 BEGIN SELECT RAISE(ABORT,'failed import'); END");
-    await expect(importRecruitmentSnapshot(env,`${header}\n99,New,,,10,,0,`,'2026-11-12',now+1)).rejects.toThrow();
+    await expect(saveRecruitmentSnapshot(env,`${header}\n99,New,,,10,,0,`,'2026-11-12',now+1)).rejects.toThrow();
     expect(db.prepare('SELECT snapshot_id FROM recruitment_current_snapshot').get()!.snapshot_id).toBe(original.id);
-    await importRecruitmentSnapshot(env,csv,'2026-11-11',now+2);
+    await saveRecruitmentSnapshot(env,csv,'2026-11-11',now+2);
+    expect(db.prepare('SELECT snapshot_id FROM recruitment_current_snapshot').get()!.snapshot_id).toBe(original.id);
+  });
+  it('fetches candidates directly from Torn with one pool call, sharing the HOF limit and excluding Fallback', async () => {
+    key('k1'); key('k2','Fallback key');
+    const scan=await running();
+    await saveRecruitmentPage(env,scan,hof(),now);
+    vi.mocked(fetchTrackedTornResponse).mockResolvedValueOnce(new Response(csv,{headers:{'Content-Type':'text/csv'}}));
+    await refreshRecruitmentSnapshot(env);
+    expect(fetchTrackedTornResponse).toHaveBeenCalledExactlyOnceWith(env,
+      `https://api.torn.com/v2/user/snapshot?timestamp=${now}`,
+      {headers:{Authorization:'ApiKey test-k1'}},
+      {feature:'company_recruitment',keySource:'key_pool:k1',timeoutMs:15000});
+    expect(await recruitmentCandidates(env,new URLSearchParams())).toMatchObject({total:3,matched:3,unknown:0});
+    const savedScan=await readRecruitmentScan(env);
+    expect(savedScan).toMatchObject({calls_used:0,next_offset:100,status:'running'});
+    for(let i=0;i<9;i++) expect(await reserveRecruitmentCall(env,savedScan,candidate('k1'),now)).toBe(true);
+    expect(await reserveRecruitmentCall(env,savedScan,candidate('k1'),now)).toBe(false);
+  });
+  it('allows only one concurrent candidate refresh and makes no requests when key capacity is exhausted', async () => {
+    key('k1');
+    vi.mocked(fetchTrackedTornResponse).mockResolvedValueOnce(new Response(csv));
+    const refreshes=await Promise.allSettled([refreshRecruitmentSnapshot(env),refreshRecruitmentSnapshot(env)]);
+    expect(refreshes.filter(r=>r.status==='fulfilled')).toHaveLength(1);
+    expect(fetchTrackedTornResponse).toHaveBeenCalledTimes(1);
+    now+=120;
+    db.prepare('INSERT INTO torn_api_key_usage_windows VALUES(?,?,?)').run('k1',now,75);
+    await expect(refreshRecruitmentSnapshot(env)).rejects.toThrow('No pool key has capacity');
+    expect(fetchTrackedTornResponse).toHaveBeenCalledTimes(1);
+  });
+  it.each([200,429,503])('preserves candidates after a failed snapshot response (HTTP %s)', async status => {
+    key('k1');
+    const original=await saveRecruitmentSnapshot(env,csv,'2026-11-12',now);
+    vi.mocked(fetchTrackedTornResponse).mockResolvedValueOnce(new Response(JSON.stringify({error:{code:status===429?5:17,error:'upstream secret'}}),{status}));
+    await expect(refreshRecruitmentSnapshot(env)).rejects.toThrow('Saved candidates are unchanged');
+    expect(db.prepare('SELECT snapshot_id FROM recruitment_current_snapshot').get()!.snapshot_id).toBe(original.id);
+    expect(db.prepare('SELECT COUNT(*) AS n FROM recruitment_attempts').get()!.n).toBe(1);
+    expect(JSON.stringify(db.prepare('SELECT last_error FROM torn_api_keys').get())).not.toContain('upstream secret');
+    if(status===429) expect(db.prepare('SELECT paused_until FROM torn_api_keys').get()!.paused_until).toBe(now+120);
+  });
+  it('rejects malformed and oversized API snapshots without changing saved candidates', async () => {
+    key('k1');
+    const original=await saveRecruitmentSnapshot(env,csv,'2026-11-12',now);
+    vi.mocked(fetchTrackedTornResponse).mockResolvedValueOnce(new Response('<html>Unavailable</html>'));
+    await expect(refreshRecruitmentSnapshot(env)).rejects.toThrow('expected player snapshot');
+    now+=120;
+    vi.mocked(fetchTrackedTornResponse).mockResolvedValueOnce(new Response(csv,{headers:{'Content-Length':String(21*1024*1024)}}));
+    await expect(refreshRecruitmentSnapshot(env)).rejects.toThrow('supported size');
     expect(db.prepare('SELECT snapshot_id FROM recruitment_current_snapshot').get()!.snapshot_id).toBe(original.id);
   });
   it('requires member access to read and admin access to mutate', async () => {
@@ -221,8 +270,14 @@ describe('snapshot imports and local matching', () => {
     expect((await route('/api/recruitment/status','GET'))!.status).toBe(401);
     expect((await route('/api/recruitment/status','GET','member'))!.status).toBe(200);
     expect((await route('/api/recruitment/scan/start','POST','member','{}'))!.status).toBe(403);
-    expect((await route('/api/recruitment/snapshot?date=2026-11-12','POST','member',csv))!.status).toBe(403);
+    expect((await route('/api/recruitment/candidates/refresh','POST','member'))!.status).toBe(403);
+    expect((await route('/api/recruitment/snapshot?date=2026-11-12','POST','admin',csv))!.status).toBe(404);
     expect((await route('/api/recruitment/scan/start','POST','admin','{"run_id":""}'))!.status).toBe(200);
     expect(fetchTrackedTornJson).not.toHaveBeenCalled();
+    expect(fetchTrackedTornResponse).not.toHaveBeenCalled();
+    key('k1');
+    vi.mocked(fetchTrackedTornResponse).mockResolvedValueOnce(new Response(csv));
+    expect((await route('/api/recruitment/candidates/refresh','POST','admin'))!.status).toBe(200);
+    expect(fetchTrackedTornResponse).toHaveBeenCalledTimes(1);
   });
 });

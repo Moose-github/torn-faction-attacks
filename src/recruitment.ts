@@ -4,7 +4,7 @@ import { isRecord } from './backend/request';
 import { fetchTrackedTornJson } from './external/torn';
 import { ExternalApiError } from './external/http';
 import { markTornKeyFailure, type TornKeyPoolCandidate } from './tornKeyPool';
-import { readRecruitmentKeys, RECRUITMENT_KEY_SQL } from './recruitmentKeys';
+import { readRecruitmentKeys, reserveRecruitmentPoolCall, RECRUITMENT_KEY_SQL } from './recruitmentKeys';
 import { RecruitmentInputError } from './recruitmentSnapshot';
 import type { Env } from './types';
 import { nowSeconds } from './utils';
@@ -72,30 +72,7 @@ export async function controlRecruitmentScan(env: Env, action: string, expectedR
 }
 
 export async function reserveRecruitmentCall(env: Env, scan: RecruitmentScan, candidate: TornKeyPoolCandidate, now: number) {
-  if (candidate.sourceType !== 'submitted') return false;
-  const id = crypto.randomUUID(), window = now - now % 60;
-  const results = await env.DB.batch([
-    env.DB.prepare(`INSERT INTO recruitment_attempts(id, run_id, key_id, attempted_at, offset)
-      SELECT ?, s.run_id, k.id, ?, s.next_offset FROM recruitment_scan s, torn_api_keys k
-      WHERE s.id = 1 AND s.run_id = ? AND s.lease_token = ? AND s.lease_until > ?
-        AND s.status = 'running' AND s.next_offset = ? AND s.retry_at <= ?
-        AND k.id = ? AND ${RECRUITMENT_KEY_SQL} AND COALESCE(k.paused_until, 0) <= ?
-        AND (SELECT COUNT(*) FROM recruitment_attempts a WHERE a.key_id = k.id AND a.attempted_at > ?) < ?
-        AND COALESCE((SELECT request_count FROM torn_api_key_usage_windows WHERE key_id = k.id AND window_start = ?), 0)
-          < COALESCE(k.max_requests_per_minute, 35)
-        AND COALESCE((SELECT SUM(w.request_count) FROM torn_api_key_usage_windows w JOIN torn_api_keys o ON o.id = w.key_id
-          WHERE o.owner_torn_user_id = k.owner_torn_user_id AND w.window_start >= ?), 0) < 90`)
-      .bind(id, now, scan.run_id, scan.lease_token, now, scan.next_offset, now, candidate.id, now, now - 60,
-        RECRUITMENT_CALLS_PER_KEY, window, window - 60),
-    env.DB.prepare(`INSERT INTO torn_api_key_usage_windows(key_id, window_start, request_count)
-      SELECT ?, ?, 1 WHERE EXISTS (SELECT 1 FROM recruitment_attempts WHERE id = ?)
-      ON CONFLICT(key_id, window_start) DO UPDATE SET request_count = request_count + 1`).bind(candidate.id, window, id),
-    env.DB.prepare(`UPDATE recruitment_scan SET calls_used = calls_used + 1, updated_at = ?
-      WHERE id = 1 AND EXISTS (SELECT 1 FROM recruitment_attempts WHERE id = ?)`).bind(now, id),
-    env.DB.prepare(`UPDATE torn_api_keys SET last_used_at = ?, last_used_feature = 'company_recruitment', updated_at = ?
-      WHERE id = ? AND EXISTS (SELECT 1 FROM recruitment_attempts WHERE id = ?)`).bind(now, now, candidate.id, id),
-  ]);
-  return (results[0].meta.changes ?? 0) > 0;
+  return reserveRecruitmentPoolCall(env, candidate, now, { scan });
 }
 
 export async function saveRecruitmentPage(env: Env, scan: RecruitmentScan, payload: unknown, now: number) {

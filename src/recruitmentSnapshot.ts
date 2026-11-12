@@ -1,5 +1,9 @@
 import { CITY_JOBS, type RecruitmentSnapshot } from '../shared/recruitment';
 import type { Env } from './types';
+import { fetchTrackedTornResponse } from './external/torn';
+import { readRecruitmentKeys, reserveRecruitmentPoolCall, SNAPSHOT_REFRESH_STATE } from './recruitmentKeys';
+import { markTornKeyFailure } from './tornKeyPool';
+import { nowSeconds } from './utils';
 
 export class RecruitmentInputError extends Error {}
 type SnapshotPlayer = { player_id: number; username: string; city_job: string | null; level: number; faction_id: number | null };
@@ -23,7 +27,7 @@ export function* csvRows(text: string): Generator<string[]> {
       }
     } else if (c === '"' && cell === '' && !closed) quoted = true;
     else {
-      if (closed || c === '"') throw new RecruitmentInputError('Invalid CSV quoting. Upload the original snapshot.');
+      if (closed || c === '"') throw new RecruitmentInputError('The snapshot returned invalid CSV quoting.');
       cell += c;
     }
   }
@@ -36,7 +40,7 @@ export function parseRecruitmentSnapshot(text: string) {
   const header = rows.next().value as string[] | undefined;
   const required = ['id', 'name', 'company', 'job', 'level', 'faction', 'fed'];
   if (!header || new Set(header).size !== header.length || required.some(h => !header.includes(h))) {
-    throw new RecruitmentInputError('Choose a Torn user snapshot CSV (a .json download containing CSV also works).');
+    throw new RecruitmentInputError('Torn did not return the expected player snapshot. Saved candidates are unchanged.');
   }
   const columns = Object.fromEntries(required.map(h => [h, header.indexOf(h)]));
   const ids = new Set<number>();
@@ -68,10 +72,10 @@ export function parseRecruitmentSnapshot(text: string) {
   return { players, total_players: total, unemployed, city_jobs: city, excluded_fed: fedded };
 }
 
-export async function importRecruitmentSnapshot(env: Env, text: string, date: string, now: number): Promise<RecruitmentSnapshot> {
+export async function saveRecruitmentSnapshot(env: Env, text: string, date: string, now: number): Promise<RecruitmentSnapshot> {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(Date.parse(date))
     || new Date(date).toISOString().slice(0, 10) !== date || date > new Date(now * 1000).toISOString().slice(0, 10)) {
-    throw new RecruitmentInputError('Choose the snapshot date, no later than today.');
+    throw new RecruitmentInputError('Invalid snapshot date.');
   }
   const parsed = parseRecruitmentSnapshot(text);
   const { players, ...counts } = parsed;
@@ -104,4 +108,64 @@ export async function importRecruitmentSnapshot(env: Env, text: string, date: st
     env.DB.prepare(`DELETE FROM recruitment_snapshots WHERE id IN (${obsolete})`).bind(now - 86400),
   ]).catch(() => undefined);
   return snapshot;
+}
+
+async function readSnapshotResponse(response: Response) {
+  const maxBytes = 20 * 1024 * 1024;
+  if (Number(response.headers.get('Content-Length')) > maxBytes) {
+    await response.body?.cancel();
+    throw new RecruitmentInputError('The player snapshot exceeds the supported size.');
+  }
+  const reader = response.body?.getReader();
+  if (!reader) throw new RecruitmentInputError('Torn returned an empty player snapshot.');
+  const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: false });
+  let text = '', bytes = 0;
+  try {
+    while (true) {
+      const next = await reader.read();
+      if (next.done) break;
+      bytes += next.value.byteLength;
+      if (bytes > maxBytes) {
+        await reader.cancel();
+        throw new RecruitmentInputError('The player snapshot exceeds the supported size.');
+      }
+      text += decoder.decode(next.value, { stream: true });
+    }
+    return text + decoder.decode();
+  } finally { reader.releaseLock(); }
+}
+
+export async function refreshRecruitmentSnapshot(env: Env) {
+  const now = nowSeconds();
+  const claim = await env.DB.prepare(`INSERT INTO sync_state(name, last_started) VALUES (?, ?)
+    ON CONFLICT(name) DO UPDATE SET last_started = excluded.last_started, updated_at = CURRENT_TIMESTAMP
+    WHERE sync_state.last_started <= ? RETURNING name`).bind(SNAPSHOT_REFRESH_STATE, now, now - 120).first();
+  if (!claim) throw new RecruitmentInputError('A candidate refresh was just requested. Please wait two minutes before refreshing again.');
+  const keys = await readRecruitmentKeys(env, now);
+  for (const key of keys) {
+    if (!await reserveRecruitmentPoolCall(env, key, nowSeconds(), { snapshotRefreshAt: now })) continue;
+    const response = await fetchTrackedTornResponse(env, `https://api.torn.com/v2/user/snapshot?timestamp=${now}`,
+      { headers: { Authorization: `ApiKey ${key.key}` } },
+      { feature: 'company_recruitment', keySource: key.keySource, timeoutMs: 15_000 });
+    const text = await readSnapshotResponse(response);
+    let code: number | undefined;
+    if (text.trimStart().startsWith('{')) {
+      try { const body = JSON.parse(text); if (Number.isSafeInteger(body?.error?.code)) code = body.error.code; } catch { /* Invalid response is rejected below. */ }
+    }
+    if (!response.ok || code !== undefined) {
+      const message = code === undefined ? `Torn snapshot request failed (HTTP ${response.status}).`
+        : `Torn snapshot request failed (API error ${code}).`;
+      const rateLimited = response.status === 429 || code === 5 || code === 14;
+      const keyError = response.status === 401 || response.status === 403 || (code !== undefined && [1,2,7,10,13,16,18].includes(code));
+      if (rateLimited || keyError) {
+        const pauseSeconds = keyError || code === 14 ? 86400 : 120;
+        await markTornKeyFailure(env, key.id, message, nowSeconds(), pauseSeconds);
+        if (rateLimited) await env.DB.prepare(`UPDATE torn_api_keys SET paused_until = MAX(COALESCE(paused_until, 0), ?)
+          WHERE owner_torn_user_id = (SELECT owner_torn_user_id FROM torn_api_keys WHERE id = ?)`).bind(nowSeconds() + pauseSeconds, key.id).run();
+      }
+      throw new RecruitmentInputError(`${message} Saved candidates are unchanged.`);
+    }
+    return saveRecruitmentSnapshot(env, text, new Date(now * 1000).toISOString().slice(0, 10), now);
+  }
+  throw new RecruitmentInputError('No pool key has capacity right now. Please try refreshing candidates again later.');
 }

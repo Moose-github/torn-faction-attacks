@@ -1,6 +1,6 @@
 import React from 'react';
-import { Play, Pause, RefreshCw, Upload, Users } from 'lucide-react';
-import { getJson, postJson, postText } from '../api/client';
+import { Play, Pause, RefreshCw, Users } from 'lucide-react';
+import { getJson, postJson } from '../api/client';
 import { CITY_JOBS, RECRUITMENT_MIN_STATS, type RecruitmentStatus, type RecruitmentResults } from '../../../shared/recruitment';
 import './recruitment.css';
 
@@ -18,8 +18,7 @@ export function Recruitment({ isAdmin }: { isAdmin: boolean }) {
   const [page, setPage] = React.useState(0);
   const [filters, setFilters] = React.useState({ job: 'all', coverage: 'matched', min: String(RECRUITMENT_MIN_STATS), max: '', q: '' });
   const [applied, setApplied] = React.useState(filters);
-  const [file, setFile] = React.useState<File | null>(null);
-  const [snapshotDate, setSnapshotDate] = React.useState(new Date().toISOString().slice(0, 10));
+  const [refreshingCandidates, setRefreshingCandidates] = React.useState(false);
 
   React.useEffect(() => {
     const controller = new AbortController();
@@ -57,17 +56,14 @@ export function Recruitment({ isAdmin }: { isAdmin: boolean }) {
     finally { setBusy(false); }
   }
 
-  async function upload(event: React.FormEvent) {
-    event.preventDefault();
-    if (!file) return;
-    if (file.size > 20 * 1024 * 1024) { setError('Choose a snapshot under 20 MB.'); return; }
-    setBusy(true); setError(''); setNotice('');
+  async function refreshCandidates() {
+    setRefreshingCandidates(true); setError(''); setNotice('');
     try {
-      await postText(`/api/recruitment/snapshot?date=${encodeURIComponent(snapshotDate)}`, await file.text());
-      setPage(0); setVersion(v => v + 1);
-      setNotice('Snapshot imported. The newest snapshot is used for candidate matching.');
-    } catch (e) { setError(e instanceof Error ? e.message : 'Snapshot import failed.'); }
-    finally { setBusy(false); }
+      const next = await postJson<RecruitmentStatus>('/api/recruitment/candidates/refresh');
+      setStatus(next); setPage(0); setVersion(v => v + 1);
+      setNotice('Candidates refreshed from Torn’s daily active-player snapshot.');
+    } catch (e) { setError(e instanceof Error ? e.message : 'Unable to refresh candidates.'); }
+    finally { setRefreshingCandidates(false); }
   }
 
   const scan = status?.scan;
@@ -76,12 +72,11 @@ export function Recruitment({ isAdmin }: { isAdmin: boolean }) {
   return <div className="recruitment-page">
     <section className="panel recruitment-intro">
       <div><p className="eyebrow">Company tools</p><h2><Users size={25} /> Recruitment</h2>
-        <p>Find active players in city jobs or without a job, using a player snapshot and saved work stats.</p></div>
+        <p>Find active players in city jobs or without a job, matched against saved work stats.</p></div>
       <div className="recruitment-floor"><strong>100,000+</strong><span>Saved total work stats</span></div>
     </section>
     {error && <div className="panel recruitment-error" role="alert">{error}</div>}
     {notice && <div className="panel" role="status">{notice}</div>}
-    <div className="recruitment-setup">
       <section className="panel">
         <div className="recruitment-heading"><h3>Work-stat database</h3><span className={`recruitment-state ${scan?.status ?? ''}`}>{scan?.status ?? 'Loading'}</span></div>
         <p>Scans run only when started manually. The cutoff follows total stats, not a fixed leaderboard position.</p>
@@ -104,27 +99,14 @@ export function Recruitment({ isAdmin }: { isAdmin: boolean }) {
         </div>}
         {!isAdmin && <p className="recruitment-muted">An administrator can start, pause or resume a scan.</p>}
       </section>
-      <section className="panel">
-        <h3>Active-player snapshot</h3>
-        {status?.snapshot ? <>
-          <p>Snapshot date: <strong>{status.snapshot.snapshot_date}</strong></p>
-          <dl className="recruitment-metrics">
-            <div><dt>Players in snapshot</dt><dd>{number(status.snapshot.total_players)}</dd></div>
-            <div><dt>Unemployed</dt><dd>{number(status.snapshot.unemployed)}</dd></div>
-            <div><dt>City-job workers</dt><dd>{number(status.snapshot.city_jobs)}</dd></div>
-            <div><dt>Federal-jail records excluded</dt><dd>{number(status.snapshot.excluded_fed)}</dd></div>
-          </dl><p className="recruitment-muted">Imported {dateTime(status.snapshot.imported_at)}</p>
-        </> : <p>Import a Torn user snapshot to see active recruitment candidates.</p>}
-        <p className="recruitment-muted">Employment and activity reflect the imported snapshot. Matching saved stats makes no Torn requests.</p>
-        {isAdmin && <form onSubmit={upload} className="recruitment-upload">
-          <label>Snapshot file<input type="file" accept=".csv,.json,text/csv,application/json" disabled={busy} onChange={e => setFile(e.target.files?.[0] ?? null)}/></label>
-          <label>Snapshot date<input type="date" required max={new Date().toISOString().slice(0,10)} value={snapshotDate} disabled={busy} onChange={e => setSnapshotDate(e.target.value)}/></label>
-          <button className="panel-action-button" disabled={busy || !file}><Upload size={16}/>{busy ? 'Please wait…' : 'Import snapshot'}</button>
-        </form>}
-      </section>
-    </div>
     <section className="panel">
-      <div className="recruitment-heading"><h3>Candidates</h3><button className="panel-action-button" onClick={() => setVersion(v => v + 1)} disabled={loading}>Refresh results</button></div>
+      <div className="recruitment-heading"><h3>Candidates</h3>{isAdmin
+        ? <button className="panel-action-button" onClick={() => void refreshCandidates()} disabled={refreshingCandidates}><RefreshCw size={16}/>{refreshingCandidates ? 'Refreshing…' : 'Refresh candidates'}</button>
+        : <button className="panel-action-button" onClick={() => setVersion(v => v + 1)} disabled={loading}>Refresh results</button>}</div>
+      <p className="recruitment-muted">{status?.snapshot
+        ? `Snapshot ${status.snapshot.snapshot_date} · ${number(status.snapshot.unemployed)} unemployed · ${number(status.snapshot.city_jobs)} city-job workers · Updated ${dateTime(status.snapshot.imported_at)}`
+        : isAdmin ? 'Refresh candidates to fetch Torn’s daily active-player snapshot.' : 'An administrator can refresh the daily candidate data.'}</p>
+      <p className="recruitment-muted">Candidate refresh uses one Torn API call. Filtering and matching saved work stats use no additional calls.</p>
       <p className="recruitment-muted">{results ? `${number(results.matched)} with saved stats · ${number(results.unknown)} not in saved work-stat data` : 'Loading coverage…'}. Missing stats may mean a player was below the cutoff or qualified after the last scan.</p>
       <form className="recruitment-filters" onSubmit={e => { e.preventDefault(); setPage(0); setApplied({...filters}); }}>
         <label>Employment<select value={filters.job} onChange={e => setFilters({...filters, job:e.target.value})}><option value="all">Unemployed + city jobs</option><option value="unemployed">Unemployed only</option>{CITY_JOBS.map(job => <option key={job}>{job}</option>)}</select></label>
@@ -134,11 +116,11 @@ export function Recruitment({ isAdmin }: { isAdmin: boolean }) {
         <label>Player name or ID<input type="search" maxLength={100} value={filters.q} onChange={e => setFilters({...filters,q:e.target.value})}/></label>
         <button className="panel-action-button primary-action">Apply filters</button>
       </form>
-      {loading ? <p role="status">Loading candidates…</p> : !status?.snapshot ? <p>No snapshot imported yet.</p> : results?.candidates.length ? <>
+      {loading ? <p role="status">Loading candidates…</p> : !status?.snapshot ? <p>No candidate data fetched yet.</p> : results?.candidates.length ? <>
         <div className="recruitment-table-wrap"><table className="recruitment-table"><thead><tr><th>Player</th><th>Employment</th><th>Level</th><th>Total work stats</th><th>Saved HOF position</th><th>Stats checked</th></tr></thead>
           <tbody>{results.candidates.map(p => <tr key={p.player_id}><td><a href={`https://www.torn.com/profiles.php?XID=${p.player_id}`} target="_blank" rel="noreferrer">{p.username}</a><small>{p.player_id}</small></td><td>{p.city_job ?? 'Unemployed'}</td><td>{p.level}</td><td>{p.total_work_stats === null ? 'Not in saved data' : number(p.total_work_stats)}</td><td>{p.hof_position === null ? '—' : number(p.hof_position)}</td><td>{dateTime(p.work_stats_checked_at)}</td></tr>)}</tbody></table></div>
         <div className="recruitment-pagination"><span>{number(results.total)} results · Page {page+1} of {number(currentPageCount)}</span><button className="panel-action-button" disabled={page===0} onClick={() => setPage(p => p-1)}>Previous</button><button className="panel-action-button" disabled={page+1>=currentPageCount} onClick={() => setPage(p => p+1)}>Next</button></div>
-      </> : <p>No candidates match these filters{scan?.status==='running' ? ' yet. Refresh results as the scan progresses' : ''}.</p>}
+      </> : <p>No candidates match these filters{scan?.status==='running' ? ' yet. More matches may appear as the scan progresses' : ''}.</p>}
     </section>
   </div>;
 }

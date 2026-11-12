@@ -1,27 +1,8 @@
 import { controlRecruitmentScan, recruitmentCandidates, recruitmentStatus } from '../recruitment';
-import { importRecruitmentSnapshot, RecruitmentInputError } from '../recruitmentSnapshot';
+import { refreshRecruitmentSnapshot, RecruitmentInputError } from '../recruitmentSnapshot';
 import { readJsonObject } from '../backend/request';
-import { json, nowSeconds } from '../utils';
+import { json } from '../utils';
 import { withAdmin, withMember, type RouteContext, type RouteResult } from './context';
-
-async function readSnapshotBody(request: Request) {
-  const maxBytes = 20 * 1024 * 1024;
-  if (Number(request.headers.get('Content-Length')) > maxBytes) throw new RecruitmentInputError('Snapshot must be under 20 MB.');
-  const reader = request.body?.getReader();
-  if (!reader) throw new RecruitmentInputError('Choose a snapshot file.');
-  const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: false });
-  let text = '', bytes = 0;
-  try {
-    while (true) {
-      const next = await reader.read();
-      if (next.done) break;
-      bytes += next.value.byteLength;
-      if (bytes > maxBytes) { await reader.cancel(); throw new RecruitmentInputError('Snapshot must be under 20 MB.'); }
-      text += decoder.decode(next.value, { stream: true });
-    }
-    return text + decoder.decode();
-  } finally { reader.releaseLock(); }
-}
 
 export async function routeRecruitmentApi(context: RouteContext): Promise<RouteResult> {
   const { request, env, url } = context;
@@ -30,9 +11,9 @@ export async function routeRecruitmentApi(context: RouteContext): Promise<RouteR
     try {
       if (request.method === 'GET' && url.pathname === '/api/recruitment/status') return json({ ok: true, ...await recruitmentStatus(env) });
       if (request.method === 'GET' && url.pathname === '/api/recruitment/candidates') return json({ ok: true, ...await recruitmentCandidates(env, url.searchParams) });
-      if (request.method === 'POST' && url.pathname === '/api/recruitment/snapshot') {
-        const snapshot = await importRecruitmentSnapshot(env, await readSnapshotBody(request), url.searchParams.get('date') ?? '', nowSeconds());
-        return json({ ok: true, snapshot });
+      if (request.method === 'POST' && url.pathname === '/api/recruitment/candidates/refresh') {
+        await refreshRecruitmentSnapshot(env);
+        return json({ ok: true, ...await recruitmentStatus(env) });
       }
       const action = /^\/api\/recruitment\/scan\/(start|pause|resume)$/.exec(url.pathname)?.[1];
       if (request.method === 'POST' && action) {

@@ -59,16 +59,6 @@ export function postJson<T = unknown>(path: string, body?: unknown, includeAuth 
   return requestJson(path, "POST", body, includeAuth, signal);
 }
 
-export async function postText<T>(path: string, body: string, contentType = 'text/csv'): Promise<T> {
-  const token = getAuthToken();
-  const response = await fetch(`${API_BASE_URL}${path}`, { method: 'POST', body,
-    headers: { 'Content-Type': contentType, ...(token ? { Authorization: `Bearer ${token}` } : {}) } });
-  const data = await responseData(response);
-  if (!response.ok || data?.ok === false) throw requestError(response, data, token, path);
-  if (!data) throw new ApiError('Server returned an invalid response', response.status);
-  return data as T;
-}
-
 export function putJson<T = unknown>(path: string, body: unknown, includeAuth = true): Promise<T> {
   return requestJson(path, "PUT", body, includeAuth);
 }

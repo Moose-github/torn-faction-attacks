@@ -1,8 +1,8 @@
 # Company recruitment
 
-The Recruitment page under Miscellaneous matches manually imported Torn user snapshots against a saved work-stat HOF database. Members can search results. Administrators can import snapshots and start, pause or resume scans.
+The Recruitment page under Miscellaneous matches Torn's daily active-player snapshot against a saved work-stat HOF database. Members can search results. Administrators can refresh candidates directly from Torn and start, pause or resume HOF scans.
 
-Apply `0210_create_recruitment.sql` before deploying the worker and dashboard. No initial scan or snapshot import is performed by deployment.
+Apply `0210_create_recruitment.sql` before deploying the worker and dashboard. No initial scan or candidate refresh is performed by deployment.
 
 ## Scanning
 
@@ -18,14 +18,14 @@ The scan uses a database lease to prevent overlapping cron workers. Each page's 
 
 ## Snapshots and candidates
 
-Upload the original user snapshot CSV, including downloads with a `.json` extension, and select its snapshot date. Files are limited to 20 MB / 250,000 players. Imports validate the complete file before writing and stage rows before atomically switching the current snapshot. Incomplete imports never replace the visible dataset. An older snapshot cannot replace a newer one.
+Refresh candidates fetches today's snapshot directly from the official [`GET /v2/user/snapshot`](https://www.torn.com/swagger.php#/User/getUsersSnapshot) endpoint using a pooled key, then matches it against saved work stats. There is no file upload or date picker. Each refresh makes one API request and shares the HOF scanner's 10-per-key rolling budget, pool limits and Fallback exclusion. A shared two-minute refresh guard prevents overlapping requests. Refreshing candidates does not start or alter the HOF scan.
 
-Successful imports clean up superseded snapshots older than 24 hours while preserving the current snapshot and recent staged imports. Scan attempts are retained for 24 hours; scan totals remain on the scan record.
+Responses are limited to 20 MB / 250,000 players, validated completely and staged before switching the current snapshot. Failed or incomplete refreshes preserve existing candidates. Superseded snapshots older than 24 hours are cleaned up after a successful refresh. Scan attempts are retained for 24 hours during scanning; scan totals remain on the scan record.
 
 Only unemployed players and the six city jobs are retained for matching; company employees/directors and nonzero federal-jail flags are excluded. Counts reflect those exclusions. Snapshot presence provides activity eligibility as of that snapshot, not a live last-action timestamp. Candidate names and jobs come from the snapshot; work-stat totals, HOF positions and check times come from the cache.
 
-Unmatched IDs are explicitly unknown, not assumed to be under the cutoff. Default results show saved stats with a minimum of 100,000; filters can also show unknowns. Searches, status polling and imports make no Torn calls. Refreshing the HOF database is always manual. This feature neither downloads snapshots automatically nor interacts with Torn's website, contacts players or changes anything in-game.
+Unmatched IDs are explicitly unknown, not assumed to be under the cutoff. Default results show saved stats with a minimum of 100,000; filters can also show unknowns. Searches, status polling and matching make no Torn calls. Both HOF scans and candidate refreshes are manual. This feature does not interact with Torn's website, contact players or change anything in-game.
 
 ## Verification
 
-`npx vitest run tests/recruitment.test.ts` exercises SQLite transactions, rolling key limits, Fallback exclusion, pause/resume, lease fencing, errors, cutoff ties, CSV validation, atomic import visibility and local candidate matching. Torn requests are mocked.
+`npx vitest run tests/recruitment.test.ts` exercises SQLite transactions, shared rolling key limits, Fallback exclusion, pause/resume, lease fencing, errors, cutoff ties, direct snapshot refresh, concurrent refresh protection, response validation and local candidate matching. Torn requests are mocked.
