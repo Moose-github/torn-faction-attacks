@@ -1,5 +1,6 @@
-import { RECRUITMENT_CALLS_PER_KEY, RECRUITMENT_MIN_STATS, CITY_JOBS, type RecruitmentScan,
-  type RecruitmentSnapshot, type RecruitmentStatus, type RecruitmentResults, type RecruitmentCandidate } from '../shared/recruitment';
+import { RECRUITMENT_CALLS_PER_KEY, RECRUITMENT_MIN_STATS, type RecruitmentScan,
+  type RecruitmentSnapshot, type RecruitmentStatus } from '../shared/recruitment';
+import { rebuildRecruitmentResults } from './recruitmentResults';
 import { isRecord } from './backend/request';
 import { fetchTrackedTornJson } from './external/torn';
 import { ExternalApiError } from './external/http';
@@ -79,20 +80,34 @@ export async function saveRecruitmentPage(env: Env, scan: RecruitmentScan, paylo
   const page = parseRecruitmentHof(payload, scan.next_offset);
   const guard = `EXISTS (SELECT 1 FROM recruitment_scan WHERE id = 1 AND run_id = ? AND lease_token = ? AND next_offset = ? AND lease_until > ?)`;
   const results = await env.DB.batch([
-    env.DB.prepare(`INSERT INTO recruitment_work_stats(player_id, username, total_work_stats, hof_position, work_stats_checked_at)
-      SELECT json_extract(value, '$.player_id'), json_extract(value, '$.username'), json_extract(value, '$.total_work_stats'),
+    env.DB.prepare(`INSERT INTO recruitment_scan_stats(run_id, player_id, username, total_work_stats, hof_position, work_stats_checked_at)
+      SELECT ?, json_extract(value, '$.player_id'), json_extract(value, '$.username'), json_extract(value, '$.total_work_stats'),
         json_extract(value, '$.hof_position'), ? FROM json_each(?) WHERE ${guard}
-      ON CONFLICT(player_id) DO UPDATE SET username = excluded.username, total_work_stats = excluded.total_work_stats,
+      ON CONFLICT(run_id, player_id) DO UPDATE SET username = excluded.username, total_work_stats = excluded.total_work_stats,
         hof_position = excluded.hof_position, work_stats_checked_at = excluded.work_stats_checked_at`)
-      .bind(now, JSON.stringify(page.players), scan.run_id, scan.lease_token, scan.next_offset, now),
+      .bind(scan.run_id, now, JSON.stringify(page.players), scan.run_id, scan.lease_token, scan.next_offset, now),
+    ...(page.complete ? [
+      env.DB.prepare(`INSERT INTO recruitment_work_stats SELECT player_id, username, total_work_stats, hof_position, work_stats_checked_at
+        FROM recruitment_scan_stats WHERE run_id = ? AND ${guard}
+        ON CONFLICT(player_id) DO UPDATE SET username = excluded.username, total_work_stats = excluded.total_work_stats,
+          hof_position = excluded.hof_position, work_stats_checked_at = excluded.work_stats_checked_at`)
+        .bind(scan.run_id, scan.run_id, scan.lease_token, scan.next_offset, now),
+      env.DB.prepare(`UPDATE recruitment_result_state SET stats_version = ? WHERE id = 1 AND ${guard}`)
+        .bind(scan.run_id, scan.run_id, scan.lease_token, scan.next_offset, now),
+    ] : []),
     env.DB.prepare(`UPDATE recruitment_scan SET next_offset = ?, pages_saved = pages_saved + 1,
       players_saved = players_saved + ?, updated_at = ?, last_value = ?, last_error = NULL, failures = 0, retry_at = 0,
+      results_pending = CASE WHEN ? THEN 1 ELSE results_pending END,
       status = CASE WHEN ? THEN 'completed' ELSE status END, finished_at = CASE WHEN ? THEN ? ELSE finished_at END
       WHERE id = 1 AND run_id = ? AND lease_token = ? AND next_offset = ? AND lease_until > ?`)
-      .bind(page.nextOffset, page.players.length, now, page.last, page.complete ? 1 : 0, page.complete ? 1 : 0,
+      .bind(page.nextOffset, page.players.length, now, page.last, page.complete ? 1 : 0, page.complete ? 1 : 0, page.complete ? 1 : 0,
         now, scan.run_id, scan.lease_token, scan.next_offset, now),
   ]);
-  if (!results[1].meta.changes) throw new RecruitmentInputError('The scan lease changed before the page could be saved.');
+  if (!results.at(-1)!.meta.changes) throw new RecruitmentInputError('The scan lease changed before the page could be saved.');
+  if (page.complete) {
+    await rebuildRecruitmentResults(env);
+    await env.DB.prepare('DELETE FROM recruitment_scan_stats WHERE run_id = ?').bind(scan.run_id).run();
+  }
 }
 
 class RecruitmentApiError extends Error {
@@ -110,10 +125,15 @@ function apiError(payload: unknown) {
 export async function runRecruitmentTick(env: Env) {
   const now = nowSeconds(), token = crypto.randomUUID();
   const claim = await env.DB.prepare(`UPDATE recruitment_scan SET lease_token = ?, lease_until = ?
-    WHERE id = 1 AND status = 'running' AND lease_until <= ? AND retry_at <= ? RETURNING *`)
+    WHERE id = 1 AND (status = 'running' OR results_pending = 1) AND lease_until <= ? AND retry_at <= ? RETURNING *`)
     .bind(token, now + 90, now, now).first<RecruitmentScan>();
   if (!claim) return;
   try {
+    if (claim.results_pending) await rebuildRecruitmentResults(env);
+    if (claim.status !== 'running') {
+      if (claim.status === 'completed') await env.DB.prepare('DELETE FROM recruitment_scan_stats WHERE run_id = ?').bind(claim.run_id).run();
+      return;
+    }
     await env.DB.prepare('DELETE FROM recruitment_attempts WHERE attempted_at < ?').bind(now - 86400).run();
     const candidates = await readRecruitmentKeys(env, now);
     const deadline = Date.now() + 50_000;
@@ -164,47 +184,15 @@ export async function runRecruitmentTick(env: Env) {
 }
 
 export async function recruitmentStatus(env: Env): Promise<RecruitmentStatus> {
-  const [scan, snapshot, keys] = await Promise.all([
+  const [scan, snapshot, keys, resultState] = await Promise.all([
     readRecruitmentScan(env),
     env.DB.prepare(`SELECT s.* FROM recruitment_snapshots s JOIN recruitment_current_snapshot c ON c.snapshot_id = s.id WHERE c.id = 1`).first<RecruitmentSnapshot>(),
     env.DB.prepare(`SELECT COUNT(*) AS total, COALESCE(SUM(COALESCE(k.paused_until, 0) <= ?), 0) AS available
       FROM torn_api_keys k WHERE ${RECRUITMENT_KEY_SQL}`).bind(nowSeconds()).first<{total: number; available: number}>(),
+    env.DB.prepare('SELECT version FROM recruitment_result_state WHERE id = 1').first<{version:number}>(),
   ]);
   const { lease_token: _token, ...publicScan } = scan;
   return { scan: publicScan, snapshot, keys: { total: keys?.total ?? 0, available: keys?.available ?? 0,
-    calls_per_minute: (keys?.available ?? 0) * RECRUITMENT_CALLS_PER_KEY }, min_work_stats: RECRUITMENT_MIN_STATS };
-}
-
-export async function recruitmentCandidates(env: Env, params: URLSearchParams): Promise<RecruitmentResults> {
-  const coverage = params.get('coverage') ?? 'matched';
-  const page = Number(params.get('page') ?? 0);
-  const min = coverage === 'unknown' ? RECRUITMENT_MIN_STATS : Number(params.get('min') ?? RECRUITMENT_MIN_STATS);
-  const max = coverage === 'unknown' || !params.get('max') ? Number.MAX_SAFE_INTEGER : Number(params.get('max'));
-  const job = params.get('job') ?? 'all', search = (params.get('q') ?? '').trim();
-  if (!nonnegative(page) || page > 10000 || !nonnegative(min) || min < RECRUITMENT_MIN_STATS || !nonnegative(max) || max < min
-    || !['all','unemployed',...CITY_JOBS].includes(job) || !['matched','unknown','all'].includes(coverage) || search.length > 100) {
-    throw new RecruitmentInputError('Choose valid recruitment filters. Minimum saved work stats is 100,000.');
-  }
-  const current = await env.DB.prepare('SELECT snapshot_id FROM recruitment_current_snapshot WHERE id = 1').first<{snapshot_id: string | null}>();
-  const snapshotId = current?.snapshot_id ?? null;
-  if (!snapshotId) return { candidates: [], total: 0, matched: 0, unknown: 0, page, snapshot_id: null };
-  const counts = await env.DB.prepare(`SELECT COUNT(w.player_id) AS matched, COUNT(*) - COUNT(w.player_id) AS unknown
-    FROM recruitment_snapshot_players p LEFT JOIN recruitment_work_stats w USING(player_id) WHERE p.snapshot_id = ?`)
-    .bind(snapshotId).first<{matched: number; unknown: number}>();
-  const conditions = ['p.snapshot_id = ?'], args: (string | number)[] = [snapshotId];
-  if (job === 'unemployed') conditions.push('p.city_job IS NULL');
-  else if (job !== 'all') { conditions.push('p.city_job = ?'); args.push(job); }
-  if (coverage === 'unknown') conditions.push('w.player_id IS NULL');
-  else {
-    conditions.push(coverage === 'all' ? '(w.player_id IS NULL OR w.total_work_stats BETWEEN ? AND ?)' : 'w.total_work_stats BETWEEN ? AND ?');
-    args.push(min, max);
-  }
-  if (search) { conditions.push('(instr(lower(p.username), lower(?)) > 0 OR CAST(p.player_id AS TEXT) = ?)'); args.push(search, search); }
-  const from = `FROM recruitment_snapshot_players p LEFT JOIN recruitment_work_stats w USING(player_id) WHERE ${conditions.join(' AND ')}`;
-  const [total, rows] = await Promise.all([
-    env.DB.prepare(`SELECT COUNT(*) AS n ${from}`).bind(...args).first<{n: number}>(),
-    env.DB.prepare(`SELECT p.player_id, p.username, p.city_job, p.level, p.faction_id, w.total_work_stats, w.hof_position, w.work_stats_checked_at
-      ${from} ORDER BY w.total_work_stats DESC, p.player_id LIMIT 50 OFFSET ?`).bind(...args, page * 50).all<RecruitmentCandidate>(),
-  ]);
-  return { candidates: rows.results, total: total?.n ?? 0, matched: counts?.matched ?? 0, unknown: counts?.unknown ?? 0, page, snapshot_id: snapshotId };
+    calls_per_minute: (keys?.available ?? 0) * RECRUITMENT_CALLS_PER_KEY }, min_work_stats: RECRUITMENT_MIN_STATS,
+    results_version:resultState?.version ?? 0 };
 }

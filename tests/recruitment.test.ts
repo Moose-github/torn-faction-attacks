@@ -1,9 +1,11 @@
 import { readFileSync } from 'node:fs';
 import { DatabaseSync, type SQLInputValue } from 'node:sqlite';
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
-import { controlRecruitmentScan, parseRecruitmentHof, readRecruitmentScan, recruitmentCandidates,
+import { controlRecruitmentScan, parseRecruitmentHof, readRecruitmentScan,
   reserveRecruitmentCall, runRecruitmentTick, saveRecruitmentPage } from '../src/recruitment';
 import { saveRecruitmentSnapshot, parseRecruitmentSnapshot, refreshRecruitmentSnapshot } from '../src/recruitmentSnapshot';
+import { readRecruitmentResults, rebuildRecruitmentResults } from '../src/recruitmentResults';
+import { filterRecruitmentCandidates } from '../dashboard/src/utils/recruitmentCandidates';
 import { readRecruitmentKeys } from '../src/recruitmentKeys';
 import { routeRecruitmentApi } from '../src/http/recruitmentRoutes';
 import { fetchTrackedTornJson, fetchTrackedTornResponse } from '../src/external/torn';
@@ -21,6 +23,7 @@ vi.mock('../src/auth', () => ({
 let db: DatabaseSync;
 let env: Env;
 let now: number;
+let executedSql: string[];
 const candidate = (id: string): TornKeyPoolCandidate => ({ id, key: 'test-' + id, keySource: 'key_pool:' + id,
   sourceType: 'submitted', maxRequestsPerMinute: 75, currentMinuteUsage: 0, lastUsedAt: null, monitorLastUsedAt: null });
 const header = 'id,name,company,job,level,faction,fed,fed_reason';
@@ -40,17 +43,22 @@ async function running() {
 }
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.stubGlobal('caches', {default:{match:vi.fn(async()=>undefined), put:vi.fn(async()=>undefined)}});
   now = 1_800_000_000;
+  executedSql = [];
   vi.spyOn(Date, 'now').mockImplementation(() => now*1000);
   db = new DatabaseSync(':memory:');
   db.exec('PRAGMA foreign_keys=ON');
   db.exec(readFileSync(new URL('../migrations/0002_create_torn_attack_tables.sql', import.meta.url), 'utf8'));
   db.exec(readFileSync(new URL('../migrations/0120_create_torn_key_pool.sql', import.meta.url), 'utf8'));
   db.exec(readFileSync(new URL('../migrations/0210_create_recruitment.sql', import.meta.url), 'utf8'));
+  db.exec(readFileSync(new URL('../migrations/0211_cache_recruitment_results.sql', import.meta.url), 'utf8'));
+  db.exec('UPDATE recruitment_scan SET results_pending=0');
   class Statement {
     constructor(readonly sql: string, readonly values: SQLInputValue[] = []) {}
     bind(...values: SQLInputValue[]) { return new Statement(this.sql, values); }
     execute() {
+      executedSql.push(this.sql);
       const before = Number(db.prepare('SELECT total_changes() AS n').get()!.n);
       const results = db.prepare(this.sql).all(...this.values);
       return { results, success: true, meta: { changes: Number(db.prepare('SELECT total_changes() AS n').get()!.n) - before } };
@@ -68,7 +76,7 @@ beforeEach(() => {
     },
   } } as unknown as Env;
 });
-afterEach(() => { vi.restoreAllMocks(); db.close(); });
+afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); db.close(); });
 
 describe('HOF parsing and checkpoint safety', () => {
   it('keeps the inclusive cutoff and continues past a full page tied at 100,000', () => {
@@ -93,7 +101,7 @@ describe('HOF parsing and checkpoint safety', () => {
     expect(await readRecruitmentScan(env)).toMatchObject({status:'paused',next_offset:100,pages_saved:1});
     await controlRecruitmentScan(env,'resume',scan.run_id,now);
     expect(await readRecruitmentScan(env)).toMatchObject({status:'running',next_offset:100});
-    expect(db.prepare('SELECT COUNT(*) AS n FROM recruitment_work_stats').get()!.n).toBe(100);
+    expect(db.prepare('SELECT COUNT(*) AS n FROM recruitment_scan_stats').get()!.n).toBe(100);
     expect(JSON.stringify(db.prepare('SELECT * FROM recruitment_scan').get())).not.toContain('do-not-save');
   });
   it('rolls the stats and offset back together on a storage failure', async () => {
@@ -187,6 +195,71 @@ describe('pool limits and scanner lifecycle', () => {
 });
 
 describe('snapshot refreshes and local matching', () => {
+  it('reuses today’s snapshot and result version without another Torn request or comparison', async () => {
+    key('k1');
+    vi.mocked(fetchTrackedTornResponse).mockResolvedValueOnce(new Response(csv));
+    await refreshRecruitmentSnapshot(env);
+    const first = await readRecruitmentResults(env);
+    executedSql=[];
+    await refreshRecruitmentSnapshot(env);
+    expect((await readRecruitmentResults(env)).version).toBe(first.version);
+    expect(fetchTrackedTornResponse).toHaveBeenCalledTimes(1);
+    expect(executedSql.some(sql=>sql.includes('LEFT JOIN recruitment_work_stats'))).toBe(false);
+  });
+  it('keeps published stats stable through partial pages and publishes one new result on completion', async () => {
+    db.prepare('INSERT INTO recruitment_work_stats VALUES(1,?,?,?,?)').run('Old',150000,1,now-100);
+    await saveRecruitmentSnapshot(env,csv,'2026-11-12',now);
+    const before=await readRecruitmentResults(env);
+    const scan=await running();
+    await saveRecruitmentPage(env,scan,hof(),now);
+    expect((await readRecruitmentResults(env)).version).toBe(before.version);
+    // A new snapshot during the scan still uses the previously published stats.
+    await saveRecruitmentSnapshot(env,csv,'2026-11-12',now+1);
+    expect((await readRecruitmentResults(env)).candidates[0].total_work_stats).toBe(150000);
+    executedSql=[];
+    await saveRecruitmentPage(env,await readRecruitmentScan(env),hof(100,[99999],false),now+2);
+    expect(executedSql.filter(sql=>sql.includes('LEFT JOIN recruitment_work_stats'))).toHaveLength(1);
+    const after=await readRecruitmentResults(env);
+    expect(after.candidates[0].total_work_stats).toBe(200000);
+    expect(after.version).toBe(before.version+2);
+    expect((await readRecruitmentScan(env)).results_pending).toBe(0);
+  });
+  it('reads a multi-chunk saved result with one query and never compares on page reads', async () => {
+    const largeCsv=header+'\n'+Array.from({length:1101},(_,i)=>`${i+1},P${i+1},,,10,,0,`).join('\n');
+    await saveRecruitmentSnapshot(env,largeCsv,'2026-11-12',now);
+    expect(db.prepare('SELECT COUNT(*) AS n FROM recruitment_result_chunks').get()!.n).toBe(3);
+    executedSql=[];
+    expect((await readRecruitmentResults(env)).candidates).toHaveLength(1101);
+    expect(executedSql).toHaveLength(1);
+    expect(executedSql[0]).not.toMatch(/recruitment_work_stats|recruitment_snapshot_players/);
+  });
+  it('recovers a failed materialization after completion without making another Torn request', async () => {
+    await saveRecruitmentSnapshot(env,csv,'2026-11-12',now);
+    const previous=await readRecruitmentResults(env);
+    const scan=await running();
+    db.exec("CREATE TRIGGER fail_result BEFORE INSERT ON recruitment_results BEGIN SELECT RAISE(ABORT,'result write failed'); END");
+    await expect(saveRecruitmentPage(env,scan,hof(0,[200000,99999],false),now)).rejects.toThrow();
+    expect((await readRecruitmentResults(env)).version).toBe(previous.version);
+    expect(await readRecruitmentScan(env)).toMatchObject({status:'completed',results_pending:1});
+    db.exec('DROP TRIGGER fail_result');
+    db.exec('UPDATE recruitment_scan SET lease_until=0');
+    await runRecruitmentTick(env);
+    expect((await readRecruitmentResults(env)).version).toBe(previous.version+1);
+    expect(db.prepare('SELECT COUNT(*) AS n FROM recruitment_scan_stats').get()!.n).toBe(0);
+    expect(fetchTrackedTornJson).not.toHaveBeenCalled();
+  });
+  it('serves authenticated cached results without D1 version checks', async () => {
+    await saveRecruitmentSnapshot(env,csv,'2026-11-12',now);
+    const version=(await readRecruitmentResults(env)).version;
+    const request=new Request(`https://cache-test/api/recruitment/candidates?version=${version}`,{headers:{Authorization:'Bearer member'}});
+    const context={request,env,url:new URL(request.url),ctx:{waitUntil:()=>undefined}} as unknown as RouteContext;
+    executedSql=[];
+    expect((await routeRecruitmentApi(context))!.status).toBe(200);
+    expect(executedSql).toHaveLength(1);
+    executedSql=[];
+    expect((await routeRecruitmentApi(context))!.status).toBe(200);
+    expect(executedSql).toHaveLength(0);
+  });
   it('handles CSV quoting, city jobs, directors, unemployment and fed exclusions', () => {
     const parsed=parseRecruitmentSnapshot(csv);
     expect(parsed).toMatchObject({total_players:6,unemployed:1,city_jobs:2,excluded_fed:1});
@@ -198,12 +271,12 @@ describe('snapshot refreshes and local matching', () => {
   it('joins by ID, uses current names, keeps unknowns explicit and filters without Torn calls', async () => {
     const scan=await running(); await saveRecruitmentPage(env,scan,hof(0,[200000,100000,99999],false),now);
     await saveRecruitmentSnapshot(env,csv,'2026-11-12',now);
-    const matched=await recruitmentCandidates(env,new URLSearchParams());
-    expect(matched).toMatchObject({total:2,matched:2,unknown:1});
-    expect(matched.candidates.map(p=>p.username)).toEqual(['Alice','Bob']);
-    const unknown=await recruitmentCandidates(env,new URLSearchParams({coverage:'unknown',min:'',max:'1'}));
+    const matched=await readRecruitmentResults(env);
+    expect(matched).toMatchObject({total:3,matched:2,unknown:1});
+    expect(matched.candidates.map(p=>p.username)).toEqual(['Alice','Bob','Fay']);
+    const unknown=filterRecruitmentCandidates(await readRecruitmentResults(env),{coverage:'unknown',job:'all',min:'',max:'1',q:''},0);
     expect(unknown.candidates[0]).toMatchObject({player_id:6,total_work_stats:null});
-    expect((await recruitmentCandidates(env,new URLSearchParams({job:'unemployed',min:'150000'}))).total).toBe(1);
+    expect((filterRecruitmentCandidates(await readRecruitmentResults(env),{job:'unemployed',min:'150000',coverage:'matched',max:'',q:''},0)).total).toBe(1);
     expect(fetchTrackedTornJson).not.toHaveBeenCalled();
     expect(fetchTrackedTornResponse).not.toHaveBeenCalled();
   });
@@ -225,7 +298,7 @@ describe('snapshot refreshes and local matching', () => {
       `https://api.torn.com/v2/user/snapshot?timestamp=${now}`,
       {headers:{Authorization:'ApiKey test-k1'}},
       {feature:'company_recruitment',keySource:'key_pool:k1',timeoutMs:15000});
-    expect(await recruitmentCandidates(env,new URLSearchParams())).toMatchObject({total:3,matched:3,unknown:0});
+    expect(await readRecruitmentResults(env)).toMatchObject({total:3,matched:0,unknown:3});
     const savedScan=await readRecruitmentScan(env);
     expect(savedScan).toMatchObject({calls_used:0,next_offset:100,status:'running'});
     for(let i=0;i<9;i++) expect(await reserveRecruitmentCall(env,savedScan,candidate('k1'),now)).toBe(true);
@@ -237,7 +310,7 @@ describe('snapshot refreshes and local matching', () => {
     const refreshes=await Promise.allSettled([refreshRecruitmentSnapshot(env),refreshRecruitmentSnapshot(env)]);
     expect(refreshes.filter(r=>r.status==='fulfilled')).toHaveLength(1);
     expect(fetchTrackedTornResponse).toHaveBeenCalledTimes(1);
-    now+=120;
+    now+=86400;
     db.prepare('INSERT INTO torn_api_key_usage_windows VALUES(?,?,?)').run('k1',now,75);
     await expect(refreshRecruitmentSnapshot(env)).rejects.toThrow('No pool key has capacity');
     expect(fetchTrackedTornResponse).toHaveBeenCalledTimes(1);
@@ -265,7 +338,7 @@ describe('snapshot refreshes and local matching', () => {
   it('requires member access to read and admin access to mutate', async () => {
     const route=async(path:string,method:string,token?:string,body?:string)=>{
       const request=new Request('https://test'+path,{method,headers:{'Content-Type':'application/json',...(token?{Authorization:'Bearer '+token}:{})},body});
-      return routeRecruitmentApi({request,env,url:new URL(request.url),ctx:{}} as RouteContext);
+      return routeRecruitmentApi({request,env,url:new URL(request.url),ctx:{waitUntil:()=>undefined}} as unknown as RouteContext);
     };
     expect((await route('/api/recruitment/status','GET'))!.status).toBe(401);
     expect((await route('/api/recruitment/status','GET','member'))!.status).toBe(200);

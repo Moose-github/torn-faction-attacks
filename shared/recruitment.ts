@@ -18,6 +18,7 @@ export type RecruitmentScan = {
   lease_token: string | null;
   lease_until: number;
   last_value: number | null;
+  results_pending: number;
 };
 export type RecruitmentSnapshot = {
   id: string;
@@ -43,8 +44,11 @@ export type RecruitmentStatus = {
   snapshot: RecruitmentSnapshot | null;
   keys: { available: number; total: number; calls_per_minute: number };
   min_work_stats: number;
+  results_version: number;
 };
 export type RecruitmentResults = {
+  version: number;
+  snapshot: RecruitmentSnapshot | null;
   candidates: RecruitmentCandidate[];
   total: number;
   matched: number;

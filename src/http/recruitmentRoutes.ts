@@ -1,4 +1,6 @@
-import { controlRecruitmentScan, recruitmentCandidates, recruitmentStatus } from '../recruitment';
+import { controlRecruitmentScan, recruitmentStatus } from '../recruitment';
+import { readRecruitmentResults } from '../recruitmentResults';
+import { cachedGetJson } from '../responseCache';
 import { refreshRecruitmentSnapshot, RecruitmentInputError } from '../recruitmentSnapshot';
 import { readJsonObject } from '../backend/request';
 import { json } from '../utils';
@@ -9,8 +11,16 @@ export async function routeRecruitmentApi(context: RouteContext): Promise<RouteR
   if (!url.pathname.startsWith('/api/recruitment/')) return null;
   const handle = async () => {
     try {
-      if (request.method === 'GET' && url.pathname === '/api/recruitment/status') return json({ ok: true, ...await recruitmentStatus(env) });
-      if (request.method === 'GET' && url.pathname === '/api/recruitment/candidates') return json({ ok: true, ...await recruitmentCandidates(env, url.searchParams) });
+      if (request.method === 'GET' && url.pathname === '/api/recruitment/status') {
+        return await cachedGetJson(request, context.ctx, 55, async () => json({ ok: true, ...await recruitmentStatus(env) }));
+      }
+      if (request.method === 'GET' && url.pathname === '/api/recruitment/candidates') {
+        const version = url.searchParams.get('version');
+        const cacheUrl = new URL(url); cacheUrl.search = version ? new URLSearchParams({version}).toString() : '';
+        return await cachedGetJson(new Request(cacheUrl), context.ctx,
+          data => version !== null && String(data.version) === version ? 86400 : 0,
+          async () => json({ok:true, ...await readRecruitmentResults(env)}), 'recruitment-results-v1');
+      }
       if (request.method === 'POST' && url.pathname === '/api/recruitment/candidates/refresh') {
         await refreshRecruitmentSnapshot(env);
         return json({ ok: true, ...await recruitmentStatus(env) });

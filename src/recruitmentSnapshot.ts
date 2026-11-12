@@ -4,6 +4,7 @@ import { fetchTrackedTornResponse } from './external/torn';
 import { readRecruitmentKeys, reserveRecruitmentPoolCall, SNAPSHOT_REFRESH_STATE } from './recruitmentKeys';
 import { markTornKeyFailure } from './tornKeyPool';
 import { nowSeconds } from './utils';
+import { rebuildRecruitmentResults } from './recruitmentResults';
 
 export class RecruitmentInputError extends Error {}
 type SnapshotPlayer = { player_id: number; username: string; city_job: string | null; level: number; faction_id: number | null };
@@ -90,15 +91,17 @@ export async function saveRecruitmentSnapshot(env: Env, text: string, date: stri
         .bind(snapshot.id, JSON.stringify(players.slice(i, i + 1000))).run();
     }
     // Only a complete import becomes visible. Concurrent older imports cannot replace newer data.
-    await env.DB.prepare(`UPDATE recruitment_current_snapshot SET snapshot_id = ? WHERE id = 1 AND
+    await env.DB.batch([env.DB.prepare(`UPDATE recruitment_current_snapshot SET snapshot_id = ? WHERE id = 1 AND
       (snapshot_id IS NULL OR EXISTS (SELECT 1 FROM recruitment_snapshots old WHERE old.id = snapshot_id AND
         (old.snapshot_date < ? OR (old.snapshot_date = ? AND old.imported_at <= ?))))`)
-      .bind(snapshot.id, date, date, now).run();
+      .bind(snapshot.id, date, date, now),
+      env.DB.prepare('UPDATE recruitment_scan SET results_pending = 1 WHERE id = 1 AND changes() > 0')]);
   } catch (error) {
     await env.DB.prepare('DELETE FROM recruitment_snapshot_players WHERE snapshot_id = ?').bind(snapshot.id).run();
     await env.DB.prepare('DELETE FROM recruitment_snapshots WHERE id = ?').bind(snapshot.id).run();
     throw error;
   }
+  await rebuildRecruitmentResults(env);
   // Keep current data and recent in-progress imports; do not accumulate daily copies.
   // Cleanup is best-effort and must never roll back a successfully published import.
   const obsolete = `SELECT id FROM recruitment_snapshots WHERE imported_at < ?
@@ -137,6 +140,13 @@ async function readSnapshotResponse(response: Response) {
 
 export async function refreshRecruitmentSnapshot(env: Env) {
   const now = nowSeconds();
+  const today = new Date(now * 1000).toISOString().slice(0,10);
+  const current = await env.DB.prepare(`SELECT s.* FROM recruitment_snapshots s JOIN recruitment_current_snapshot c
+    ON s.id = c.snapshot_id WHERE c.id = 1`).first<RecruitmentSnapshot>();
+  if (current?.snapshot_date === today) {
+    await rebuildRecruitmentResults(env);
+    return current;
+  }
   const claim = await env.DB.prepare(`INSERT INTO sync_state(name, last_started) VALUES (?, ?)
     ON CONFLICT(name) DO UPDATE SET last_started = excluded.last_started, updated_at = CURRENT_TIMESTAMP
     WHERE sync_state.last_started <= ? RETURNING name`).bind(SNAPSHOT_REFRESH_STATE, now, now - 120).first();

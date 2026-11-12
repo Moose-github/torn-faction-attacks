@@ -3,18 +3,19 @@ import { Play, Pause, RefreshCw, Users } from 'lucide-react';
 import { getJson, postJson } from '../api/client';
 import { CITY_JOBS, RECRUITMENT_MIN_STATS, type RecruitmentStatus, type RecruitmentResults } from '../../../shared/recruitment';
 import './recruitment.css';
+import { filterRecruitmentCandidates } from '../utils/recruitmentCandidates';
 
 const number = (n: number) => n.toLocaleString('en-GB');
 const dateTime = (n: number | null) => n === null ? '—' : new Date(n * 1000).toLocaleString('en-GB', { timeZone: 'UTC' }) + ' UTC';
 
 export function Recruitment({ isAdmin }: { isAdmin: boolean }) {
   const [status, setStatus] = React.useState<RecruitmentStatus | null>(null);
-  const [results, setResults] = React.useState<RecruitmentResults | null>(null);
+  const [dataset, setDataset] = React.useState<RecruitmentResults | null>(null);
   const [error, setError] = React.useState('');
   const [notice, setNotice] = React.useState('');
   const [busy, setBusy] = React.useState(false);
   const [loading, setLoading] = React.useState(true);
-  const [version, setVersion] = React.useState(0);
+  const [reload, setReload] = React.useState(0);
   const [page, setPage] = React.useState(0);
   const [filters, setFilters] = React.useState({ job: 'all', coverage: 'matched', min: String(RECRUITMENT_MIN_STATS), max: '', q: '' });
   const [applied, setApplied] = React.useState(filters);
@@ -22,37 +23,55 @@ export function Recruitment({ isAdmin }: { isAdmin: boolean }) {
 
   React.useEffect(() => {
     const controller = new AbortController();
-    let timer: ReturnType<typeof setTimeout>;
     async function load() {
       try {
         const next = await getJson<RecruitmentStatus>('/api/recruitment/status', true, controller.signal);
         if (!controller.signal.aborted) setStatus(next);
       } catch (e) { if (!controller.signal.aborted) setError(e instanceof Error ? e.message : 'Unable to load scan status.'); }
-      finally { if (!controller.signal.aborted) timer = setTimeout(load, 5000); }
     }
     void load();
-    return () => { controller.abort(); clearTimeout(timer); };
-  }, [version]);
+    return () => controller.abort();
+  }, [reload]);
 
   React.useEffect(() => {
+    if (status?.scan.status !== 'running' && !status?.scan.results_pending) return;
+    const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout>;
+    async function poll() {
+      let again = true;
+      try {
+        const next = await getJson<RecruitmentStatus>('/api/recruitment/status', true, controller.signal);
+        if (!controller.signal.aborted) setStatus(next);
+        again = next.scan.status === 'running' || Boolean(next.scan.results_pending);
+      } catch (e) { if (!controller.signal.aborted) setError(e instanceof Error ? e.message : 'Unable to load scan status.'); }
+      if (again && !controller.signal.aborted) timer = setTimeout(poll, 60000);
+    }
+    timer = setTimeout(poll, 60000);
+    return () => { controller.abort(); clearTimeout(timer); };
+  }, [status?.scan.status, status?.scan.results_pending]);
+
+  React.useEffect(() => {
+    if (status?.results_version === undefined) return;
     const controller = new AbortController();
     setLoading(true);
-    const query = new URLSearchParams({ ...applied, page: String(page) });
-    void getJson<RecruitmentResults>(`/api/recruitment/candidates?${query}`, true, controller.signal)
-      .then(next => { if (!controller.signal.aborted) { setResults(next); setError(''); } })
+    void getJson<RecruitmentResults>(`/api/recruitment/candidates?version=${status.results_version}`, true, controller.signal)
+      .then(next => { if (!controller.signal.aborted) { setDataset(next); setPage(0); setError(''); } })
       .catch(e => { if (!controller.signal.aborted) setError(e instanceof Error ? e.message : 'Unable to load candidates.'); })
       .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
-  }, [applied, page, version, status?.snapshot?.id, status?.scan.status]);
+  }, [status?.results_version]);
+
+  const results = React.useMemo(() => dataset ? filterRecruitmentCandidates(dataset, applied, page) : null, [dataset, applied, page]);
+  const snapshot = dataset?.snapshot;
 
   async function control(action: 'start' | 'pause' | 'resume') {
     if (!status) return;
     setBusy(true); setError(''); setNotice('');
     try {
       const next = await postJson<RecruitmentStatus>(`/api/recruitment/scan/${action}`, { run_id: status.scan.run_id });
-      setStatus(next); setVersion(v => v + 1);
+      setStatus(next);
       setNotice(action === 'pause' ? 'Paused. Any request already in flight will finish saving.' : 'Scan queued. Collection advances within the next minute and continues with this page closed.');
-    } catch (e) { setError(e instanceof Error ? e.message : 'Unable to update scan.'); setVersion(v => v + 1); }
+    } catch (e) { setError(e instanceof Error ? e.message : 'Unable to update scan.'); setReload(v => v + 1); }
     finally { setBusy(false); }
   }
 
@@ -60,8 +79,8 @@ export function Recruitment({ isAdmin }: { isAdmin: boolean }) {
     setRefreshingCandidates(true); setError(''); setNotice('');
     try {
       const next = await postJson<RecruitmentStatus>('/api/recruitment/candidates/refresh');
-      setStatus(next); setPage(0); setVersion(v => v + 1);
-      setNotice('Candidates refreshed from Torn’s daily active-player snapshot.');
+      setStatus(next);
+      setNotice('Candidates are up to date with the saved daily snapshot.');
     } catch (e) { setError(e instanceof Error ? e.message : 'Unable to refresh candidates.'); }
     finally { setRefreshingCandidates(false); }
   }
@@ -102,11 +121,12 @@ export function Recruitment({ isAdmin }: { isAdmin: boolean }) {
     <section className="panel">
       <div className="recruitment-heading"><h3>Candidates</h3>{isAdmin
         ? <button className="panel-action-button" onClick={() => void refreshCandidates()} disabled={refreshingCandidates}><RefreshCw size={16}/>{refreshingCandidates ? 'Refreshing…' : 'Refresh candidates'}</button>
-        : <button className="panel-action-button" onClick={() => setVersion(v => v + 1)} disabled={loading}>Refresh results</button>}</div>
-      <p className="recruitment-muted">{status?.snapshot
-        ? `Snapshot ${status.snapshot.snapshot_date} · ${number(status.snapshot.unemployed)} unemployed · ${number(status.snapshot.city_jobs)} city-job workers · Updated ${dateTime(status.snapshot.imported_at)}`
+        : <button className="panel-action-button" onClick={() => setReload(v => v + 1)} disabled={loading}>Refresh results</button>}</div>
+      <p className="recruitment-muted">{snapshot
+        ? `Snapshot ${snapshot.snapshot_date} · ${number(snapshot.unemployed)} unemployed · ${number(snapshot.city_jobs)} city-job workers · Updated ${dateTime(snapshot.imported_at)}`
         : isAdmin ? 'Refresh candidates to fetch Torn’s daily active-player snapshot.' : 'An administrator can refresh the daily candidate data.'}</p>
-      <p className="recruitment-muted">Candidate refresh uses one Torn API call. Filtering and matching saved work stats use no additional calls.</p>
+      <p className="recruitment-muted">Today’s snapshot is reused after the first refresh. Filtering, searching and page changes use the loaded results.</p>
+      {scan && ['running','paused','failed'].includes(scan.status) && <p className="recruitment-muted">Candidates use the published work stats until the HOF scan completes.</p>}
       <p className="recruitment-muted">{results ? `${number(results.matched)} with saved stats · ${number(results.unknown)} not in saved work-stat data` : 'Loading coverage…'}. Missing stats may mean a player was below the cutoff or qualified after the last scan.</p>
       <form className="recruitment-filters" onSubmit={e => { e.preventDefault(); setPage(0); setApplied({...filters}); }}>
         <label>Employment<select value={filters.job} onChange={e => setFilters({...filters, job:e.target.value})}><option value="all">Unemployed + city jobs</option><option value="unemployed">Unemployed only</option>{CITY_JOBS.map(job => <option key={job}>{job}</option>)}</select></label>
@@ -116,7 +136,7 @@ export function Recruitment({ isAdmin }: { isAdmin: boolean }) {
         <label>Player name or ID<input type="search" maxLength={100} value={filters.q} onChange={e => setFilters({...filters,q:e.target.value})}/></label>
         <button className="panel-action-button primary-action">Apply filters</button>
       </form>
-      {loading ? <p role="status">Loading candidates…</p> : !status?.snapshot ? <p>No candidate data fetched yet.</p> : results?.candidates.length ? <>
+      {loading ? <p role="status">Loading candidates…</p> : !snapshot ? <p>No candidate data fetched yet.</p> : results?.candidates.length ? <>
         <div className="recruitment-table-wrap"><table className="recruitment-table"><thead><tr><th>Player</th><th>Employment</th><th>Level</th><th>Total work stats</th><th>Saved HOF position</th><th>Stats checked</th></tr></thead>
           <tbody>{results.candidates.map(p => <tr key={p.player_id}><td><a href={`https://www.torn.com/profiles.php?XID=${p.player_id}`} target="_blank" rel="noreferrer">{p.username}</a><small>{p.player_id}</small></td><td>{p.city_job ?? 'Unemployed'}</td><td>{p.level}</td><td>{p.total_work_stats === null ? 'Not in saved data' : number(p.total_work_stats)}</td><td>{p.hof_position === null ? '—' : number(p.hof_position)}</td><td>{dateTime(p.work_stats_checked_at)}</td></tr>)}</tbody></table></div>
         <div className="recruitment-pagination"><span>{number(results.total)} results · Page {page+1} of {number(currentPageCount)}</span><button className="panel-action-button" disabled={page===0} onClick={() => setPage(p => p-1)}>Previous</button><button className="panel-action-button" disabled={page+1>=currentPageCount} onClick={() => setPage(p => p+1)}>Next</button></div>
