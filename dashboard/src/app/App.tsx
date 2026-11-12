@@ -87,6 +87,7 @@ const LifestyleStats = React.lazy(() =>
 const MembersOverview = React.lazy(() =>
   import("../views/MembersOverview").then((module) => ({ default: module.MembersOverview })),
 );
+const Recruitment = React.lazy(() => import("../views/Recruitment").then(module => ({ default: module.Recruitment })));
 const Miscellaneous = React.lazy(() =>
   import("../views/Miscellaneous").then((module) => ({ default: module.Miscellaneous })),
 );
@@ -848,6 +849,8 @@ function AppContents() {
             <LazyPage>
               <WarResearchResultsPage />
             </LazyPage>
+          ) : view === "recruitment" ? (
+            <LazyPage><Recruitment isAdmin={isAdmin} /></LazyPage>
           ) : view === "tradeScout" ? (
             <LazyPage>
               <TradeScout isAdmin={isAdmin} />

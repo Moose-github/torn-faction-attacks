@@ -5,6 +5,7 @@ export { ChainWatchSessions } from "./chainWatchSessions";
 export { RetaliationBoardAlarm } from "./retaliationBoardAlarm";
 import { handleDiscordInteractions } from "./discordInteractions";
 import { routeWatchScheduleApi } from "./http/chainWatchScheduleRoutes";
+import { routeRecruitmentApi } from "./http/recruitmentRoutes";
 import { routeAdminApi } from "./http/adminRoutes";
 import { routeArrestScoutApi } from "./http/arrestScoutRoutes";
 import { RouteContext, RouteResult } from "./http/context";
@@ -63,6 +64,7 @@ export default {
 
 async function routeApiRequest(routeContext: RouteContext): Promise<RouteResult> {
   return (
+    (await routeRecruitmentApi(routeContext)) ??
     (await routeWatchScheduleApi(routeContext)) ??
     (await routeWarPayoutPresetApi(routeContext)) ??
     (await routePublicApi(routeContext)) ??

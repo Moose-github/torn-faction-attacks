@@ -11,6 +11,7 @@ export type AppView =
   | "warResearchResults"
   | "tradeScout"
   | "arrestScout"
+  | "recruitment"
   | "halloweenProfit"
   | "bookStrategy"
   | "statEnhancerRange"
@@ -40,6 +41,7 @@ export const PAGE_PATHS: Record<Exclude<AppView, "war">, string> = {
   warResearchResults: "/war-research",
   tradeScout: "/trade-scout",
   arrestScout: "/arrest-scout",
+  recruitment: "/recruitment",
   halloweenProfit: "/halloween",
   bookStrategy: "/book-strategy",
   statEnhancerRange: "/stat-enhancer-range",

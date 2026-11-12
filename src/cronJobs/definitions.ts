@@ -1,5 +1,6 @@
 import { runChainWatchCron } from "../chainWatch";
 import { runRankedResearchTick } from "../rankedResearch";
+import { runRecruitmentTick } from "../recruitment";
 import { runArmoryCron, runMedicalStockAlertsCron } from "../armory";
 import { runWatchScheduleCron } from "../chainWatchScheduleDiscord";
 import { runEventCompetitionCron } from "../eventCompetition";
@@ -38,6 +39,14 @@ const QUARTER_HOUR_SLOT = cronSlot(15);
 const LIFESTYLE_SLOT = cronSlot(60, 10);
 
 export const CRON_JOB_DEFINITIONS: CronJobDefinition[] = [
+  {
+    label: "Manual company recruitment scan",
+    cadence: "1m (only while a manually started scan is running)",
+    category: "maintenance",
+    purpose: "Save work-stat HOF pages to 100,000 stats, at most 10 requests per pooled key per rolling minute; excludes Fallback.",
+    shouldRun: () => true,
+    run: runRecruitmentTick,
+  },
   {
     label: "Finite ranked war research batch",
     cadence: "1m (only while a manually started run is active)",
