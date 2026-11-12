@@ -108,16 +108,13 @@ export function Recruitment({ isAdmin }: { isAdmin: boolean }) {
       {scan?.last_error && <p className="recruitment-warning" role="status">{scan.last_error}</p>}
       {scan?.status === 'running' && (scan.retry_at > Date.now() / 1000 || status?.keys.available === 0) && <p className="recruitment-muted" role="status">{scan.retry_at > Date.now() / 1000 ? `Retry after ${dateTime(scan.retry_at)}.` : 'Waiting for available pool keys.'}</p>}
     </section>}
-    <section className="panel">
+    <section className="panel recruitment-candidates">
       <div className="recruitment-heading"><h3>Candidates</h3>{isAdmin
         ? <button className="panel-action-button" onClick={() => void refreshCandidates()} disabled={refreshingCandidates}><RefreshCw size={16}/>{refreshingCandidates ? 'Refreshing…' : 'Refresh candidates'}</button>
         : <button className="panel-action-button" onClick={() => setReload(v => v + 1)} disabled={loading}>Refresh results</button>}</div>
-      <p className="recruitment-muted">{snapshot
-        ? `Snapshot ${snapshot.snapshot_date} · ${number(snapshot.unemployed)} unemployed · ${number(snapshot.city_jobs)} city-job workers · Updated ${dateTime(snapshot.imported_at)}`
-        : isAdmin ? 'Refresh candidates to fetch Torn’s daily active-player snapshot.' : 'An administrator can refresh the daily candidate data.'}</p>
-      <p className="recruitment-muted">Today’s snapshot is reused after the first refresh. Filtering, searching and page changes use the loaded results.</p>
-      {scan && ['running','paused','failed'].includes(scan.status) && <p className="recruitment-muted">Candidates use the published work stats until the HOF scan completes.</p>}
-      <p className="recruitment-muted">{results ? `${number(results.matched)} with saved stats · ${number(results.unknown)} not in saved work-stat data` : 'Loading coverage…'}. Missing stats may mean a player was below the cutoff or qualified after the last scan.</p>
+      <p className="recruitment-muted recruitment-candidate-summary">{snapshot
+        ? `Snapshot ${snapshot.snapshot_date}${results ? ` · ${number(results.matched)} with saved stats · ${number(results.unknown)} without saved stats` : ''}`
+        : isAdmin ? 'Refresh candidates to load today’s snapshot.' : 'Waiting for an administrator to refresh candidates.'}</p>
       <form className="recruitment-filters" onSubmit={e => { e.preventDefault(); setPage(0); setApplied({...filters}); }}>
         <label>Employment<select value={filters.job} onChange={e => setFilters({...filters, job:e.target.value})}><option value="all">Unemployed + city jobs</option><option value="unemployed">Unemployed only</option>{CITY_JOBS.map(job => <option key={job}>{job}</option>)}</select></label>
         <label>Work-stat data<select value={filters.coverage} onChange={e => setFilters({...filters,coverage:e.target.value})}><option value="matched">Saved stats</option><option value="unknown">Not in saved data</option><option value="all">Both</option></select></label>

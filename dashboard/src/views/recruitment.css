@@ -20,6 +20,8 @@
 :root[data-theme="dark"] .recruitment-state.completed { color: #34d399; }
 .recruitment-warning { border-left: 3px solid #d97706; padding-left: 12px; }
 .recruitment-error { border-color: #ef4444; }
+.recruitment-candidates h3 { margin: 0; }
+.recruitment-candidate-summary { margin: 8px 0 0; }
 .recruitment-filters { display: flex; flex-wrap: wrap; align-items: end; gap: 14px; margin-top: 20px; }
 .recruitment-page label { display: grid; gap: 7px; font-size: .85rem; flex: 1 1 150px; }
 .recruitment-page input, .recruitment-page select { width: 100%; min-width: 0; box-sizing: border-box; padding: 10px; border-radius: 6px; border: 1px solid #71809666; color: inherit; background: var(--panel-bg, #172333); }
